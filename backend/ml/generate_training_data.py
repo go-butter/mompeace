@@ -27,16 +27,16 @@ ALLOWED_TRAINING_SOURCES = {"dish_db_download", "food_qr_api"}
 
 # 트라이메스터별 1일 허용 기준 (앱 내부 보수적 기준)
 DAILY_LIMITS = {
-    "early":  {"caffeine": 200.0, "sugar": 30.0,  "sodium": 2000.0},
-    "middle": {"caffeine": 200.0, "sugar": 40.0,  "sodium": 2000.0},
-    "late":   {"caffeine": 200.0, "sugar": 30.0,  "sodium": 1800.0},
+    "early":  {"caffeine": 200.0, "sugar": 50.0, "sodium": 2000.0},
+    "middle": {"caffeine": 200.0, "sugar": 50.0, "sodium": 2000.0},
+    "late":   {"caffeine": 200.0, "sugar": 50.0, "sodium": 1500.0},
 }
 
 TRIMESTER_ENCODE = {"early": 0, "middle": 1, "late": 2}
 
 # 시나리오 파라미터
-WEEK_SCENARIOS = [10, 21, 32]               # early / middle / late 대표 주차
-INTAKE_RATIOS = [0.0, 0.3, 0.5, 0.8, 1.1]  # 오늘 누적 섭취 비율 (0%~110%)
+WEEK_SCENARIOS = [6, 8, 10, 12, 16, 20, 24, 28, 32, 36, 38]  # early/middle/late 세분화 주차
+INTAKE_RATIOS = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2]  # 0%~120%
 ALLERGY_POSITIVE_RATE = 0.3                 # allergy_match = 1 확률
 
 FEATURE_COLUMNS = [
@@ -94,6 +94,16 @@ def _generate_label(row: dict) -> str:
             row["after_sugar_ratio"] > 1.0 or
             row["after_sodium_ratio"] > 1.0):
         return "avoid"
+
+    # 임신 초기: 카페인 60% 초과 → caution (기존 70% 기준보다 엄격)
+    if row["trimester_encoded"] == 0:
+        if row["after_caffeine_ratio"] > 0.6:
+            return "caution"
+
+    # 임신 후기: 나트륨 80% 초과 → caution (임신성 고혈압 위험 증가)
+    if row["trimester_encoded"] == 2:
+        if row["after_sodium_ratio"] > 0.8:
+            return "caution"
 
     # 알려진 비율이 70% 이상 → caution
     if (row["after_caffeine_ratio"] > 0.7 or
