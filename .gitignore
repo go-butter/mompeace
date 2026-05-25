@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+env/
+
+# Environment variables
+.env
+
+# SQLite database
+*.db
+*.sqlite
+*.sqlite3
+
+# Data files
+backend/data/*
+!backend/data/.gitkeep
+*.xlsx
+*.xls
+
+# Generated ML files
+backend/ml/*.pkl
+backend/ml/*.csv
+backend/ml/recommendation_model_meta.json
+
+# Large/generated local files
+*.log
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Claude local files
+.claude/
