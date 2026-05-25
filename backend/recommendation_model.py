@@ -24,9 +24,9 @@ META_PATH = _HERE / "ml" / "recommendation_model_meta.json"
 
 # 트라이메스터별 1일 허용 기준 (앱 내부 보수적 기준, 공식 의학 기준 아님)
 DAILY_LIMITS = {
-    "early":  {"caffeine": 200.0, "sugar": 30.0,  "sodium": 2000.0},
-    "middle": {"caffeine": 200.0, "sugar": 40.0,  "sodium": 2000.0},
-    "late":   {"caffeine": 200.0, "sugar": 30.0,  "sodium": 1800.0},
+    "early":  {"caffeine": 200.0, "sugar": 50.0, "sodium": 2000.0},
+    "middle": {"caffeine": 200.0, "sugar": 50.0, "sodium": 2000.0},
+    "late":   {"caffeine": 200.0, "sugar": 50.0, "sodium": 1500.0},
 }
 
 TRIMESTER_ENCODE = {"early": 0, "middle": 1, "late": 2}
@@ -189,6 +189,18 @@ def apply_safety_guard(
     # 3. 카페인 missing + 음식명 키워드 → at least caution (커피·초코 등)
     if caffeine_missing and caffeine_keywords:
         status = _upgrade(status, "caution")
+
+    # 3.5 임신 초기: 카페인 60% 초과 → at least caution
+    if trimester == "early":
+        early_caffeine_ratio = (today_caffeine + (food_caffeine if not caffeine_missing else 0.0)) / limits["caffeine"]
+        if early_caffeine_ratio > 0.6:
+            status = _upgrade(status, "caution")
+
+    # 3.6 임신 후기: 나트륨 80% 초과 → at least caution
+    if trimester == "late":
+        late_sodium_ratio = (today_sodium + food_sodium) / limits["sodium"]
+        if late_sodium_ratio > 0.8:
+            status = _upgrade(status, "caution")
 
     # 4. 당류 또는 나트륨 missing → at least caution
     if food.get("sugar_g") is None or food.get("sodium_mg") is None:
