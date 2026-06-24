@@ -73,12 +73,13 @@ def apply_safety_guard(
     allergy_match: int,
     today_intake: dict,
     trimester: str,
+    user_adj: Optional[dict] = None,
 ) -> str:
     """
     ML 예측 결과에 규칙 기반 안전장치를 적용한다.
     안전 방향(avoid/caution)으로만 올릴 수 있으며, 내리지 않는다.
     """
-    limits = DAILY_LIMITS[trimester]
+    limits = get_effective_limits(trimester, user_adj)
     today_caffeine = today_intake.get("caffeine_mg") or 0.0
     today_sugar = today_intake.get("sugar_g") or 0.0
     today_sodium = today_intake.get("sodium_mg") or 0.0
@@ -138,8 +139,10 @@ def make_reason(
     today_intake: dict,
     trimester: str,
     allergy_match: int,
-) -> str:
-    limits = DAILY_LIMITS[trimester]
+    user_adj: Optional[dict] = None,
+) -> tuple:
+    """반환값: (한국어 이유 메시지, reason_nutrient 태그)"""
+    limits = get_effective_limits(trimester, user_adj)
     today_caffeine = today_intake.get("caffeine_mg") or 0.0
     today_sugar = today_intake.get("sugar_g") or 0.0
     today_sodium = today_intake.get("sodium_mg") or 0.0
@@ -152,33 +155,33 @@ def make_reason(
     caffeine_keywords = detect_caffeine_keywords(food.get("food_name") or "")
 
     if allergy_match:
-        return "알레르기 정보와 관련될 수 있어 섭취 전 확인이 필요해요."
+        return "알레르기 정보와 관련될 수 있어 섭취 전 확인이 필요해요.", "allergy"
 
     if status == "avoid":
         caffeine_for_ratio = food_caffeine if not caffeine_missing else 0.0
         if (today_caffeine + caffeine_for_ratio) / limits["caffeine"] > 1.0:
-            return "카페인이 오늘 허용량을 초과할 수 있어 섭취를 권장하지 않아요."
+            return "카페인이 오늘 허용량을 초과할 수 있어 섭취를 권장하지 않아요.", "caffeine"
         if (today_sugar + food_sugar) / limits["sugar"] > 1.0:
-            return "당류가 오늘 허용량을 초과할 수 있어 섭취를 권장하지 않아요."
+            return "당류가 오늘 허용량을 초과할 수 있어 섭취를 권장하지 않아요.", "sugar"
         if (today_sodium + food_sodium) / limits["sodium"] > 1.0:
-            return "나트륨이 오늘 허용량을 초과할 수 있어 섭취를 권장하지 않아요."
-        return "오늘 누적 섭취량 기준으로 이 음식은 비추천이에요."
+            return "나트륨이 오늘 허용량을 초과할 수 있어 섭취를 권장하지 않아요.", "sodium"
+        return "오늘 누적 섭취량 기준으로 이 음식은 비추천이에요.", None
 
     if status == "caution":
         if caffeine_missing and caffeine_keywords:
-            return "음식명에 카페인 관련 표현이 있어 카페인 함량 확인이 필요해요."
+            return "음식명에 카페인 관련 표현이 있어 카페인 함량 확인이 필요해요.", "caffeine"
         if food.get("sugar_g") is None or food.get("sodium_mg") is None:
-            return "일부 영양성분 정보가 없어 주의가 필요해요."
+            return "일부 영양성분 정보가 없어 주의가 필요해요.", None
         if (today_sugar + food_sugar) / limits["sugar"] > 0.7:
-            return "당류가 남은 허용량에 비해 높아 주의가 필요해요."
+            return "당류가 남은 허용량에 비해 높아 주의가 필요해요.", "sugar"
         if (today_sodium + food_sodium) / limits["sodium"] > 0.7:
-            return "나트륨이 오늘 기준에 가까워지고 있어요."
-        return "오늘 섭취 흐름을 함께 확인해 주세요."
+            return "나트륨이 오늘 기준에 가까워지고 있어요.", "sodium"
+        return "오늘 섭취 흐름을 함께 확인해 주세요.", None
 
     # possible: 카페인이 실제 값으로 존재하면 카페인 안내 우선
     if not caffeine_missing and food_caffeine > 0:
-        return "카페인이 포함되어 있어요. 오늘의 총 카페인 섭취량을 함께 확인하면 섭취 가능해요."
-    return "현재 남은 허용량 안에서 비교적 부담이 낮은 음식이에요."
+        return "카페인이 포함되어 있어요. 오늘의 총 카페인 섭취량을 함께 확인하면 섭취 가능해요.", "caffeine"
+    return "현재 남은 허용량 안에서 비교적 부담이 낮은 음식이에요.", None
 
 
 # ── 규칙 기반 판정 (메인 판단 로직) ────────────────────────
@@ -187,20 +190,65 @@ def judge_food_rules(
     trimester: str,
     today_intake: dict,
     allergy_match: int,
+    user_adj: Optional[dict] = None,
 ) -> str:
-    limits = DAILY_LIMITS[trimester]
-reason: 한국어 이유
+    limits = get_effective_limits(trimester, user_adj)
+    today_caffeine = today_intake.get("caffeine_mg") or 0.0
+    today_sugar = today_intake.get("sugar_g") or 0.0
+    today_sodium = today_intake.get("sodium_mg") or 0.0
+
+    caffeine_missing = _is_caffeine_missing(food)
+    raw_caffeine = food.get("caffeine_mg")
+    food_caffeine = raw_caffeine if (raw_caffeine is not None and not caffeine_missing) else 0.0
+    food_sugar = food.get("sugar_g") or 0.0
+    food_sodium = food.get("sodium_mg") or 0.0
+    caffeine_keywords = detect_caffeine_keywords(food.get("food_name") or "")
+
+    caffeine_for_ratio = food_caffeine if not caffeine_missing else 0.0
+    after_caffeine_ratio = (today_caffeine + caffeine_for_ratio) / limits["caffeine"]
+    after_sugar_ratio = (today_sugar + food_sugar) / limits["sugar"]
+    after_sodium_ratio = (today_sodium + food_sodium) / limits["sodium"]
+
+    if (after_caffeine_ratio > 1.0 or
+            after_sugar_ratio > 1.0 or
+            after_sodium_ratio > 1.0):
+        return "avoid"
+    if (after_caffeine_ratio > 0.7 or
+            after_sugar_ratio > 0.7 or
+            after_sodium_ratio > 0.7):
+        return "caution"
+    if caffeine_missing and caffeine_keywords:
+        return "caution"
+    return "possible"
+
+
+def recommend_food(
+    food: dict,
+    pregnancy_week: int,
+    today_intake: dict,
+    allergy_match: int,
+    user_adj: Optional[dict] = None,
+) -> dict:
+    """
+    식품 1개에 대한 추천 결과를 반환한다.
+
+    Returns:
+        status: possible / caution / avoid
+        label: 추천 / 주의 / 비추천 (한국어)
+        reason: 한국어 이유
+        reason_nutrient: caffeine / sugar / sodium / allergy / None
     """
     trimester = get_trimester(pregnancy_week)
 
-    status = judge_food_rules(food, trimester, today_intake, allergy_match)
+    status = judge_food_rules(food, trimester, today_intake, allergy_match, user_adj)
 
     # 안전장치: 판정 결과를 안전 방향으로만 보정
-    status = apply_safety_guard(status, food, allergy_match, today_intake, trimester)
-    reason = make_reason(status, food, today_intake, trimester, allergy_match)
+    status = apply_safety_guard(status, food, allergy_match, today_intake, trimester, user_adj)
+    reason, reason_nutrient = make_reason(status, food, today_intake, trimester, allergy_match, user_adj)
 
     return {
         "status": status,
         "label": STATUS_LABEL_KO.get(status, status),
         "reason": reason,
+        "reason_nutrient": reason_nutrient,
     }
