@@ -55,6 +55,9 @@ def init_db():
     add_column_if_not_exists(cursor, "users", "is_premium",         "INTEGER DEFAULT 0")
     add_column_if_not_exists(cursor, "users", "premium_started_at", "TEXT")
     add_column_if_not_exists(cursor, "users", "premium_updated_at", "TEXT")
+    add_column_if_not_exists(cursor, "users", "caffeine_sensitivity_adj", "REAL DEFAULT 0")
+    add_column_if_not_exists(cursor, "users", "sugar_sensitivity_adj", "REAL DEFAULT 0")
+    add_column_if_not_exists(cursor, "users", "sodium_sensitivity_adj", "REAL DEFAULT 0")
 
     # 2. FoodItem 테이블 (음식 기본 정보)
     cursor.execute("""
@@ -138,8 +141,24 @@ def init_db():
     add_column_if_not_exists(cursor, "food_log", "eaten_at", "TEXT DEFAULT (datetime('now'))")
     add_column_if_not_exists(cursor, "food_log", "created_at", "TEXT DEFAULT (datetime('now'))")
     add_column_if_not_exists(cursor, "food_log", "feedback", "INTEGER DEFAULT 0")
+    add_column_if_not_exists(cursor, "food_log", "recommendation_status", "TEXT")
+    add_column_if_not_exists(cursor, "food_log", "reason_nutrient", "TEXT")
 
-    # 4. PregnancyLimit 테이블 (임신 주차별 앱 내부 기준)
+    # 4. UserSensitivityLog 테이블 (사용자별 민감도 조정 이력)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS user_sensitivity_log (
+            log_id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id        INTEGER NOT NULL,
+            nutrient       TEXT NOT NULL,
+            old_adj        REAL NOT NULL,
+            new_adj        REAL NOT NULL,
+            trigger_reason TEXT,
+            created_at     TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY (user_id) REFERENCES users(user_id)
+        )
+    """)
+
+    # 5. PregnancyLimit 테이블 (임신 주차별 앱 내부 기준)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS pregnancy_limits (
             limit_id          INTEGER PRIMARY KEY AUTOINCREMENT,

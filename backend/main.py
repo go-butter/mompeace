@@ -22,6 +22,7 @@ from backend.data_confidence import calculate_data_confidence
 from backend.auth import register_user, login_user
 from backend.foodqr import get_food_info, simplify_food_info
 from backend.risk import evaluate_food_risk
+from backend.sensitivity import get_user_adj, recalculate_sensitivity
 
 
 app = FastAPI(title="맘편하게 API", version="1.0.0")
@@ -326,6 +327,89 @@ def search_food(
 
 # ── 음식 기록 ─────────────────────────────────────────
 
+def _compute_today_intake_totals(user_id: int, db: sqlite3.Connection) -> dict:
+    """오늘 누적 섭취량(카페인/당류/나트륨)을 합산한다. /recommendations, 음식 기록 추천 판정에서 공유."""
+    cursor = db.cursor()
+    today = date.today().isoformat()
+    cursor.execute("""
+        SELECT
+            COALESCE(SUM(caffeine_mg), 0) AS total_caffeine,
+            COALESCE(SUM(sugar_g), 0)    AS total_sugar,
+            COALESCE(SUM(sodium_mg), 0)  AS total_sodium
+        FROM food_log
+        WHERE user_id = ? AND DATE(eaten_at) = ?
+    """, (user_id, today))
+    row = dict(cursor.fetchone())
+    return {
+        "caffeine_mg": row["total_caffeine"],
+        "sugar_g": row["total_sugar"],
+        "sodium_mg": row["total_sodium"],
+    }
+
+
+def _compute_allergy_match(food_row: dict, allergy_list: list) -> int:
+    """음식의 allergen_info 문자열에 사용자 알레르기 항목이 포함되는지 확인한다."""
+    allergen_info_str = food_row.get("allergen_info") or ""
+    return 1 if any(a in allergen_info_str for a in allergy_list) else 0
+
+
+def _multiply(value, factor):
+    if value is None:
+        return None
+    return round(value * factor, 4)
+
+
+def _judge_food_log_from_food_item(food: dict, amount: float, user: dict, db: sqlite3.Connection) -> dict:
+    """
+    food_items 행 + amount로 실제 섭취량을 계산하고, 그 섭취량 기준으로
+    recommend_food()를 호출한다. 1회 서빙이 아닌 실제 먹는 양을 판정해야
+    누적 섭취 체크가 의미를 갖기 때문에, multiply 이후 값으로 판정한다.
+
+    Returns: {"nutrients": {...multiplied...}, "recommendation": recommend_food() 결과}
+    """
+    caffeine_mg = _multiply(food.get("caffeine_mg"), amount)
+    sugar_g = _multiply(food.get("sugar_g") or 0, amount)
+    sodium_mg = _multiply(food.get("sodium_mg") or 0, amount)
+    carbohydrate_g = _multiply(food.get("carbohydrate_g"), amount)
+    protein_g = _multiply(food.get("protein_g"), amount)
+
+    # today_intake는 이번에 기록할 항목을 제외한, 지금까지 누적된 양이어야 한다 (INSERT 이전 호출)
+    today_intake = _compute_today_intake_totals(user["user_id"], db)
+    allergy_info = user.get("allergy_info") or ""
+    allergy_list = [a.strip() for a in allergy_info.split(",") if a.strip()]
+    allergy_match = _compute_allergy_match(food, allergy_list)
+    week = user.get("pregnancy_week") or 20
+    user_adj = get_user_adj(user)
+
+    food_for_judgment = dict(food)
+    food_for_judgment.update({
+        "caffeine_mg": caffeine_mg,
+        "sugar_g": sugar_g,
+        "sodium_mg": sodium_mg,
+        "carbohydrate_g": carbohydrate_g,
+        "protein_g": protein_g,
+    })
+
+    recommendation = recommend_food(
+        food=food_for_judgment,
+        pregnancy_week=week,
+        today_intake=today_intake,
+        allergy_match=allergy_match,
+        user_adj=user_adj,
+    )
+
+    return {
+        "nutrients": {
+            "caffeine_mg": caffeine_mg,
+            "sugar_g": sugar_g,
+            "sodium_mg": sodium_mg,
+            "carbohydrate_g": carbohydrate_g,
+            "protein_g": protein_g,
+        },
+        "recommendation": recommendation,
+    }
+
+
 @app.post("/food-log")
 def create_food_log(
     log: FoodLogCreate,
@@ -336,31 +420,69 @@ def create_food_log(
     cursor = db.cursor()
 
     # 사용자 존재 확인
-    cursor.execute("SELECT user_id FROM users WHERE user_id = ?", (log.user_id,))
+    cursor.execute("SELECT * FROM users WHERE user_id = ?", (log.user_id,))
     user = cursor.fetchone()
 
     if not user:
         raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
+    user = dict(user)
+
+    food_name = log.food_name
+    category = log.category
+    caffeine_mg = log.caffeine_mg
+    sugar_g = log.sugar_g
+    sodium_mg = log.sodium_mg
+    calories_kcal = log.calories_kcal
+    carbohydrate_g = log.carbohydrate_g
+    protein_g = log.protein_g
+    recommendation_status = None
+    reason_nutrient = None
+
+    # food_id가 함께 전달된 경우, 직접 입력값 대신 food_items 기준 실제 섭취량으로
+    # 판정한다 (create_food_log_from_food와 동일한 처리 경로).
+    if log.food_id is not None:
+        cursor.execute("SELECT * FROM food_items WHERE food_id = ?", (log.food_id,))
+        food_row = cursor.fetchone()
+        if not food_row:
+            raise HTTPException(status_code=404, detail="해당 식품 정보를 찾을 수 없습니다.")
+        food_row = dict(food_row)
+
+        judged = _judge_food_log_from_food_item(food_row, log.amount, user, db)
+        food_name = food_row["food_name"]
+        category = food_row.get("category")
+        caffeine_mg = judged["nutrients"]["caffeine_mg"]
+        sugar_g = judged["nutrients"]["sugar_g"]
+        sodium_mg = judged["nutrients"]["sodium_mg"]
+        carbohydrate_g = judged["nutrients"]["carbohydrate_g"]
+        protein_g = judged["nutrients"]["protein_g"]
+        recommendation_status = judged["recommendation"]["status"]
+        reason_nutrient = judged["recommendation"]["reason_nutrient"]
+    # food_id가 없는 순수 직접 입력은 recommend_food()가 기대하는 food_items
+    # 행 형태(data_source 등)를 갖추지 못하므로 추천 판정을 호출하지 않는다.
+    # recommendation_status/reason_nutrient는 NULL로 남는다.
 
     cursor.execute("""
         INSERT INTO food_log
         (user_id, food_id, food_name, category, input_type, amount, unit,
-         caffeine_mg, sugar_g, sodium_mg, calories_kcal, carbohydrate_g, protein_g)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         caffeine_mg, sugar_g, sodium_mg, calories_kcal, carbohydrate_g, protein_g,
+         recommendation_status, reason_nutrient)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         log.user_id,
         log.food_id,
-        log.food_name,
-        log.category,
+        food_name,
+        category,
         log.input_type,
         log.amount,
         log.unit,
-        log.caffeine_mg,
-        log.sugar_g,
-        log.sodium_mg,
-        log.calories_kcal,
-        log.carbohydrate_g,
-        log.protein_g
+        caffeine_mg,
+        sugar_g,
+        sodium_mg,
+        calories_kcal,
+        carbohydrate_g,
+        protein_g,
+        recommendation_status,
+        reason_nutrient,
     ))
 
     db.commit()
@@ -386,9 +508,11 @@ def create_food_log_from_food(
     cursor = db.cursor()
 
     # 사용자 존재 확인
-    cursor.execute("SELECT user_id FROM users WHERE user_id = ?", (log.user_id,))
-    if not cursor.fetchone():
+    cursor.execute("SELECT * FROM users WHERE user_id = ?", (log.user_id,))
+    user = cursor.fetchone()
+    if not user:
         raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
+    user = dict(user)
 
     # 식품 존재 확인
     cursor.execute("SELECT * FROM food_items WHERE food_id = ?", (log.food_id,))
@@ -399,22 +523,16 @@ def create_food_log_from_food(
     food = dict(food)
     amount = log.amount
 
-    def multiply(value, factor):
-        if value is None:
-            return None
-        return round(value * factor, 4)
-
-    caffeine_mg = multiply(food.get("caffeine_mg"), amount)
-    sugar_g = multiply(food.get("sugar_g") or 0, amount)
-    sodium_mg = multiply(food.get("sodium_mg") or 0, amount)
-    carbohydrate_g = multiply(food.get("carbohydrate_g"), amount)
-    protein_g = multiply(food.get("protein_g"), amount)
+    judged = _judge_food_log_from_food_item(food, amount, user, db)
+    nutrients = judged["nutrients"]
+    recommendation = judged["recommendation"]
 
     cursor.execute("""
         INSERT INTO food_log
         (user_id, food_id, food_name, category, input_type, amount, unit,
-         caffeine_mg, sugar_g, sodium_mg, carbohydrate_g, protein_g)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         caffeine_mg, sugar_g, sodium_mg, carbohydrate_g, protein_g,
+         recommendation_status, reason_nutrient)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         log.user_id,
         log.food_id,
@@ -423,11 +541,13 @@ def create_food_log_from_food(
         "food_id",
         amount,
         log.unit,
-        caffeine_mg,
-        sugar_g,
-        sodium_mg,
-        carbohydrate_g,
-        protein_g
+        nutrients["caffeine_mg"],
+        nutrients["sugar_g"],
+        nutrients["sodium_mg"],
+        nutrients["carbohydrate_g"],
+        nutrients["protein_g"],
+        recommendation["status"],
+        recommendation["reason_nutrient"],
     ))
 
     db.commit()
@@ -437,13 +557,7 @@ def create_food_log_from_food(
         "food_name": food["food_name"],
         "amount": amount,
         "unit": log.unit,
-        "nutrients": {
-            "caffeine_mg": caffeine_mg,
-            "sugar_g": sugar_g,
-            "sodium_mg": sodium_mg,
-            "carbohydrate_g": carbohydrate_g,
-            "protein_g": protein_g
-        },
+        "nutrients": nutrients,
         "message": "음식 기록 완료"
     }
 
@@ -585,6 +699,9 @@ def submit_feedback(
         (req.feedback, log_id)
     )
     db.commit()
+
+    recalculate_sensitivity(req.user_id, db)
+
     return {"log_id": log_id, "feedback": req.feedback, "message": "피드백이 저장되었습니다."}
 
 
@@ -616,6 +733,55 @@ def get_feedback_summary(
         "not_helpful": not_helpful,
         "records": rows,
     }
+
+
+# ── 사용자별 민감도 조정 ───────────────────────────────
+
+@app.get("/users/{user_id}/sensitivity")
+def get_user_sensitivity(
+    user_id: int,
+    db: sqlite3.Connection = Depends(get_db)
+):
+    """사용자의 현재 영양소별 민감도 조정값과 최근 조정 이력을 조회한다."""
+    cursor = db.cursor()
+    cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
+    user = cursor.fetchone()
+    if not user:
+        raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
+    user = dict(user)
+
+    cursor.execute(
+        """
+        SELECT log_id, nutrient, old_adj, new_adj, trigger_reason, created_at
+        FROM user_sensitivity_log
+        WHERE user_id = ?
+        ORDER BY created_at DESC
+        LIMIT 20
+        """,
+        (user_id,),
+    )
+    history = [dict(r) for r in cursor.fetchall()]
+
+    return {
+        "user_id": user_id,
+        "sensitivity_adj": get_user_adj(user),
+        "history": history,
+    }
+
+
+@app.post("/users/{user_id}/sensitivity/recalculate")
+def recalculate_user_sensitivity(
+    user_id: int,
+    db: sqlite3.Connection = Depends(get_db)
+):
+    """피드백을 다시 받지 않고도 수동으로 민감도 재계산을 트리거한다 (데모/테스트용)."""
+    cursor = db.cursor()
+    cursor.execute("SELECT user_id FROM users WHERE user_id = ?", (user_id,))
+    if not cursor.fetchone():
+        raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
+
+    updated_adj = recalculate_sensitivity(user_id, db)
+    return {"user_id": user_id, "sensitivity_adj": updated_adj}
 
 
 # ── 오늘 누적 섭취량 ───────────────────────────────────
@@ -869,23 +1035,11 @@ def get_recommendations(
     week = user.get("pregnancy_week") or 20
     allergy_info = user.get("allergy_info") or ""
     allergy_list = [a.strip() for a in allergy_info.split(",") if a.strip()]
+    user_adj = get_user_adj(user)
 
     # 2. 오늘 누적 섭취량
     today = date.today().isoformat()
-    cursor.execute("""
-        SELECT
-            COALESCE(SUM(caffeine_mg), 0) AS total_caffeine,
-            COALESCE(SUM(sugar_g), 0)    AS total_sugar,
-            COALESCE(SUM(sodium_mg), 0)  AS total_sodium
-        FROM food_log
-        WHERE user_id = ? AND DATE(eaten_at) = ?
-    """, (req.user_id, today))
-    row = dict(cursor.fetchone())
-    today_intake = {
-        "caffeine_mg": row["total_caffeine"],
-        "sugar_g":     row["total_sugar"],
-        "sodium_mg":   row["total_sodium"],
-    }
+    today_intake = _compute_today_intake_totals(req.user_id, db)
 
     # 2b. 최근 7일 일별 평균 섭취량
     cursor.execute("""
@@ -952,14 +1106,14 @@ def get_recommendations(
     # 4. 각 식품 추천 판정
     results = []
     for food in foods:
-        allergen_info_str = food.get("allergen_info") or ""
-        allergy_match = 1 if any(a in allergen_info_str for a in allergy_list) else 0
+        allergy_match = _compute_allergy_match(food, allergy_list)
 
         result = recommend_food(
             food=food,
             pregnancy_week=week,
             today_intake=today_intake,
-            allergy_match=allergy_match
+            allergy_match=allergy_match,
+            user_adj=user_adj,
         )
 
         results.append({
