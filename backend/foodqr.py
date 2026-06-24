@@ -129,7 +129,6 @@ def simplify_food_info(api_data: dict):
     sodium_mg = nutrition.get("나트륨", {}).get("amount", 0)
     sugar_g = nutrition.get("당류", {}).get("amount", 0)
     carbohydrate_g = nutrition.get("탄수화물", {}).get("amount", 0)
-    fat_g = nutrition.get("지방", {}).get("amount", 0)
     protein_g = nutrition.get("단백질", {}).get("amount", 0)
 
     # 알레르기 정보 정리
@@ -158,17 +157,13 @@ def simplify_food_info(api_data: dict):
         "food_category": basic.get("foodSeCdNm"),
         "food_type": basic.get("foodTypeCdNm"),
         "serving_size": basic.get("ctv"),
-        "expiration_info": basic.get("cpnTermCn"),
 
         "calories_kcal": calories_kcal,
         "sodium_mg": sodium_mg,
         "sugar_g": sugar_g,
         "carbohydrate_g": carbohydrate_g,
-        "fat_g": fat_g,
         "protein_g": protein_g,
 
         "allergens": allergens,
         "warnings": warnings,
-
-        "nutrition_detail": nutrition
     }
