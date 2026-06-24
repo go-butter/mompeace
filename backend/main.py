@@ -967,7 +967,6 @@ def get_recommendations(
             "source": food.get("data_source"),
             "status": result["status"],
             "label": result["label"],
-            "confidence": result["confidence"],
             "reason": result["reason"],
             "nutrients": {
                 "caffeine_mg": food.get("caffeine_mg"),
@@ -979,11 +978,11 @@ def get_recommendations(
             "data_confidence": calculate_data_confidence(food),
         })
 
-    # 5. 정렬: possible → caution → avoid, 같은 status 내 confidence 내림차순
+    # 5. 정렬: possible → caution → avoid, 같은 status 내 data_confidence.score 내림차순
     STATUS_ORDER = {"possible": 0, "caution": 1, "avoid": 2}
     results.sort(key=lambda x: (
         STATUS_ORDER.get(x["status"], 99),
-        -(x["confidence"] or 0)
+        -(x["data_confidence"]["score"] or 0)
     ))
 
     trimester = "early" if week <= 12 else "middle" if week <= 27 else "late"
@@ -1021,7 +1020,6 @@ def get_recommendations(
         "trimester": trimester,
         "today_intake": today_intake,
         "week_pattern": week_pattern,
-        "model_available": final_results[0]["confidence"] is not None if final_results else False,
         "recommendations": final_results
     }
 
