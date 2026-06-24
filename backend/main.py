@@ -15,6 +15,7 @@ from backend.models import (
     RecommendationRequest,
     PremiumUpgradeRequest,
     FeedbackRequest,
+    PremiumStatusResponse,
 )
 from backend.recommendation_model import recommend_food
 from backend.data_confidence import calculate_data_confidence
@@ -1026,7 +1027,7 @@ def get_recommendations(
 
 # ── 프리미엄 회원 관리 ────────────────────────────────────
 
-@app.get("/premium/status/{user_id}")
+@app.get("/premium/status/{user_id}", response_model=PremiumStatusResponse)
 def get_premium_status(
     user_id: int,
     db: sqlite3.Connection = Depends(get_db)
