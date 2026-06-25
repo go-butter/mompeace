@@ -138,7 +138,7 @@ def update_pregnancy_info(
     info: PregnancyUpdate,
     db: sqlite3.Connection = Depends(get_db)
 ):
-    """임신 주차 및 출산 예정일 수정"""
+    """임신 주차 및 출산 예정일 수정 (부분 업데이트: None인 필드는 기존 값을 유지)"""
 
     cursor = db.cursor()
 
@@ -148,9 +148,12 @@ def update_pregnancy_info(
     if not user:
         raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
 
+    # info.pregnancy_week / info.due_date가 None이면 COALESCE가 기존 값을 그대로 유지한다.
+    # 두 필드 모두 None인 요청(no-op PUT)도 에러 없이 200으로 현재 값을 반환한다.
     cursor.execute("""
         UPDATE users
-        SET pregnancy_week = ?, due_date = ?
+        SET pregnancy_week = COALESCE(?, pregnancy_week),
+            due_date = COALESCE(?, due_date)
         WHERE user_id = ?
     """, (
         info.pregnancy_week,
@@ -160,10 +163,13 @@ def update_pregnancy_info(
 
     db.commit()
 
+    cursor.execute("SELECT pregnancy_week, due_date FROM users WHERE user_id = ?", (user_id,))
+    updated = cursor.fetchone()
+
     return {
         "user_id": user_id,
-        "pregnancy_week": info.pregnancy_week,
-        "due_date": info.due_date,
+        "pregnancy_week": updated["pregnancy_week"],
+        "due_date": updated["due_date"],
         "message": "임신 정보 수정 완료"
     }
 
