@@ -5,8 +5,6 @@
 **임신 주차**를 함께 고려해 해당 식품을 **섭취 가능(possible) / 주의(caution) / 비추천(avoid)**
 중 하나로 안내합니다.
 
-> 2학년 IT 경진대회 공모전 출품작으로 개발 중입니다.
-
 ## Screenshots
 
 | 온보딩 | 홈 | 바코드 스캔 |
@@ -42,6 +40,9 @@
 `sensitivity.py`의 사용자별 민감도 조정이 그 시작 단계)로 확장하는 방향으로
 진행하고 있습니다.
 
+임신 주차/일은 가입 시 입력한 값을 정적으로 저장하지 않고, 입력 시점(`pregnancy_entered_at`)
+기준으로 경과일을 매 요청마다 계산해 항상 오늘 기준 값으로 반영되도록 설계했습니다.
+
 ## Tech Stack
 
 **백엔드**: FastAPI · SQLite · Python
@@ -54,9 +55,16 @@
 ### Backend
 
 ```bash
-cd backend
-pip install -r requirements.txt
+cd mompeace  # 프로젝트 루트 (backend/ 폴더가 아님)
+pip install -r backend/requirements.txt
 uvicorn backend.main:app --reload
+```
+
+같은 네트워크의 휴대폰(Expo Go)에서 접속하려면 `--host 0.0.0.0`을 붙여 LAN의
+다른 기기에서도 접근할 수 있도록 해야 합니다:
+
+```bash
+uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 ### Frontend
@@ -80,7 +88,3 @@ mompeace/
 ├── app/              # React Native (Expo) 앱
 └── example/          # 화면 스크린샷
 ```
-
-## Team
-
-IT 경진대회 공모전 출품을 위해 개발 중입니다.
