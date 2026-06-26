@@ -49,8 +49,8 @@ export default function IntroScreen() {
   const logoOpacity = useSharedValue(1);
 
   useEffect(() => {
-    logoTranslateY.value = withTiming(0, { duration: 500 });
-    logoOpacity.value = withTiming(0.4, { duration: 500 });
+    logoTranslateY.value = withTiming(0, { duration: 1300 });
+    logoOpacity.value = withTiming(0.4, { duration: 1300 });
   }, [logoOpacity, logoTranslateY]);
 
   const logoAnimatedStyle = useAnimatedStyle(() => ({
@@ -68,13 +68,13 @@ export default function IntroScreen() {
           resizeMode="contain"
         />
 
-        <Animated.View entering={FadeInDown.delay(0).duration(400)}>
+        <Animated.View entering={FadeInDown.delay(0).duration(900)}>
           <Text style={styles.title}>
             <Text style={{ color: authColors.brown }}>안전한 선택을, </Text>
             <Text style={{ color: authColors.pink }}>맘편하게</Text>
           </Text>
         </Animated.View>
-        <Animated.View entering={FadeInDown.delay(120).duration(400)}>
+        <Animated.View entering={FadeInDown.delay(350).duration(900)}>
           <Text style={styles.subtitle}>
             임신 중 먹거리 걱정을{'\n'}맘편하게가 함께 해결해 드려요
           </Text>
@@ -84,7 +84,7 @@ export default function IntroScreen() {
           {FEATURES.map(({ key, iconBg, Icon, title, subtitle }, index) => (
             <Animated.View
               key={key}
-              entering={FadeInDown.delay(240 + index * 120).duration(400)}
+              entering={FadeInDown.delay(700 + index * 350).duration(900)}
               style={styles.card}>
               <View style={[styles.iconCircle, { backgroundColor: iconBg }]}>
                 <Icon width={28} height={28} />
