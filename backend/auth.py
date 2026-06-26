@@ -8,9 +8,11 @@ def register_user(user: RegisterRequest, db: sqlite3.Connection):
     if user.password != user.password_confirm:
         raise HTTPException(status_code=400, detail="비밀번호가 일치하지 않습니다.")
 
+    normalized_login_id = user.login_id.strip().lower()
+
     cursor = db.cursor()
 
-    cursor.execute("SELECT user_id FROM users WHERE login_id = ?", (user.login_id,))
+    cursor.execute("SELECT user_id FROM users WHERE login_id = ?", (normalized_login_id,))
     if cursor.fetchone():
         raise HTTPException(status_code=400, detail="이미 사용 중인 아이디입니다.")
 
@@ -19,25 +21,27 @@ def register_user(user: RegisterRequest, db: sqlite3.Connection):
     cursor.execute("""
         INSERT INTO users (nickname, login_id, password)
         VALUES (?, ?, ?)
-    """, (user.nickname, user.login_id, password_hash))
+    """, (user.nickname, normalized_login_id, password_hash))
 
     db.commit()
 
     return {
         "user_id": cursor.lastrowid,
         "nickname": user.nickname,
-        "login_id": user.login_id,
+        "login_id": normalized_login_id,
         "message": "회원가입 완료"
     }
 
 
 def login_user(user: LoginRequest, db: sqlite3.Connection):
+    normalized_login_id = user.login_id.strip().lower()
+
     cursor = db.cursor()
 
     cursor.execute("""
         SELECT * FROM users
         WHERE login_id = ?
-    """, (user.login_id,))
+    """, (normalized_login_id,))
 
     found_user = cursor.fetchone()
 
