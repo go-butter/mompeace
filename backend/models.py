@@ -24,6 +24,7 @@ class UserCreate(BaseModel):
 
 class PregnancyUpdate(BaseModel):
     pregnancy_week: Optional[int] = None
+    pregnancy_day: Optional[int] = None
     due_date: Optional[str] = None
 
 

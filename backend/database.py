@@ -38,6 +38,8 @@ def init_db():
             login_id    TEXT,
             password    TEXT,
             pregnancy_week INTEGER,
+            pregnancy_day INTEGER,
+            pregnancy_entered_at TEXT,
             due_date    TEXT,
             allergy_info TEXT,
             interest_ingredients TEXT,
@@ -49,6 +51,8 @@ def init_db():
     add_column_if_not_exists(cursor, "users", "login_id", "TEXT")
     add_column_if_not_exists(cursor, "users", "password", "TEXT")
     add_column_if_not_exists(cursor, "users", "pregnancy_week", "INTEGER")
+    add_column_if_not_exists(cursor, "users", "pregnancy_day", "INTEGER")
+    add_column_if_not_exists(cursor, "users", "pregnancy_entered_at", "TEXT")
     add_column_if_not_exists(cursor, "users", "due_date", "TEXT")
     add_column_if_not_exists(cursor, "users", "allergy_info", "TEXT")
     add_column_if_not_exists(cursor, "users", "interest_ingredients", "TEXT")

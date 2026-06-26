@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException, Depends
+from fastapi.middleware.cors import CORSMiddleware
 import sqlite3
 from datetime import date, datetime
 from backend.food_repository import save_food_item
@@ -21,11 +22,19 @@ from backend.recommendation_model import recommend_food
 from backend.data_confidence import calculate_data_confidence
 from backend.auth import register_user, login_user
 from backend.foodqr import get_food_info, simplify_food_info
-from backend.risk import evaluate_food_risk
+from backend.risk import evaluate_food_risk, calculate_current_pregnancy_age
 from backend.sensitivity import get_user_adj, recalculate_sensitivity
 
 
 app = FastAPI(title="맘편하게 API", version="1.0.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 # ── 앱 시작 시 DB 초기화 및 만료 로그 정리 ──────────────
@@ -150,26 +159,43 @@ def update_pregnancy_info(
 
     # info.pregnancy_week / info.due_date가 None이면 COALESCE가 기존 값을 그대로 유지한다.
     # 두 필드 모두 None인 요청(no-op PUT)도 에러 없이 200으로 현재 값을 반환한다.
+    # pregnancy_week/pregnancy_day 중 하나라도 제공되면, 그 시점을 pregnancy_entered_at으로 기록해
+    # 이후 실시간 주차 계산의 기준점으로 사용한다.
+    entered_at = (
+        date.today().isoformat()
+        if (info.pregnancy_week is not None or info.pregnancy_day is not None)
+        else None
+    )
+
     cursor.execute("""
         UPDATE users
         SET pregnancy_week = COALESCE(?, pregnancy_week),
-            due_date = COALESCE(?, due_date)
+            pregnancy_day = COALESCE(?, pregnancy_day),
+            due_date = COALESCE(?, due_date),
+            pregnancy_entered_at = COALESCE(?, pregnancy_entered_at)
         WHERE user_id = ?
     """, (
         info.pregnancy_week,
+        info.pregnancy_day,
         info.due_date,
+        entered_at,
         user_id
     ))
 
     db.commit()
 
-    cursor.execute("SELECT pregnancy_week, due_date FROM users WHERE user_id = ?", (user_id,))
+    cursor.execute(
+        "SELECT pregnancy_week, pregnancy_day, due_date, pregnancy_entered_at FROM users WHERE user_id = ?",
+        (user_id,)
+    )
     updated = cursor.fetchone()
 
     return {
         "user_id": user_id,
         "pregnancy_week": updated["pregnancy_week"],
+        "pregnancy_day": updated["pregnancy_day"],
         "due_date": updated["due_date"],
+        "pregnancy_entered_at": updated["pregnancy_entered_at"],
         "message": "임신 정보 수정 완료"
     }
 
@@ -384,7 +410,10 @@ def _judge_food_log_from_food_item(food: dict, amount: float, user: dict, db: sq
     allergy_info = user.get("allergy_info") or ""
     allergy_list = [a.strip() for a in allergy_info.split(",") if a.strip()]
     allergy_match = _compute_allergy_match(food, allergy_list)
-    week = user.get("pregnancy_week") or 20
+    computed_age = calculate_current_pregnancy_age(
+        user.get("pregnancy_week"), user.get("pregnancy_day"), user.get("pregnancy_entered_at")
+    )
+    week = computed_age["week"] or 20
     user_adj = get_user_adj(user)
 
     food_for_judgment = dict(food)
@@ -826,7 +855,11 @@ def get_today_intake(
 
     intake = dict(cursor.fetchone())
 
-    week = user["pregnancy_week"] or 20
+    user = dict(user)
+    computed_age = calculate_current_pregnancy_age(
+        user.get("pregnancy_week"), user.get("pregnancy_day"), user.get("pregnancy_entered_at")
+    )
+    week = computed_age["week"] or 20
 
     # 3. 임신 단계 판별
     if week <= 12:
@@ -1038,7 +1071,10 @@ def get_recommendations(
         raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
     user = dict(user)
 
-    week = user.get("pregnancy_week") or 20
+    computed_age = calculate_current_pregnancy_age(
+        user.get("pregnancy_week"), user.get("pregnancy_day"), user.get("pregnancy_entered_at")
+    )
+    week = computed_age["week"] or 20
     allergy_info = user.get("allergy_info") or ""
     allergy_list = [a.strip() for a in allergy_info.split(",") if a.strip()]
     user_adj = get_user_adj(user)
@@ -1399,7 +1435,10 @@ def get_premium_report(
     else:
         target_date = date_type.today()
 
-    week = user.get("pregnancy_week") or 20
+    computed_age = calculate_current_pregnancy_age(
+        user.get("pregnancy_week"), user.get("pregnancy_day"), user.get("pregnancy_entered_at")
+    )
+    week = computed_age["week"] or 20
     trimester, limits = _get_trimester_limits(cursor, week)
     caffeine_limit = limits["caffeine_mg"]
     sugar_limit    = limits["sugar_g"]
