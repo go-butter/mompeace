@@ -54,6 +54,7 @@ export interface IntakeTodayResponse {
   days_until_due: number | null;
   trimester: string;
   trimester_label: string;
+  water_cups: number;
   intake: {
     total_caffeine: number;
     total_sugar: number;
