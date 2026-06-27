@@ -278,7 +278,7 @@ export default function HomeScreen() {
                 colors={homeColors.sodium}
               />
               <StatusChip label="알레르기" value="안전" colors={homeColors.allergy} />
-              <StatusChip label="물" value="4잔" colors={homeColors.water} />
+              <StatusChip label="물" value={`${intake.water_cups ?? 0}잔`} colors={homeColors.water} />
             </View>
           </>
         )}

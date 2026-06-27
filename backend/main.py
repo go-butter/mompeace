@@ -855,7 +855,8 @@ def get_today_intake(
             COALESCE(SUM(caffeine_mg), 0) AS total_caffeine,
             COALESCE(SUM(sugar_g), 0) AS total_sugar,
             COALESCE(SUM(sodium_mg), 0) AS total_sodium,
-            COALESCE(SUM(calories_kcal), 0) AS total_calories
+            COALESCE(SUM(calories_kcal), 0) AS total_calories,
+            COALESCE(SUM(CASE WHEN category = 'water' THEN 1 ELSE 0 END), 0) AS water_cups
         FROM food_log
         WHERE user_id = ? AND DATE(eaten_at) = ?
     """, (
@@ -908,6 +909,7 @@ def get_today_intake(
     total_sugar = intake["total_sugar"]
     total_sodium = intake["total_sodium"]
     total_calories = intake["total_calories"]
+    water_cups = intake["water_cups"]
 
     # 5. 잔여 허용량 계산
     remaining_caffeine = max(0, caffeine_limit - total_caffeine)
@@ -1011,6 +1013,7 @@ def get_today_intake(
         "days_until_due": days_until_due,
         "trimester": trimester,
         "trimester_label": trimester_label,
+        "water_cups": water_cups,
 
         "intake": {
             "total_caffeine": total_caffeine,
