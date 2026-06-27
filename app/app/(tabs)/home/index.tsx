@@ -1,6 +1,6 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -25,13 +25,8 @@ import { authColors } from '@/components/auth/colors';
 import { homeColors } from '@/components/home/colors';
 import { fonts, nanumSquareRound } from '@/constants/fonts';
 import { useAuth } from '@/context/auth-context';
-import {
-  ApiError,
-  FoodLogEntry,
-  getFoodLogToday,
-  getIntakeToday,
-  IntakeTodayResponse,
-} from '@/lib/api-client';
+import { useIntake } from '@/context/intake-context';
+import { FoodLogEntry } from '@/lib/api-client';
 
 const WEEKDAY_LABELS = ['일', '월', '화', '수', '목', '금', '토'];
 
@@ -96,41 +91,13 @@ function FoodLogRow({ entry }: { entry: FoodLogEntry }) {
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
-  const [intake, setIntake] = useState<IntakeTodayResponse | null>(null);
-  const [foodLog, setFoodLog] = useState<FoodLogEntry[]>([]);
-  const [hasEntries, setHasEntries] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { intake, foodLog, hasEntries, loading, error } = useIntake();
   const [bannerSize, setBannerSize] = useState({ width: 0, height: 0 });
 
   const handleBannerLayout = (event: LayoutChangeEvent) => {
     const { width, height } = event.nativeEvent.layout;
     setBannerSize({ width, height });
   };
-
-  useEffect(() => {
-    if (!user?.user_id) return;
-    let isMounted = true;
-
-    Promise.all([getIntakeToday(user.user_id), getFoodLogToday(user.user_id)])
-      .then(([intakeRes, foodLogRes]) => {
-        if (!isMounted) return;
-        setIntake(intakeRes);
-        setHasEntries(foodLogRes.count > 0);
-        setFoodLog(foodLogRes.logs.slice(-3));
-      })
-      .catch((err) => {
-        if (!isMounted) return;
-        setError(err instanceof ApiError ? err.message : (err as Error).message);
-      })
-      .finally(() => {
-        if (isMounted) setLoading(false);
-      });
-
-    return () => {
-      isMounted = false;
-    };
-  }, [user?.user_id]);
 
   if (loading) {
     return (
@@ -315,7 +282,9 @@ export default function HomeScreen() {
         <View style={styles.card}>
           <View style={styles.cardHeaderRow}>
             <Text style={styles.cardTitle}>오늘 먹은 음식</Text>
-            <Text style={styles.viewAllText} onPress={() => {}}>
+            <Text
+              style={styles.viewAllText}
+              onPress={() => router.push('/(tabs)/home/food-diary-list')}>
               전체 보기 {'>'}
             </Text>
           </View>

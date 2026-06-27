@@ -108,6 +108,11 @@ export interface FoodLogEntry {
   time: string;
   risk_level: string;
   calories_kcal: number | null;
+  sugar_g: number;
+  sodium_mg: number;
+  caffeine_mg: number | null;
+  protein_g: number;
+  allergens: string[];
 }
 
 export interface FoodLogTodayResponse {
