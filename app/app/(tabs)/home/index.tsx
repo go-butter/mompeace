@@ -1,3 +1,4 @@
+import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
@@ -19,6 +20,7 @@ import BarcodeIcon from '@/assets/images/home/barcode.svg';
 import FoodIcon from '@/assets/images/home/food.svg';
 import CalendarIcon from '@/assets/images/home/calendar.svg';
 import NoteIcon from '@/assets/images/home/note.svg';
+import RemainCoffeeIcon from '@/assets/images/home/home_remain_coffee.svg';
 import { authColors } from '@/components/auth/colors';
 import { homeColors } from '@/components/home/colors';
 import { fonts, nanumSquareRound } from '@/constants/fonts';
@@ -173,10 +175,10 @@ export default function HomeScreen() {
                   cy={bannerSize.height * 0.5}
                   rx={bannerSize.width * 0.75}
                   ry={bannerSize.height * 0.9}>
-                  <Stop offset="0" stopColor="#FFE0DD" stopOpacity="1" />
-                  <Stop offset="0.45" stopColor="#FFEDEB" stopOpacity="1" />
-                  <Stop offset="0.8" stopColor="#FFF8F7" stopOpacity="1" />
-                  <Stop offset="1" stopColor="#FFFFFF" stopOpacity="1" />
+                  <Stop offset="0" stopColor="#FFFFFF" stopOpacity="1" />
+                  <Stop offset="0.2" stopColor="#FFF8F7" stopOpacity="1" />
+                  <Stop offset="0.55" stopColor="#FFEDEB" stopOpacity="1" />
+                  <Stop offset="1" stopColor="#FFE0DD" stopOpacity="1" />
                 </RadialGradient>
               </Defs>
               <Rect
@@ -193,9 +195,9 @@ export default function HomeScreen() {
                 styles.bannerIllustration,
                 {
                   zIndex: 1,
-                  height: bannerSize.height * 0.9,
-                  width: bannerSize.height * 0.9 * HEART_ASPECT_RATIO,
-                  top: bannerSize.height * 0.05,
+                  height: bannerSize.height * 0.95,
+                  width: bannerSize.height * 0.95 * HEART_ASPECT_RATIO,
+                  top: bannerSize.height * 0.025,
                 },
               ]}
               resizeMode="contain"
@@ -232,17 +234,39 @@ export default function HomeScreen() {
             <View style={styles.intakeRow}>
               <View style={styles.caffeineBox}>
                 <Text style={styles.caffeineLabel}>☕ 카페인</Text>
-                <Text style={styles.caffeineValue}>
-                  {intake.intake.total_caffeine} / {intake.limits.caffeine_limit_mg}mg
+                <Text style={styles.caffeineValueWrapper}>
+                  <Text style={styles.caffeineValueNumber}>{intake.intake.total_caffeine}</Text>
+                  <Text style={styles.caffeineValueUnit}>
+                    {' '}
+                    / {intake.limits.caffeine_limit_mg}mg
+                  </Text>
                 </Text>
-                <View style={styles.progressBarTrack}>
-                  <View style={[styles.progressBarFill, { width: `${caffeinePercent}%` }]} />
+                <View style={styles.progressRow}>
+                  <View style={styles.progressBarTrack}>
+                    <View style={[styles.progressBarFill, { width: `${caffeinePercent}%` }]} />
+                  </View>
+                  <Text style={styles.caffeinePercent}>{intake.progress.caffeine_percent}%</Text>
                 </View>
-                <Text style={styles.caffeinePercent}>{intake.progress.caffeine_percent}%</Text>
               </View>
               <View style={styles.remainingBox}>
+                <LinearGradient
+                  colors={['#FEF6F6', '#FEEBEA']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 0, y: 1 }}
+                  style={StyleSheet.absoluteFillObject}
+                />
+                <RemainCoffeeIcon
+                  width={100}
+                  height={100}
+                  style={[styles.remainingIcon, { right: -10, top: 16 }]}
+                />
                 <Text style={styles.remainingLabel}>잔여 허용량</Text>
-                <Text style={styles.remainingValue}>{intake.remaining.remaining_caffeine}mg</Text>
+                <Text style={styles.remainingValueWrapper}>
+                  <Text style={styles.remainingValueNumber}>
+                    {intake.remaining.remaining_caffeine}
+                  </Text>
+                  <Text style={styles.remainingValueUnit}>mg</Text>
+                </Text>
               </View>
             </View>
 
@@ -336,7 +360,11 @@ const styles = StyleSheet.create({
     position: 'relative',
     borderRadius: 24,
     overflow: 'hidden',
-    padding: 20,
+    paddingVertical: 20,
+    paddingLeft: 28,
+    paddingRight: 20,
+    minHeight: 160,
+    justifyContent: 'center',
   },
   bannerIllustration: {
     position: 'absolute',
@@ -352,7 +380,7 @@ const styles = StyleSheet.create({
   },
   bannerWeek: {
     fontFamily: nanumSquareRound.bold,
-    fontSize: 20,
+    fontSize: 22.5,
     color: authColors.brown,
     letterSpacing: -0.2,
     marginTop: 8,
@@ -360,7 +388,7 @@ const styles = StyleSheet.create({
   bannerDate: {
     fontFamily: nanumSquareRound.regular,
     fontSize: 13,
-    color: authColors.brown,
+    color: '#4A4A4A',
     marginTop: 4,
   },
   ddayPill: {
@@ -379,7 +407,7 @@ const styles = StyleSheet.create({
   ddayText: {
     fontFamily: nanumSquareRound.regular,
     fontSize: 13,
-    color: authColors.pink,
+    color: authColors.brown,
   },
   card: {
     backgroundColor: authColors.white,
@@ -398,9 +426,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   cardTitle: {
-    fontFamily: fonts.bold,
+    fontFamily: fonts.medium,
     fontSize: 16,
-    color: authColors.brown,
+    color: '#000000',
   },
   cardSubtitle: {
     fontFamily: fonts.regular,
@@ -430,7 +458,7 @@ const styles = StyleSheet.create({
     flex: 1,
     borderWidth: 1,
     borderColor: authColors.border,
-    borderRadius: 16,
+    borderRadius: 10,
     padding: 14,
   },
   caffeineLabel: {
@@ -438,17 +466,30 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: authColors.brown,
   },
-  caffeineValue: {
+  caffeineValueWrapper: {
+    marginTop: 6,
+  },
+  caffeineValueNumber: {
     fontFamily: fonts.bold,
-    fontSize: 18,
+    fontSize: 22,
     color: authColors.pink,
-    marginTop: 8,
+  },
+  caffeineValueUnit: {
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    color: authColors.gray,
+  },
+  progressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 4,
   },
   progressBarTrack: {
+    flex: 1,
     height: 6,
     backgroundColor: authColors.border,
     borderRadius: 3,
-    marginTop: 10,
     overflow: 'hidden',
   },
   progressBarFill: {
@@ -460,26 +501,35 @@ const styles = StyleSheet.create({
     fontFamily: fonts.regular,
     fontSize: 11,
     color: authColors.gray,
-    marginTop: 4,
-    textAlign: 'right',
   },
   remainingBox: {
     flex: 1,
-    backgroundColor: '#FCE9E7',
-    borderRadius: 16,
+    borderWidth: 0.7,
+    borderColor: '#ECDEDD',
+    borderRadius: 10,
+    overflow: 'hidden',
     padding: 14,
-    justifyContent: 'center',
+  },
+  remainingIcon: {
+    position: 'absolute',
   },
   remainingLabel: {
-    fontFamily: fonts.regular,
-    fontSize: 12,
-    color: authColors.gray,
+    fontFamily: fonts.medium,
+    fontSize: 13,
+    color: authColors.brown,
   },
-  remainingValue: {
+  remainingValueWrapper: {
+    marginTop: 28,
+  },
+  remainingValueNumber: {
     fontFamily: fonts.bold,
+    fontSize: 22,
+    color: authColors.pink,
+  },
+  remainingValueUnit: {
+    fontFamily: fonts.medium,
     fontSize: 20,
     color: authColors.pink,
-    marginTop: 8,
   },
   chipRow: {
     flexDirection: 'row',
