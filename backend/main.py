@@ -22,7 +22,7 @@ from backend.recommendation_model import recommend_food
 from backend.data_confidence import calculate_data_confidence
 from backend.auth import register_user, login_user
 from backend.foodqr import get_food_info, simplify_food_info
-from backend.risk import evaluate_food_risk, calculate_current_pregnancy_age
+from backend.risk import evaluate_food_risk, calculate_current_pregnancy_age, calculate_days_until_due
 from backend.sensitivity import get_user_adj, recalculate_sensitivity
 
 
@@ -35,6 +35,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.middleware("http")
+async def force_utf8_charset(request, call_next):
+    response = await call_next(request)
+    content_type = response.headers.get("content-type", "")
+    if content_type.startswith("application/json") and "charset" not in content_type:
+        response.headers["content-type"] = "application/json; charset=utf-8"
+    return response
 
 
 # ── 앱 시작 시 DB 초기화 및 만료 로그 정리 ──────────────
@@ -682,6 +690,7 @@ def get_today_food_log(
             "eaten_at": eaten_at,
             "time": time_text,
             "risk_level": log.get("risk_level") or "safe",
+            "calories_kcal": log.get("calories_kcal"),
 
             # 접힌 카드에서 바로 쓰는 값
             "summary": {
@@ -696,6 +705,7 @@ def get_today_food_log(
                     "caffeine_mg": caffeine,
                     "sugar_g": sugar,
                     "sodium_mg": sodium,
+                    "calories_kcal": log.get("calories_kcal"),
                     "carbohydrate_g": log.get("carbohydrate_g"),
                     "protein_g": log.get("protein_g")
                 },
@@ -860,6 +870,7 @@ def get_today_intake(
         user.get("pregnancy_week"), user.get("pregnancy_day"), user.get("pregnancy_entered_at")
     )
     week = computed_age["week"] or 20
+    days_until_due = calculate_days_until_due(user.get("due_date"))
 
     # 3. 임신 단계 판별
     if week <= 12:
@@ -995,6 +1006,9 @@ def get_today_intake(
         "user_id": user_id,
         "date": today,
         "pregnancy_week": week,
+        "pregnancy_day": computed_age["day"],
+        "due_date": user.get("due_date"),
+        "days_until_due": days_until_due,
         "trimester": trimester,
         "trimester_label": trimester_label,
 

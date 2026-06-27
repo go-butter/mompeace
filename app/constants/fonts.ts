@@ -9,3 +9,10 @@ export const fonts = {
   semiBold: 'Pretendard-SemiBold',
   thin: 'Pretendard-Thin',
 } as const;
+
+export const nanumSquareRound = {
+  light: 'NanumSquareRound-Light',
+  regular: 'NanumSquareRound-Regular',
+  bold: 'NanumSquareRound-Bold',
+  extraBold: 'NanumSquareRound-ExtraBold',
+} as const;

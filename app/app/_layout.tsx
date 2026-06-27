@@ -27,6 +27,10 @@ export default function RootLayout() {
     'Pretendard-Regular': require('@/assets/fonts/Pretendard-Regular.otf'),
     'Pretendard-SemiBold': require('@/assets/fonts/Pretendard-SemiBold.otf'),
     'Pretendard-Thin': require('@/assets/fonts/Pretendard-Thin.otf'),
+    'NanumSquareRound-Light': require('@/assets/fonts/NanumSquareRound-Light.otf'),
+    'NanumSquareRound-Regular': require('@/assets/fonts/NanumSquareRound-Regular.otf'),
+    'NanumSquareRound-Bold': require('@/assets/fonts/NanumSquareRound-Bold.otf'),
+    'NanumSquareRound-ExtraBold': require('@/assets/fonts/NanumSquareRound-ExtraBold.otf'),
   });
 
   useEffect(() => {
