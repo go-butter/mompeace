@@ -102,8 +102,10 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
   prevButton: {
-    width: 30,
-    height: 29,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#FFF0F0',
     alignItems: 'center',
     justifyContent: 'center',
     marginLeft: 5,

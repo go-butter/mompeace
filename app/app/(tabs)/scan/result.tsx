@@ -1,3 +1,4 @@
+import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
@@ -27,6 +28,7 @@ import {
 } from '@/components/scan/colors';
 import { fonts, nanumSquareRound } from '@/constants/fonts';
 import { useAuth } from '@/context/auth-context';
+import { useIntake } from '@/context/intake-context';
 import {
   ApiError,
   BarcodeFoodResponse,
@@ -44,6 +46,12 @@ const STATUS_DESCRIPTION: Record<VisualStatus, string> = {
   safe: '해당 제품은 임신 중 섭취에 적합한 제품이에요.',
   caution: '해당 제품은 임신 중 섭취에 주의해야 하는 제품이에요.',
   avoid: '해당 제품은 임산부에게 위험해요',
+};
+
+const STATUS_HEADLINE: Record<VisualStatus, string> = {
+  safe: '현재 주차 기준 안전해요',
+  caution: '현재 주차 기준 주의해야 해요',
+  avoid: '현재 주차 기준 위험해요',
 };
 
 function formatScannedAt(date: Date) {
@@ -64,16 +72,18 @@ function DetailChip({
   icon: React.ReactNode;
   label: string;
   value: string;
-  status: VisualStatus;
+  status: VisualStatus | null;
 }) {
   return (
     <View style={styles.detailChip}>
       {icon}
       <Text style={styles.detailLabel}>{label}</Text>
       <Text style={styles.detailValue}>{value}</Text>
-      <Text style={[styles.detailStatus, { color: scanStatusColors[status] }]}>
-        {status === 'safe' ? '안전' : status === 'caution' ? '주의' : '확인 필요'}
-      </Text>
+      {status != null && (
+        <Text style={[styles.detailStatus, { color: scanStatusColors[status] }]}>
+          {status === 'safe' ? '안전' : status === 'caution' ? '주의' : '확인 필요'}
+        </Text>
+      )}
     </View>
   );
 }
@@ -81,6 +91,7 @@ function DetailChip({
 export default function BarcodeScanResultScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
+  const { refresh } = useIntake();
   const { barcode } = useLocalSearchParams<{ barcode: string }>();
 
   const [result, setResult] = useState<BarcodeFoodResponse | null>(null);
@@ -129,7 +140,10 @@ export default function BarcodeScanResultScreen() {
       sodium_mg: result.risk.details.sodium.value ?? 0,
       calories_kcal: result.data.calories_kcal ?? 0,
     })
-      .then(() => setAdded(true))
+      .then(() => {
+        setAdded(true);
+        refresh();
+      })
       .catch((err) => {
         setError(err instanceof ApiError ? err.message : (err as Error).message);
       })
@@ -160,7 +174,9 @@ export default function BarcodeScanResultScreen() {
   const { risk, data } = result;
   const visualStatus = risk.overall_status as VisualStatus;
   const banner = scanBannerColors[visualStatus];
-  const caffeineStatus = toVisualStatus(risk.details.caffeine.status);
+  const caffeineRawStatus = risk.details.caffeine.status;
+  const caffeineStatus =
+    caffeineRawStatus === 'unknown' ? null : toVisualStatus(caffeineRawStatus);
   const sugarStatus = toVisualStatus(risk.details.sugar.status);
   const sodiumStatus = toVisualStatus(risk.details.sodium.status);
   const allergyStatus = allergyToVisualStatus(risk.details.allergy.status);
@@ -178,7 +194,11 @@ export default function BarcodeScanResultScreen() {
         <Text style={styles.subtitle}>바코드 인식이 완료 되었어요!</Text>
       </View>
 
-      <View style={styles.foodCard}>
+      <LinearGradient
+        colors={['#FFF0F0', '#FFF9F9']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0 }}
+        style={styles.foodCard}>
         <Text style={styles.foodName}>{data.food_name}</Text>
         <View style={styles.foodMetaRow}>
           <Text style={styles.foodMetaLabel}>스캔 시간</Text>
@@ -188,18 +208,26 @@ export default function BarcodeScanResultScreen() {
           <Text style={styles.foodMetaLabel}>바코트 번호</Text>
           <Text style={styles.foodMetaValue}>{barcode}</Text>
         </View>
-      </View>
+      </LinearGradient>
 
       <View
         style={[styles.bannerCard, { backgroundColor: banner.bg, borderColor: banner.border }]}>
-        <Image source={STATUS_BADGE[visualStatus]} style={styles.bannerBadge} resizeMode="contain" />
-        <Text style={[styles.bannerLabel, { color: banner.title }]}>
-          {scanBannerLabel[visualStatus]}
-        </Text>
+        <View style={styles.bannerIconColumn}>
+          <Image
+            source={STATUS_BADGE[visualStatus]}
+            style={styles.bannerBadge}
+            resizeMode="contain"
+          />
+          <Text style={[styles.bannerLabel, { color: banner.title }]}>
+            {scanBannerLabel[visualStatus]}
+          </Text>
+        </View>
         <View style={styles.bannerDivider} />
         <View style={styles.bannerTextArea}>
           <Text style={styles.bannerTrimester}>{risk.trimester_label} 기준</Text>
-          <Text style={[styles.bannerTitle, { color: banner.title }]}>{risk.title}</Text>
+          <Text style={[styles.bannerTitle, { color: banner.title }]}>
+            {STATUS_HEADLINE[visualStatus] ?? risk.title}
+          </Text>
           <Text style={styles.bannerSubtitle}>
             {risk.messages[0] || STATUS_DESCRIPTION[visualStatus]}
           </Text>
@@ -292,8 +320,10 @@ const styles = StyleSheet.create({
     color: authColors.white,
   },
   prevButton: {
-    width: 30,
-    height: 29,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#FFF0F0',
     alignItems: 'center',
     justifyContent: 'center',
     marginLeft: 5,
@@ -319,7 +349,6 @@ const styles = StyleSheet.create({
     borderRadius: 17,
     borderWidth: 1,
     borderColor: authColors.border,
-    backgroundColor: '#FFF0F0',
     padding: 18,
   },
   foodName: {
@@ -349,6 +378,9 @@ const styles = StyleSheet.create({
     borderWidth: 0.5,
     padding: 16,
     flexDirection: 'row',
+    alignItems: 'center',
+  },
+  bannerIconColumn: {
     alignItems: 'center',
   },
   bannerBadge: {

@@ -244,6 +244,14 @@ def update_allergy_info(
 
 # ── 식품 정보 ─────────────────────────────────────────
 
+# TEMPORARY: foodqr.kr is currently unresponsive with the real FOOD_QR_API_KEY
+# (invalid keys get an immediate 401, but the real key silently times out after
+# 10s with no response — a third-party/account issue pending resolution via the
+# operating agency, not a code bug). Set this back to False once foodqr.kr is
+# confirmed working again.
+USE_MOCK_FOODQR = True
+
+
 @app.get("/foods/barcode/{barcode}")
 def get_food_by_barcode(
     barcode: str,
@@ -260,27 +268,59 @@ def get_food_by_barcode(
     5. 임신 주차 기준 위험도 판단 결과 포함
     """
 
-    try:
-        api_data = get_food_info(barcode)
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"푸드QR API 호출 실패: {str(e)}"
-        )
+    if USE_MOCK_FOODQR:
+        # Mock path: skip the foodqr.kr round-trip entirely and build a
+        # simplified_data dict in the exact shape simplify_food_info() returns,
+        # so save_food_item()/evaluate_food_risk() below run unchanged.
+        # Use the last 3 digits of the scanned barcode in food_name so different
+        # barcodes are visibly distinguishable while testing.
+        barcode_suffix = barcode[-3:] if len(barcode) >= 3 else barcode
 
-    if not api_data:
-        raise HTTPException(
-            status_code=404,
-            detail="푸드QR에서 해당 바코드 제품을 찾을 수 없습니다."
-        )
+        # --- Tweak these to test safe / caution / avoid outcomes ---
+        # calories_kcal / sodium_mg / sugar_g / allergens feed directly into
+        # evaluate_food_risk() and drive overall_status (safe/caution/avoid).
+        mock_calories_kcal = 120
+        mock_sodium_mg = 95
+        mock_sugar_g = 8
+        mock_allergens = ["우유"]
+        # -------------------------------------------------------------
 
-    simplified_data = simplify_food_info(api_data)
+        simplified_data = {
+            "barcode": barcode,
+            "food_name": f"목 테스트 식품 {barcode_suffix}",
+            "food_category": "가공식품",
+            "food_type": "일반식품",
+            "serving_size": "100g",
+            "calories_kcal": mock_calories_kcal,
+            "sodium_mg": mock_sodium_mg,
+            "sugar_g": mock_sugar_g,
+            "carbohydrate_g": 20,
+            "protein_g": 5,
+            "allergens": mock_allergens,
+            "warnings": [],
+        }
+    else:
+        try:
+            api_data = get_food_info(barcode)
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"푸드QR API 호출 실패: {str(e)}"
+            )
 
-    if not simplified_data:
-        raise HTTPException(
-            status_code=404,
-            detail="푸드QR에서 해당 바코드 제품의 기본정보를 찾을 수 없습니다."
-        )
+        if not api_data:
+            raise HTTPException(
+                status_code=404,
+                detail="푸드QR에서 해당 바코드 제품을 찾을 수 없습니다."
+            )
+
+        simplified_data = simplify_food_info(api_data)
+
+        if not simplified_data:
+            raise HTTPException(
+                status_code=404,
+                detail="푸드QR에서 해당 바코드 제품의 기본정보를 찾을 수 없습니다."
+            )
 
     food_id = save_food_item(
         food_data=simplified_data,
@@ -605,6 +645,13 @@ def create_food_log_from_food(
     }
 
 
+def _text_to_list(text):
+    """allergen_info 등 food_repository.list_to_text()로 ", " 구분 저장된 문자열을 리스트로 복원."""
+    if not text:
+        return []
+    return [item.strip() for item in text.split(",") if item.strip()]
+
+
 @app.get("/food-log/today/{user_id}")
 def get_today_food_log(
     user_id: int,
@@ -624,10 +671,11 @@ def get_today_food_log(
         raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
 
     cursor.execute("""
-        SELECT *
+        SELECT food_log.*, food_items.allergen_info AS food_item_allergen_info
         FROM food_log
-        WHERE user_id = ? AND DATE(eaten_at) = ?
-        ORDER BY eaten_at ASC
+        LEFT JOIN food_items ON food_log.food_id = food_items.food_id
+        WHERE food_log.user_id = ? AND DATE(food_log.eaten_at) = ?
+        ORDER BY food_log.eaten_at ASC
     """, (
         user_id,
         today
@@ -691,6 +739,11 @@ def get_today_food_log(
             "time": time_text,
             "risk_level": log.get("risk_level") or "safe",
             "calories_kcal": log.get("calories_kcal"),
+            "sugar_g": log.get("sugar_g") or 0,
+            "sodium_mg": log.get("sodium_mg") or 0,
+            "caffeine_mg": log.get("caffeine_mg"),
+            "protein_g": log.get("protein_g") or 0,
+            "allergens": _text_to_list(log.get("food_item_allergen_info")),
 
             # 접힌 카드에서 바로 쓰는 값
             "summary": {
