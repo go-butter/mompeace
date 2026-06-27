@@ -4,6 +4,8 @@ export default function ScanLayout() {
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="index" />
+      <Stack.Screen name="scanning" />
+      <Stack.Screen name="result" />
     </Stack>
   );
 }
