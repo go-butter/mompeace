@@ -124,8 +124,8 @@ def init_db():
             carbohydrate_g REAL DEFAULT 0,
             protein_g      REAL DEFAULT 0,
             risk_level     TEXT DEFAULT 'safe',
-            eaten_at      TEXT DEFAULT (datetime('now')),
-            created_at    TEXT DEFAULT (datetime('now')),
+            eaten_at      TEXT DEFAULT (datetime('now', 'localtime')),
+            created_at    TEXT DEFAULT (datetime('now', 'localtime')),
             FOREIGN KEY (user_id) REFERENCES users(user_id)
         )
     """)
@@ -142,8 +142,8 @@ def init_db():
     add_column_if_not_exists(cursor, "food_log", "carbohydrate_g", "REAL DEFAULT 0")
     add_column_if_not_exists(cursor, "food_log", "protein_g", "REAL DEFAULT 0")
     add_column_if_not_exists(cursor, "food_log", "risk_level", "TEXT DEFAULT 'safe'")
-    add_column_if_not_exists(cursor, "food_log", "eaten_at", "TEXT DEFAULT (datetime('now'))")
-    add_column_if_not_exists(cursor, "food_log", "created_at", "TEXT DEFAULT (datetime('now'))")
+    add_column_if_not_exists(cursor, "food_log", "eaten_at", "TEXT DEFAULT (datetime('now', 'localtime'))")
+    add_column_if_not_exists(cursor, "food_log", "created_at", "TEXT DEFAULT (datetime('now', 'localtime'))")
     add_column_if_not_exists(cursor, "food_log", "feedback", "INTEGER DEFAULT 0")
     add_column_if_not_exists(cursor, "food_log", "recommendation_status", "TEXT")
     add_column_if_not_exists(cursor, "food_log", "reason_nutrient", "TEXT")
@@ -262,13 +262,13 @@ def cleanup_expired_food_logs(db):
         WHERE user_id IN (
             SELECT user_id FROM users WHERE is_premium = 0 OR is_premium IS NULL
         )
-        AND eaten_at < datetime('now', '-1 day')
+        AND eaten_at < datetime('now', 'localtime', '-1 day')
     """)
     cursor.execute("""
         DELETE FROM food_log
         WHERE user_id IN (
             SELECT user_id FROM users WHERE is_premium = 1
         )
-        AND eaten_at < datetime('now', '-7 days')
+        AND eaten_at < datetime('now', 'localtime', '-7 days')
     """)
     db.commit()
