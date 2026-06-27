@@ -1,5 +1,5 @@
-// Dev-machine LAN IP — update this if the network changes.
-export const API_BASE_URL = 'http://192.168.45.220:8000';
+// Dev-machine LAN IP ??update this if the network changes.
+export const API_BASE_URL = 'http://192.168.219.107:8000';
 
 export interface RegisterRequest {
   nickname: string;
@@ -45,6 +45,77 @@ export interface PregnancyUpdateResponse {
   message: string;
 }
 
+export interface IntakeTodayResponse {
+  user_id: number;
+  date: string;
+  pregnancy_week: number;
+  pregnancy_day: number;
+  due_date: string | null;
+  days_until_due: number | null;
+  trimester: string;
+  trimester_label: string;
+  intake: {
+    total_caffeine: number;
+    total_sugar: number;
+    total_sodium: number;
+    total_calories: number;
+  };
+  limits: {
+    caffeine_limit_mg: number;
+    sugar_limit_g: number;
+    sodium_limit_mg: number;
+  };
+  remaining: {
+    remaining_caffeine: number;
+    remaining_sugar: number;
+    remaining_sodium: number;
+  };
+  progress: {
+    caffeine_percent: number;
+    sugar_percent: number;
+    sodium_percent: number;
+  };
+  status: {
+    overall_status: string;
+    caffeine_status: string;
+    sugar_status: string;
+    sodium_status: string;
+  };
+  status_label: {
+    overall: string;
+    caffeine: string;
+    sugar: string;
+    sodium: string;
+  };
+  summary: {
+    title: string;
+    messages: string[];
+  };
+  note: string | null;
+}
+
+export interface FoodLogEntry {
+  log_id: number;
+  user_id: number;
+  food_id: number | null;
+  food_name: string;
+  category: string | null;
+  input_type: string | null;
+  amount: number | null;
+  unit: string | null;
+  eaten_at: string;
+  time: string;
+  risk_level: string;
+  calories_kcal: number | null;
+}
+
+export interface FoodLogTodayResponse {
+  user_id: number;
+  date: string;
+  count: number;
+  logs: FoodLogEntry[];
+}
+
 export class ApiError extends Error {}
 
 async function request<TReq, TRes>(method: 'POST' | 'PUT', path: string, body: TReq): Promise<TRes> {
@@ -56,7 +127,27 @@ async function request<TReq, TRes>(method: 'POST' | 'PUT', path: string, body: T
       body: JSON.stringify(body),
     });
   } catch {
-    throw new Error('서버에 연결할 수 없습니다');
+    throw new Error('?�버???�결?????�습?�다');
+  }
+
+  const data = await res.json();
+
+  if (!res.ok) {
+    throw new ApiError(data.detail);
+  }
+
+  return data as TRes;
+}
+
+async function get<TRes>(path: string): Promise<TRes> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE_URL}${path}`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+  } catch {
+    throw new Error('?�버???�결?????�습?�다');
   }
 
   const data = await res.json();
@@ -89,4 +180,12 @@ export function updatePregnancyInfo(
   body: PregnancyUpdateRequest
 ): Promise<PregnancyUpdateResponse> {
   return put(`/users/${userId}/pregnancy`, body);
+}
+
+export function getIntakeToday(userId: number): Promise<IntakeTodayResponse> {
+  return get(`/intake/today/${userId}`);
+}
+
+export function getFoodLogToday(userId: number): Promise<FoodLogTodayResponse> {
+  return get(`/food-log/today/${userId}`);
 }
