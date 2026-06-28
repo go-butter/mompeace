@@ -414,8 +414,11 @@ def _compute_today_intake_totals(user_id: int, db: sqlite3.Connection) -> dict:
     cursor.execute("""
         SELECT
             COALESCE(SUM(caffeine_mg), 0) AS total_caffeine,
+            SUM(CASE WHEN caffeine_mg IS NULL THEN 1 ELSE 0 END) AS unknown_caffeine_count,
             COALESCE(SUM(sugar_g), 0)    AS total_sugar,
-            COALESCE(SUM(sodium_mg), 0)  AS total_sodium
+            SUM(CASE WHEN sugar_g IS NULL THEN 1 ELSE 0 END) AS unknown_sugar_count,
+            COALESCE(SUM(sodium_mg), 0)  AS total_sodium,
+            SUM(CASE WHEN sodium_mg IS NULL THEN 1 ELSE 0 END) AS unknown_sodium_count
         FROM food_log
         WHERE user_id = ? AND DATE(eaten_at) = ?
     """, (user_id, today))
@@ -424,6 +427,9 @@ def _compute_today_intake_totals(user_id: int, db: sqlite3.Connection) -> dict:
         "caffeine_mg": row["total_caffeine"],
         "sugar_g": row["total_sugar"],
         "sodium_mg": row["total_sodium"],
+        "unknown_caffeine_count": row["unknown_caffeine_count"],
+        "unknown_sugar_count": row["unknown_sugar_count"],
+        "unknown_sodium_count": row["unknown_sodium_count"],
     }
 
 
@@ -448,8 +454,8 @@ def _judge_food_log_from_food_item(food: dict, amount: float, user: dict, db: sq
     Returns: {"nutrients": {...multiplied...}, "recommendation": recommend_food() 결과}
     """
     caffeine_mg = _multiply(food.get("caffeine_mg"), amount)
-    sugar_g = _multiply(food.get("sugar_g") or 0, amount)
-    sodium_mg = _multiply(food.get("sodium_mg") or 0, amount)
+    sugar_g = _multiply(food.get("sugar_g"), amount)
+    sodium_mg = _multiply(food.get("sodium_mg"), amount)
     carbohydrate_g = _multiply(food.get("carbohydrate_g"), amount)
     protein_g = _multiply(food.get("protein_g"), amount)
 
@@ -696,14 +702,24 @@ def get_today_food_log(
             time_text = eaten_at[11:16]
 
         caffeine = log.get("caffeine_mg")
-        sugar = log.get("sugar_g") or 0
-        sodium = log.get("sodium_mg") or 0
+        sugar = log.get("sugar_g")
+        sodium = log.get("sodium_mg")
 
-        # 카페인 상태: None이면 unknown
+        # 각 영양소 상태: None이면 unknown
         if caffeine is None:
             caffeine_status = "unknown"
         else:
             caffeine_status = "safe" if caffeine <= 70 else "caution" if caffeine <= 200 else "avoid"
+
+        if sugar is None:
+            sugar_status = "unknown"
+        else:
+            sugar_status = "safe" if sugar <= 10 else "caution" if sugar <= 30 else "avoid"
+
+        if sodium is None:
+            sodium_status = "unknown"
+        else:
+            sodium_status = "safe" if sodium <= 500 else "caution" if sodium <= 1500 else "avoid"
 
         nutrition_items = [
             {
@@ -716,13 +732,13 @@ def get_today_food_log(
                 "name": "당류",
                 "value": sugar,
                 "unit": "g",
-                "status": "safe" if sugar <= 10 else "caution" if sugar <= 30 else "avoid"
+                "status": sugar_status
             },
             {
                 "name": "나트륨",
                 "value": sodium,
                 "unit": "mg",
-                "status": "safe" if sodium <= 500 else "caution" if sodium <= 1500 else "avoid"
+                "status": sodium_status
             }
         ]
 
@@ -739,8 +755,8 @@ def get_today_food_log(
             "time": time_text,
             "risk_level": log.get("risk_level") or "safe",
             "calories_kcal": log.get("calories_kcal"),
-            "sugar_g": log.get("sugar_g") or 0,
-            "sodium_mg": log.get("sodium_mg") or 0,
+            "sugar_g": log.get("sugar_g"),
+            "sodium_mg": log.get("sodium_mg"),
             "caffeine_mg": log.get("caffeine_mg"),
             "protein_g": log.get("protein_g") or 0,
             "allergens": _text_to_list(log.get("food_item_allergen_info")),
@@ -906,8 +922,11 @@ def get_today_intake(
     cursor.execute("""
         SELECT
             COALESCE(SUM(caffeine_mg), 0) AS total_caffeine,
+            SUM(CASE WHEN caffeine_mg IS NULL THEN 1 ELSE 0 END) AS unknown_caffeine_count,
             COALESCE(SUM(sugar_g), 0) AS total_sugar,
+            SUM(CASE WHEN sugar_g IS NULL THEN 1 ELSE 0 END) AS unknown_sugar_count,
             COALESCE(SUM(sodium_mg), 0) AS total_sodium,
+            SUM(CASE WHEN sodium_mg IS NULL THEN 1 ELSE 0 END) AS unknown_sodium_count,
             COALESCE(SUM(calories_kcal), 0) AS total_calories,
             COALESCE(SUM(CASE WHEN category = 'water' THEN 1 ELSE 0 END), 0) AS water_cups
         FROM food_log
@@ -963,6 +982,9 @@ def get_today_intake(
     total_sodium = intake["total_sodium"]
     total_calories = intake["total_calories"]
     water_cups = intake["water_cups"]
+    unknown_caffeine_count = intake["unknown_caffeine_count"]
+    unknown_sugar_count = intake["unknown_sugar_count"]
+    unknown_sodium_count = intake["unknown_sodium_count"]
 
     # 5. 잔여 허용량 계산
     remaining_caffeine = max(0, caffeine_limit - total_caffeine)
@@ -980,7 +1002,10 @@ def get_today_intake(
     sodium_percent = get_percent(total_sodium, sodium_limit)
 
     # 7. 상태 계산
-    def get_status(value, standard):
+    def get_status(value, standard, unknown_count):
+        if unknown_count > 0:
+            return "unknown"
+
         if standard <= 0:
             return "unknown"
 
@@ -993,14 +1018,16 @@ def get_today_intake(
         else:
             return "avoid"
 
-    caffeine_status = get_status(total_caffeine, caffeine_limit)
-    sugar_status = get_status(total_sugar, sugar_limit)
-    sodium_status = get_status(total_sodium, sodium_limit)
+    caffeine_status = get_status(total_caffeine, caffeine_limit, unknown_caffeine_count)
+    sugar_status = get_status(total_sugar, sugar_limit, unknown_sugar_count)
+    sodium_status = get_status(total_sodium, sodium_limit, unknown_sodium_count)
 
     statuses = [caffeine_status, sugar_status, sodium_status]
 
     if "avoid" in statuses:
         overall_status = "avoid"
+    elif "unknown" in statuses:
+        overall_status = "unknown"
     elif "caution" in statuses:
         overall_status = "caution"
     else:
@@ -1009,12 +1036,12 @@ def get_today_intake(
     # 8. 화면용 한글 라벨
     def status_label(status):
         if status == "safe":
-            return "충분"
+            return "여유"
         elif status == "caution":
             return "주의"
         elif status == "avoid":
             return "초과"
-        return "확인"
+        return "정보없음"
 
     # 9. Food Diary 하단 분석 메시지 생성
     messages = []
@@ -1025,18 +1052,24 @@ def get_today_intake(
     else:
         if overall_status == "safe":
             summary_title = "오늘은 아직 기준 이내예요 :)"
+        elif overall_status == "unknown":
+            summary_title = "오늘은 일부 정보가 확인되지 않았어요"
         elif overall_status == "caution":
             summary_title = "오늘은 섭취량을 조금 조심하세요 :)"
         else:
             summary_title = "오늘은 추가 섭취를 주의하세요!"
 
-        if caffeine_status == "caution":
+        if caffeine_status == "unknown":
+            messages.append("카페인 정보를 알 수 없는 음식이 있어요. 섭취량 확인이 어려워요.")
+        elif caffeine_status == "caution":
             messages.append("카페인 섭취량이 기준에 가까워지고 있어요.")
         elif caffeine_status == "avoid":
             messages.append("카페인 섭취량이 기준을 넘었어요. 오늘은 추가 섭취를 피하는 것이 좋아요.")
 
         if sugar_status == "safe":
             messages.append("당류는 현재 기준 이내예요.")
+        elif sugar_status == "unknown":
+            messages.append("당류 정보를 알 수 없는 음식이 있어요. 섭취량 확인이 어려워요.")
         elif sugar_status == "caution":
             messages.append("당류 수치가 높아지고 있어요. 달콤한 간식은 조금 조절해 주세요.")
         elif sugar_status == "avoid":
@@ -1044,6 +1077,8 @@ def get_today_intake(
 
         if sodium_status == "safe":
             messages.append("나트륨은 현재 기준 이내예요.")
+        elif sodium_status == "unknown":
+            messages.append("나트륨 정보를 알 수 없는 음식이 있어요. 섭취량 확인이 어려워요.")
         elif sodium_status == "caution":
             messages.append("나트륨 수치가 높아지고 있어요. 짠 음식은 조금 조심해 주세요.")
         elif sodium_status == "avoid":
@@ -1072,7 +1107,10 @@ def get_today_intake(
             "total_caffeine": total_caffeine,
             "total_sugar": total_sugar,
             "total_sodium": total_sodium,
-            "total_calories": total_calories
+            "total_calories": total_calories,
+            "unknown_caffeine_count": unknown_caffeine_count,
+            "unknown_sugar_count": unknown_sugar_count,
+            "unknown_sodium_count": unknown_sodium_count
         },
 
         "limits": {
@@ -1157,9 +1195,12 @@ def get_recommendations(
     cursor.execute("""
         SELECT
             DATE(eaten_at)   AS day,
-            SUM(caffeine_mg) AS day_caffeine,
-            SUM(sugar_g)     AS day_sugar,
-            SUM(sodium_mg)   AS day_sodium
+            COALESCE(SUM(caffeine_mg), 0) AS day_caffeine,
+            SUM(CASE WHEN caffeine_mg IS NULL THEN 1 ELSE 0 END) AS day_unknown_caffeine,
+            COALESCE(SUM(sugar_g), 0)     AS day_sugar,
+            SUM(CASE WHEN sugar_g IS NULL THEN 1 ELSE 0 END) AS day_unknown_sugar,
+            COALESCE(SUM(sodium_mg), 0)   AS day_sodium,
+            SUM(CASE WHEN sodium_mg IS NULL THEN 1 ELSE 0 END) AS day_unknown_sodium
         FROM food_log
         WHERE user_id = ? AND DATE(eaten_at) >= DATE(?, '-6 days')
         GROUP BY DATE(eaten_at)
@@ -1171,9 +1212,15 @@ def get_recommendations(
             "avg_caffeine_mg": round(sum(r["day_caffeine"] for r in week_rows) / n, 2),
             "avg_sugar_g":     round(sum(r["day_sugar"]    for r in week_rows) / n, 2),
             "avg_sodium_mg":   round(sum(r["day_sodium"]   for r in week_rows) / n, 2),
+            "unknown_caffeine_days": sum(r["day_unknown_caffeine"] for r in week_rows),
+            "unknown_sugar_days":    sum(r["day_unknown_sugar"]    for r in week_rows),
+            "unknown_sodium_days":   sum(r["day_unknown_sodium"]   for r in week_rows),
         }
     else:
-        week_pattern = {"avg_caffeine_mg": 0.0, "avg_sugar_g": 0.0, "avg_sodium_mg": 0.0}
+        week_pattern = {
+            "avg_caffeine_mg": 0.0, "avg_sugar_g": 0.0, "avg_sodium_mg": 0.0,
+            "unknown_caffeine_days": 0, "unknown_sugar_days": 0, "unknown_sodium_days": 0,
+        }
 
     # 3. 후보 식품 조회 (허용 소스만 사용)
     _ALLOWED_SOURCES = ("dish_db_download", "food_qr_api")
