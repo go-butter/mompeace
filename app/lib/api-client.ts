@@ -1,5 +1,5 @@
 // Dev-machine LAN IP ??update this if the network changes.
-export const API_BASE_URL = 'http://192.168.219.107:8000';
+export const API_BASE_URL = "http://192.168.45.86:8000";
 
 export interface RegisterRequest {
   nickname: string;

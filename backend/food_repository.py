@@ -70,8 +70,8 @@ def save_food_item(food_data: dict, source: str, db: sqlite3.Connection):
     )
 
     caffeine_mg = food_data.get("caffeine_mg")          # None 허용 (정보 없음 ≠ 0)
-    sugar_g = food_data.get("sugar_g", 0) or 0
-    sodium_mg = food_data.get("sodium_mg", 0) or 0
+    sugar_g = food_data.get("sugar_g")                  # None 허용 (정보 없음 ≠ 0)
+    sodium_mg = food_data.get("sodium_mg")               # None 허용 (정보 없음 ≠ 0)
     calories_kcal = food_data.get("calories_kcal", 0) or 0
     carbohydrate_g = food_data.get("carbohydrate_g")
     protein_g = food_data.get("protein_g")
