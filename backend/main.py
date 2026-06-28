@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 import sqlite3
+import calendar
 from datetime import date, datetime
 from backend.food_repository import save_food_item
 from backend.food_search_api import search_food_nutrition
@@ -414,11 +415,11 @@ def _compute_today_intake_totals(user_id: int, db: sqlite3.Connection) -> dict:
     cursor.execute("""
         SELECT
             COALESCE(SUM(caffeine_mg), 0) AS total_caffeine,
-            SUM(CASE WHEN caffeine_mg IS NULL THEN 1 ELSE 0 END) AS unknown_caffeine_count,
+            COALESCE(SUM(CASE WHEN caffeine_mg IS NULL THEN 1 ELSE 0 END), 0) AS unknown_caffeine_count,
             COALESCE(SUM(sugar_g), 0)    AS total_sugar,
-            SUM(CASE WHEN sugar_g IS NULL THEN 1 ELSE 0 END) AS unknown_sugar_count,
+            COALESCE(SUM(CASE WHEN sugar_g IS NULL THEN 1 ELSE 0 END), 0) AS unknown_sugar_count,
             COALESCE(SUM(sodium_mg), 0)  AS total_sodium,
-            SUM(CASE WHEN sodium_mg IS NULL THEN 1 ELSE 0 END) AS unknown_sodium_count
+            COALESCE(SUM(CASE WHEN sodium_mg IS NULL THEN 1 ELSE 0 END), 0) AS unknown_sodium_count
         FROM food_log
         WHERE user_id = ? AND DATE(eaten_at) = ?
     """, (user_id, today))
@@ -658,16 +659,11 @@ def _text_to_list(text):
     return [item.strip() for item in text.split(",") if item.strip()]
 
 
-@app.get("/food-log/today/{user_id}")
-def get_today_food_log(
-    user_id: int,
-    db: sqlite3.Connection = Depends(get_db)
-):
-    """오늘 먹은 음식 목록 조회: Food Diary 전체 보기 화면용"""
+def _fetch_food_log_for_date(user_id: int, target_date: str, db: sqlite3.Connection) -> dict:
+    """주어진 날짜에 먹은 음식 목록 조회: Food Diary 전체 보기 화면용"""
 
     cleanup_expired_food_logs(db)
     cursor = db.cursor()
-    today = date.today().isoformat()
 
     # 사용자 확인
     cursor.execute("SELECT user_id FROM users WHERE user_id = ?", (user_id,))
@@ -684,7 +680,7 @@ def get_today_food_log(
         ORDER BY food_log.eaten_at ASC
     """, (
         user_id,
-        today
+        target_date
     ))
 
     logs = cursor.fetchall()
@@ -784,10 +780,39 @@ def get_today_food_log(
 
     return {
         "user_id": user_id,
-        "date": today,
+        "date": target_date,
         "count": len(result),
         "logs": result
     }
+
+
+@app.get("/food-log/today/{user_id}")
+def get_today_food_log(
+    user_id: int,
+    db: sqlite3.Connection = Depends(get_db)
+):
+    """오늘 먹은 음식 목록 조회: Food Diary 전체 보기 화면용"""
+    today = date.today().isoformat()
+    return _fetch_food_log_for_date(user_id, today, db)
+
+
+@app.get("/food-log/by-date/{user_id}")
+def get_food_log_by_date(
+    user_id: int,
+    date: str = None,
+    db: sqlite3.Connection = Depends(get_db)
+):
+    """임의 날짜의 음식 기록 목록 조회: 캘린더 기반 Food Diary 화면용. date 미지정 시 오늘."""
+    from datetime import date as date_type
+    if date:
+        try:
+            target_date = date_type.fromisoformat(date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="날짜 형식이 올바르지 않습니다. YYYY-MM-DD 형식을 사용해 주세요.")
+    else:
+        target_date = date_type.today()
+
+    return _fetch_food_log_for_date(user_id, target_date.isoformat(), db)
 
 
 @app.post("/food-log/{log_id}/feedback")
@@ -900,16 +925,11 @@ def recalculate_user_sensitivity(
 
 # ── 오늘 누적 섭취량 ───────────────────────────────────
 
-@app.get("/intake/today/{user_id}")
-def get_today_intake(
-    user_id: int,
-    db: sqlite3.Connection = Depends(get_db)
-):
-    """오늘 누적 섭취량 계산 + Food Diary 화면용 응답"""
+def _fetch_intake_summary_for_date(user_id: int, target_date: str, db: sqlite3.Connection) -> dict:
+    """주어진 날짜의 누적 섭취량 계산 + Food Diary 화면용 응답"""
 
     cleanup_expired_food_logs(db)
     cursor = db.cursor()
-    today = date.today().isoformat()
 
     # 1. 사용자 확인
     cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
@@ -922,18 +942,18 @@ def get_today_intake(
     cursor.execute("""
         SELECT
             COALESCE(SUM(caffeine_mg), 0) AS total_caffeine,
-            SUM(CASE WHEN caffeine_mg IS NULL THEN 1 ELSE 0 END) AS unknown_caffeine_count,
+            COALESCE(SUM(CASE WHEN caffeine_mg IS NULL THEN 1 ELSE 0 END), 0) AS unknown_caffeine_count,
             COALESCE(SUM(sugar_g), 0) AS total_sugar,
-            SUM(CASE WHEN sugar_g IS NULL THEN 1 ELSE 0 END) AS unknown_sugar_count,
+            COALESCE(SUM(CASE WHEN sugar_g IS NULL THEN 1 ELSE 0 END), 0) AS unknown_sugar_count,
             COALESCE(SUM(sodium_mg), 0) AS total_sodium,
-            SUM(CASE WHEN sodium_mg IS NULL THEN 1 ELSE 0 END) AS unknown_sodium_count,
+            COALESCE(SUM(CASE WHEN sodium_mg IS NULL THEN 1 ELSE 0 END), 0) AS unknown_sodium_count,
             COALESCE(SUM(calories_kcal), 0) AS total_calories,
             COALESCE(SUM(CASE WHEN category = 'water' THEN 1 ELSE 0 END), 0) AS water_cups
         FROM food_log
         WHERE user_id = ? AND DATE(eaten_at) = ?
     """, (
         user_id,
-        today
+        target_date
     ))
 
     intake = dict(cursor.fetchone())
@@ -1094,7 +1114,7 @@ def get_today_intake(
     # 10. 프론트 카드용 응답
     return {
         "user_id": user_id,
-        "date": today,
+        "date": target_date,
         "pregnancy_week": week,
         "pregnancy_day": computed_age["day"],
         "due_date": user.get("due_date"),
@@ -1151,6 +1171,80 @@ def get_today_intake(
         },
 
         "note": limit["note"]
+    }
+
+
+@app.get("/intake/today/{user_id}")
+def get_today_intake(
+    user_id: int,
+    db: sqlite3.Connection = Depends(get_db)
+):
+    """오늘 누적 섭취량 계산 + Food Diary 화면용 응답"""
+    today = date.today().isoformat()
+    return _fetch_intake_summary_for_date(user_id, today, db)
+
+
+@app.get("/intake/by-date/{user_id}")
+def get_intake_by_date(
+    user_id: int,
+    date: str = None,
+    db: sqlite3.Connection = Depends(get_db)
+):
+    """임의 날짜의 누적 섭취량 조회: 캘린더 기반 Food Diary 화면용. date 미지정 시 오늘."""
+    from datetime import date as date_type
+    if date:
+        try:
+            target_date = date_type.fromisoformat(date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="날짜 형식이 올바르지 않습니다. YYYY-MM-DD 형식을 사용해 주세요.")
+    else:
+        target_date = date_type.today()
+
+    return _fetch_intake_summary_for_date(user_id, target_date.isoformat(), db)
+
+
+@app.get("/food-log/calendar/{user_id}")
+def get_food_log_calendar(
+    user_id: int,
+    year: int,
+    month: int,
+    db: sqlite3.Connection = Depends(get_db)
+):
+    """월 단위로 음식 기록이 있는 날짜 목록 조회: 캘린더 점 표시용"""
+    from datetime import date as date_type
+
+    if not (1 <= month <= 12):
+        raise HTTPException(status_code=400, detail="month는 1에서 12 사이여야 합니다.")
+
+    cleanup_expired_food_logs(db)
+    cursor = db.cursor()
+
+    cursor.execute("SELECT user_id FROM users WHERE user_id = ?", (user_id,))
+    if not cursor.fetchone():
+        raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
+
+    _, last_day_num = calendar.monthrange(year, month)
+    first_day = date_type(year, month, 1)
+    last_day = date_type(year, month, last_day_num)
+
+    cursor.execute("""
+        SELECT DISTINCT DATE(eaten_at) AS log_date
+        FROM food_log
+        WHERE user_id = ? AND DATE(eaten_at) BETWEEN ? AND ?
+        ORDER BY log_date
+    """, (
+        user_id,
+        first_day.isoformat(),
+        last_day.isoformat()
+    ))
+
+    dates = [row["log_date"] for row in cursor.fetchall()]
+
+    return {
+        "user_id": user_id,
+        "year": year,
+        "month": month,
+        "dates": dates
     }
 
 
