@@ -8,7 +8,7 @@ backend/main.py 의 get_today_food_log() 테스트.
 """
 from datetime import date
 
-from backend.main import get_today_food_log
+from backend.routers.food_log import get_today_food_log
 
 from .conftest import make_food_log, make_user
 

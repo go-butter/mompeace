@@ -6,7 +6,7 @@ backend/main.py 의 get_today_intake() 테스트.
 - due_date가 미래로 설정되어 있으면 days_until_due는 양의 정수다
 - due_date가 없으면 days_until_due는 None이다
 """
-from backend.main import get_today_intake
+from backend.routers.intake import get_today_intake
 
 from .conftest import make_user
 
