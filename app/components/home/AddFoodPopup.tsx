@@ -1,10 +1,24 @@
 import { router } from 'expo-router';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Dimensions, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import Animated, {
+  interpolate,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import BarcodeIcon from '@/assets/images/common/tab_barcode.svg';
 import SearchIcon from '@/assets/images/scan/search.svg';
 import { authColors } from '@/components/auth/colors';
 import { fonts, nanumSquareRound } from '@/constants/fonts';
+
+const SCREEN_HEIGHT = Dimensions.get('window').height;
+const ENTER_SPRING_CONFIG = { damping: 20, stiffness: 90, mass: 1 };
+const EXIT_SPRING_CONFIG = { damping: 22, stiffness: 60, mass: 1.2 };
 
 export default function AddFoodPopup({
   visible,
@@ -15,46 +29,119 @@ export default function AddFoodPopup({
   onClose: () => void;
   selectedDate: string;
 }) {
+  const insets = useSafeAreaInsets();
+  const [internalVisible, setInternalVisible] = useState(visible);
+  const progress = useSharedValue(0);
+  const isClosingRef = useRef(false);
+  const barcodeScale = useSharedValue(1);
+  const searchScale = useSharedValue(1);
+
+  useEffect(() => {
+    if (visible) {
+      isClosingRef.current = false;
+      setInternalVisible(true);
+      progress.value = withSpring(1, ENTER_SPRING_CONFIG);
+    }
+  }, [visible]);
+
+  const runDismiss = () => {
+    if (isClosingRef.current) return;
+    isClosingRef.current = true;
+    progress.value = withSpring(0, EXIT_SPRING_CONFIG, (finished) => {
+      if (finished) {
+        runOnJS(setInternalVisible)(false);
+        runOnJS(onClose)();
+      }
+    });
+  };
+
   const goToBarcodeScan = () => {
-    onClose();
+    runDismiss();
     router.push('/(tabs)/scan');
   };
 
   const goToSearch = () => {
-    onClose();
+    runDismiss();
     router.push({ pathname: '/(tabs)/home/food-entry-search', params: { date: selectedDate } });
   };
 
+  const isToday = selectedDate === new Date().toISOString().slice(0, 10);
+  const subtitle = isToday
+    ? '먹은 음식을 편하게 기록해 보세요 :)'
+    : '그날 먹은 음식을 편하게 기록해 보세요 :)';
+
+  const backdropAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: progress.value,
+  }));
+
+  const sheetAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: interpolate(progress.value, [0, 1], [SCREEN_HEIGHT, 0]) }],
+  }));
+
+  const barcodeCardStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: barcodeScale.value }],
+  }));
+
+  const searchCardStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: searchScale.value }],
+  }));
+
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose}>
-        <Pressable style={styles.sheet} onPress={() => {}}>
-          <Text style={styles.title}>음식 추가하기</Text>
-          <Text style={styles.subtitle}>오늘 먹은 음식을 편하게 기록해 보세요 :)</Text>
+    <Modal visible={internalVisible} transparent animationType="none" onRequestClose={runDismiss}>
+      <Animated.View style={[{ flex: 1 }, backdropAnimatedStyle]}>
+        <Pressable style={styles.backdrop} onPress={runDismiss}>
+          <Animated.View style={sheetAnimatedStyle}>
+            <Pressable
+              style={[styles.sheet, { paddingBottom: styles.sheet.paddingBottom + insets.bottom }]}
+              onPress={() => {}}>
+              <Text style={styles.title}>새 식사 기록하기</Text>
+              <Text style={styles.subtitle}>{subtitle}</Text>
 
-          <View style={styles.buttonRow}>
-            <Pressable style={styles.optionButtonPrimary} onPress={goToBarcodeScan}>
-              <BarcodeIcon width={31} height={32} />
-              <Text style={styles.optionLabelPrimary}>바코드 스캔</Text>
-              <Text style={styles.optionDescPrimary}>마트·편의점 상품{'\n'}빠르게 기록</Text>
+              <View style={styles.buttonRow}>
+                <Pressable
+                  style={styles.optionButton}
+                  onPress={goToBarcodeScan}
+                  onPressIn={() => {
+                    barcodeScale.value = withTiming(0.97, { duration: 90 });
+                  }}
+                  onPressOut={() => {
+                    barcodeScale.value = withTiming(1, { duration: 90 });
+                  }}>
+                  <Animated.View style={barcodeCardStyle}>
+                    <View style={styles.optionIconWrap}>
+                      <BarcodeIcon width={31} height={32} color={authColors.pink} />
+                    </View>
+                    <Text style={styles.optionLabel}>바코드 스캔</Text>
+                    <Text style={styles.optionDesc}>마트·편의점 상품{'\n'}빠르게 기록</Text>
+                  </Animated.View>
+                </Pressable>
+
+                <Pressable
+                  style={styles.optionButton}
+                  onPress={goToSearch}
+                  onPressIn={() => {
+                    searchScale.value = withTiming(0.97, { duration: 90 });
+                  }}
+                  onPressOut={() => {
+                    searchScale.value = withTiming(1, { duration: 90 });
+                  }}>
+                  <Animated.View style={searchCardStyle}>
+                    <View style={styles.optionIconWrap}>
+                      <SearchIcon width={32} height={32} />
+                    </View>
+                    <Text style={styles.optionLabel}>음식 검색 및{'\n'}직접 입력</Text>
+                    <Text style={styles.optionDesc}>카페 음료·식사 메뉴{'\n'}검색/직접 기록</Text>
+                  </Animated.View>
+                </Pressable>
+              </View>
+
+              <Pressable onPress={runDismiss}>
+                <Text style={styles.cancelText}>취소하기</Text>
+              </Pressable>
             </Pressable>
-
-            <Pressable style={styles.optionButton} onPress={goToSearch}>
-              <SearchIcon width={32} height={32} />
-              <Text style={styles.optionLabel}>음식 검색 및{'\n'}직접 입력</Text>
-              <Text style={styles.optionDesc}>카페 음료·식사 메뉴{'\n'}검색/직접 기록</Text>
-            </Pressable>
-          </View>
-
-          <Pressable style={styles.addButton} onPress={goToSearch}>
-            <Text style={styles.addButtonText}>추가하기</Text>
-          </Pressable>
-
-          <Pressable onPress={onClose}>
-            <Text style={styles.cancelText}>취소하기</Text>
-          </Pressable>
+          </Animated.View>
         </Pressable>
-      </Pressable>
+      </Animated.View>
     </Modal>
   );
 }
@@ -77,75 +164,46 @@ const styles = StyleSheet.create({
     fontFamily: fonts.medium,
     fontSize: 25,
     color: '#000000',
-    textAlign: 'center',
+    textAlign: 'left',
   },
   subtitle: {
     fontFamily: nanumSquareRound.regular,
     fontSize: 15,
     color: authColors.gray,
-    marginTop: 16,
+    marginTop: 8,
   },
   buttonRow: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 18,
     marginTop: 16,
-  },
-  optionButtonPrimary: {
-    flex: 1,
-    backgroundColor: '#FFF5F3',
-    borderWidth: 1,
-    borderColor: authColors.pink,
-    borderRadius: 10,
-    paddingVertical: 18,
-    alignItems: 'center',
-    gap: 8,
   },
   optionButton: {
     flex: 1,
     backgroundColor: '#FFF5F3',
     borderWidth: 1,
     borderColor: authColors.border,
-    borderRadius: 10,
-    paddingVertical: 18,
+    borderRadius: 18,
+    paddingVertical: 12,
     alignItems: 'center',
-    gap: 8,
   },
-  optionLabelPrimary: {
-    fontFamily: fonts.medium,
-    fontSize: 13,
-    color: '#000000',
-    textAlign: 'center',
+  optionIconWrap: {
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   optionLabel: {
     fontFamily: fonts.medium,
-    fontSize: 12,
+    fontSize: 14,
     color: '#000000',
     textAlign: 'center',
-  },
-  optionDescPrimary: {
-    fontFamily: nanumSquareRound.regular,
-    fontSize: 11,
-    color: authColors.gray,
-    textAlign: 'center',
+    marginTop: 8,
   },
   optionDesc: {
     fontFamily: nanumSquareRound.regular,
     fontSize: 11,
     color: authColors.gray,
     textAlign: 'center',
-  },
-  addButton: {
-    marginTop: 20,
-    backgroundColor: authColors.pink,
-    borderRadius: 100,
-    height: 51,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  addButtonText: {
-    fontFamily: nanumSquareRound.bold,
-    fontSize: 19,
-    color: authColors.white,
+    marginTop: 4,
   },
   cancelText: {
     fontFamily: nanumSquareRound.bold,

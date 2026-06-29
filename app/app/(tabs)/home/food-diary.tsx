@@ -3,8 +3,10 @@ import { router } from 'expo-router';
 import { useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated, { interpolate, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 
 import PrevIcon from '@/assets/images/common/prev.svg';
+import DownIcon from '@/assets/images/common/down.svg';
 import RemainCoffeeIcon from '@/assets/images/home/home_remain_coffee.svg';
 import { authColors } from '@/components/auth/colors';
 import { homeColors } from '@/components/home/colors';
@@ -13,6 +15,8 @@ import Calendar from '@/components/home/Calendar';
 import { fonts } from '@/constants/fonts';
 import { useFoodDiary } from '@/context/food-diary-context';
 import { FoodLogEntry } from '@/lib/api-client';
+
+const EXPAND_SPRING_CONFIG = { damping: 16, stiffness: 100, mass: 1 };
 
 function StatusChip({
   label,
@@ -61,6 +65,26 @@ export default function FoodDiaryScreen() {
 
   const [popupVisible, setPopupVisible] = useState(false);
 
+  const [summaryExpanded, setSummaryExpanded] = useState(false);
+  const expandProgress = useSharedValue(0);
+  const summaryContentHeight = useSharedValue(0);
+
+  const toggleSummaryExpanded = () => {
+    const next = !summaryExpanded;
+    setSummaryExpanded(next);
+    expandProgress.value = withSpring(next ? 1 : 0, EXPAND_SPRING_CONFIG);
+  };
+
+  const summaryContentAnimatedStyle = useAnimatedStyle(() => ({
+    height: interpolate(expandProgress.value, [0, 1], [0, summaryContentHeight.value]),
+    opacity: expandProgress.value,
+    transform: [{ scaleY: interpolate(expandProgress.value, [0, 1], [0.85, 1]) }],
+  }));
+
+  const chevronAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${interpolate(expandProgress.value, [0, 1], [0, 180])}deg` }],
+  }));
+
   const caffeinePercent = intake ? Math.min(intake.progress.caffeine_percent, 100) : 0;
   const hasEntries = foodLog.length > 0;
 
@@ -84,71 +108,91 @@ export default function FoodDiaryScreen() {
         />
 
         <View style={styles.card}>
-          <View style={styles.cardHeaderRow}>
-            <Text style={styles.cardTitle}>섭취 요약</Text>
-            <Text style={styles.cardSubtitle}>기준: 주차별 1일 권장 허용량</Text>
-          </View>
+          <Pressable style={styles.cardHeaderRow} onPress={toggleSummaryExpanded} hitSlop={8}>
+            <View style={styles.cardHeaderTitleGroup}>
+              <Text style={styles.cardTitle}>섭취 요약</Text>
+              <Text style={styles.cardSubtitle}>기준: 주차별 1일 권장 허용량</Text>
+            </View>
+            <Animated.View style={chevronAnimatedStyle}>
+              <DownIcon width={19} height={19} />
+            </Animated.View>
+          </Pressable>
 
-          {loading ? (
-            <ActivityIndicator size="small" color={authColors.pink} style={{ marginVertical: 24 }} />
-          ) : error || !intake ? (
-            <Text style={styles.errorText}>{error || '데이터를 불러오지 못했습니다.'}</Text>
-          ) : !hasEntries ? (
-            <Text style={styles.emptyMessage}>
-              {isToday
-                ? '오늘 섭취한 음식이 추가되지 않았습니다!\nFood Diary 혹은 바코드 스캔을 통해\n음식을 추가해 주세요 :)'
-                : '이 날에는 기록된 음식이 없어요.'}
-            </Text>
-          ) : (
-            <>
-              <View style={styles.intakeRow}>
-                <View style={styles.caffeineBox}>
-                  <Text style={styles.caffeineLabel}>☕ 카페인</Text>
-                  <Text style={styles.caffeineValueWrapper}>
-                    <Text style={styles.caffeineValueNumber}>{intake.intake.total_caffeine}</Text>
-                    <Text style={styles.caffeineValueUnit}> / {intake.limits.caffeine_limit_mg}mg</Text>
-                  </Text>
-                  <View style={styles.progressRow}>
-                    <View style={styles.progressBarTrack}>
-                      <View style={[styles.progressBarFill, { width: `${caffeinePercent}%` }]} />
+          <Animated.View style={[styles.summaryContentOuter, summaryContentAnimatedStyle]}>
+            <View
+              onLayout={(event) => {
+                summaryContentHeight.value = event.nativeEvent.layout.height;
+              }}>
+              {loading ? (
+                <ActivityIndicator size="small" color={authColors.pink} style={{ marginVertical: 24 }} />
+              ) : error || !intake ? (
+                <Text style={styles.errorText}>{error || '데이터를 불러오지 못했습니다.'}</Text>
+              ) : !hasEntries ? (
+                <Text style={styles.emptyMessage}>
+                  {isToday
+                    ? '오늘 섭취한 음식이 추가되지 않았습니다!\nFood Diary 혹은 바코드 스캔을 통해\n음식을 추가해 주세요 :)'
+                    : '이 날에는 기록된 음식이 없어요.'}
+                </Text>
+              ) : (
+                <>
+                  <View style={styles.intakeRow}>
+                    <View style={styles.caffeineBox}>
+                      <Text style={styles.caffeineLabel}>☕ 카페인</Text>
+                      <Text style={styles.caffeineValueWrapper}>
+                        <Text style={styles.caffeineValueNumber}>{intake.intake.total_caffeine}</Text>
+                        <Text style={styles.caffeineValueUnit}> / {intake.limits.caffeine_limit_mg}mg</Text>
+                      </Text>
+                      <View style={styles.progressRow}>
+                        <View style={styles.progressBarTrack}>
+                          <View style={[styles.progressBarFill, { width: `${caffeinePercent}%` }]} />
+                        </View>
+                        <Text style={styles.caffeinePercent}>{intake.progress.caffeine_percent}%</Text>
+                      </View>
                     </View>
-                    <Text style={styles.caffeinePercent}>{intake.progress.caffeine_percent}%</Text>
+                    <View style={styles.remainingBox}>
+                      <LinearGradient
+                        colors={['#FEF6F6', '#FEEBEA']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 0, y: 1 }}
+                        style={StyleSheet.absoluteFillObject}
+                      />
+                      <RemainCoffeeIcon
+                        width={100}
+                        height={100}
+                        style={[styles.remainingIcon, { right: -10, top: 16 }]}
+                      />
+                      <Text style={styles.remainingLabel}>잔여 허용량</Text>
+                      <Text style={styles.remainingValueWrapper}>
+                        <Text style={styles.remainingValueNumber}>
+                          {intake.remaining.remaining_caffeine}
+                        </Text>
+                        <Text style={styles.remainingValueUnit}>mg</Text>
+                      </Text>
+                    </View>
                   </View>
-                </View>
-                <View style={styles.remainingBox}>
-                  <LinearGradient
-                    colors={['#FEF6F6', '#FEEBEA']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 0, y: 1 }}
-                    style={StyleSheet.absoluteFillObject}
-                  />
-                  <RemainCoffeeIcon
-                    width={100}
-                    height={100}
-                    style={[styles.remainingIcon, { right: -10, top: 16 }]}
-                  />
-                  <Text style={styles.remainingLabel}>잔여 허용량</Text>
-                  <Text style={styles.remainingValueWrapper}>
-                    <Text style={styles.remainingValueNumber}>
-                      {intake.remaining.remaining_caffeine}
-                    </Text>
-                    <Text style={styles.remainingValueUnit}>mg</Text>
-                  </Text>
-                </View>
-              </View>
 
-              <View style={styles.chipRow}>
-                <StatusChip label="당류" value={intake.status_label.sugar} colors={homeColors.sugar} />
-                <StatusChip
-                  label="나트륨"
-                  value={intake.status_label.sodium}
-                  colors={homeColors.sodium}
-                />
-                <StatusChip label="알레르기" value="안전" colors={homeColors.allergy} />
-                <StatusChip label="물" value={`${intake.water_cups ?? 0}잔`} colors={homeColors.water} />
-              </View>
-            </>
-          )}
+                  <View style={styles.chipRow}>
+                    <StatusChip
+                      label="당류"
+                      value={intake.status_label.sugar}
+                      colors={homeColors.sugar}
+                    />
+                    <StatusChip
+                      label="나트륨"
+                      value={intake.status_label.sodium}
+                      colors={homeColors.sodium}
+                    />
+                    <StatusChip label="알레르기" value="안전" colors={homeColors.allergy} />
+                    <StatusChip
+                      label="물"
+                      value={`${intake.water_cups ?? 0}잔`}
+                      colors={homeColors.water}
+                    />
+                  </View>
+                </>
+              )}
+            </View>
+          </Animated.View>
 
           <Pressable onPress={() => router.push('/(tabs)/home/premium-report')}>
             <Text style={styles.premiumLink}>프리미엄 리포트 보기 {'>'}</Text>
@@ -228,6 +272,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
+  cardHeaderTitleGroup: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 6,
+  },
   cardTitle: {
     fontFamily: fonts.medium,
     fontSize: 16,
@@ -237,6 +286,9 @@ const styles = StyleSheet.create({
     fontFamily: fonts.regular,
     fontSize: 11,
     color: authColors.gray,
+  },
+  summaryContentOuter: {
+    overflow: 'hidden',
   },
   errorText: {
     fontFamily: fonts.regular,
