@@ -106,6 +106,23 @@ def init_db():
     add_column_if_not_exists(cursor, "food_items", "data_source", "TEXT")
     add_column_if_not_exists(cursor, "food_items", "notes", "TEXT")
 
+    # 2-1. UserFoodItem 테이블 (사용자가 직접 입력한 개인 음식 정보, food_items 카탈로그와 분리)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS user_food_items (
+            user_food_item_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id        INTEGER NOT NULL,
+            food_name       TEXT NOT NULL,
+            caffeine_mg     REAL,
+            sugar_g         REAL DEFAULT 0,
+            sodium_mg       REAL DEFAULT 0,
+            calories_kcal   REAL DEFAULT 0,
+            carbohydrate_g  REAL,
+            protein_g       REAL,
+            created_at      TEXT DEFAULT (datetime('now', 'localtime')),
+            FOREIGN KEY (user_id) REFERENCES users(user_id)
+        )
+    """)
+
     # 3. FoodLog 테이블 (사용자 섭취 기록)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS food_log (

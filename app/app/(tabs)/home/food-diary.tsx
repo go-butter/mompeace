@@ -1,5 +1,6 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
+import { useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -7,6 +8,7 @@ import PrevIcon from '@/assets/images/common/prev.svg';
 import RemainCoffeeIcon from '@/assets/images/home/home_remain_coffee.svg';
 import { authColors } from '@/components/auth/colors';
 import { homeColors } from '@/components/home/colors';
+import AddFoodPopup from '@/components/home/AddFoodPopup';
 import Calendar from '@/components/home/Calendar';
 import { fonts } from '@/constants/fonts';
 import { useFoodDiary } from '@/context/food-diary-context';
@@ -56,6 +58,8 @@ export default function FoodDiaryScreen() {
     error,
     isToday,
   } = useFoodDiary();
+
+  const [popupVisible, setPopupVisible] = useState(false);
 
   const caffeinePercent = intake ? Math.min(intake.progress.caffeine_percent, 100) : 0;
   const hasEntries = foodLog.length > 0;
@@ -160,17 +164,21 @@ export default function FoodDiaryScreen() {
         ListHeaderComponent={
           <View style={styles.listHeaderRow}>
             <Text style={styles.cardTitle}>식사 기록</Text>
-            {isToday && (
-              <Pressable onPress={() => {}}>
-                <Text style={styles.addButtonText}>+ 음식 추가하기</Text>
-              </Pressable>
-            )}
+            <Pressable onPress={() => setPopupVisible(true)}>
+              <Text style={styles.addButtonText}>+ 음식 추가하기</Text>
+            </Pressable>
           </View>
         }
         renderItem={({ item }) => <FoodLogRow entry={item} />}
         ListEmptyComponent={
           !loading ? <Text style={styles.emptyListText}>기록된 음식이 없어요.</Text> : null
         }
+      />
+
+      <AddFoodPopup
+        visible={popupVisible}
+        onClose={() => setPopupVisible(false)}
+        selectedDate={selectedDate}
       />
     </View>
   );

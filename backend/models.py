@@ -46,6 +46,7 @@ class FoodLogCreate(BaseModel):
     carbohydrate_g: Optional[float] = None
     protein_g: Optional[float] = None
     food_id: Optional[int] = None
+    eaten_at: Optional[str] = None
 
 
 class FoodLogFromFood(BaseModel):
@@ -53,6 +54,17 @@ class FoodLogFromFood(BaseModel):
     food_id: int
     amount: float = 1.0
     unit: str = "개"
+
+
+class UserFoodItemCreate(BaseModel):
+    user_id: int
+    food_name: str
+    caffeine_mg: Optional[float] = None
+    sugar_g: float = 0
+    sodium_mg: float = 0
+    calories_kcal: float = 0
+    carbohydrate_g: Optional[float] = None
+    protein_g: Optional[float] = None
 
 
 class RecommendationRequest(BaseModel):

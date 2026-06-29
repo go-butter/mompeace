@@ -189,11 +189,56 @@ export interface FoodLogCreateRequest {
   carbohydrate_g?: number | null;
   protein_g?: number | null;
   food_id?: number | null;
+  eaten_at?: string;
 }
 
 export interface FoodLogCreateResponse {
   log_id: number;
   message: string;
+}
+
+export interface UserFoodItemCreateRequest {
+  user_id: number;
+  food_name: string;
+  caffeine_mg?: number | null;
+  sugar_g?: number;
+  sodium_mg?: number;
+  calories_kcal?: number;
+  carbohydrate_g?: number | null;
+  protein_g?: number | null;
+}
+
+export interface UserFoodItemCreateResponse {
+  user_food_item_id: number;
+  message: string;
+}
+
+export interface PersonalFoodData {
+  user_food_item_id: number;
+  user_id: number;
+  food_name: string;
+  caffeine_mg: number | null;
+  sugar_g: number;
+  sodium_mg: number;
+  calories_kcal: number;
+  carbohydrate_g: number | null;
+  protein_g: number | null;
+  created_at: string;
+}
+
+export interface FoodSearchResultItem {
+  source: 'personal' | 'food_nutrition_api';
+  food_id: number;
+  data: PersonalFoodData | Record<string, any>;
+  risk: BarcodeRisk | null;
+}
+
+export interface FoodSearchResponse {
+  query: string;
+  count: number;
+  page_no: number;
+  num_of_rows: number;
+  results: FoodSearchResultItem[];
 }
 
 export interface FoodLogCalendarDay {
@@ -317,4 +362,20 @@ export function getFoodLogCalendar(
 
 export function getPremiumStatus(userId: number): Promise<PremiumStatusResponse> {
   return get(`/premium/status/${userId}`);
+}
+
+export function createPersonalFoodItem(
+  body: UserFoodItemCreateRequest
+): Promise<UserFoodItemCreateResponse> {
+  return post('/foods/personal', body);
+}
+
+export function searchFoods(
+  query: string,
+  userId: number,
+  pregnancyWeek: number
+): Promise<FoodSearchResponse> {
+  return get(
+    `/foods/search?query=${encodeURIComponent(query)}&user_id=${userId}&pregnancy_week=${pregnancyWeek}`
+  );
 }

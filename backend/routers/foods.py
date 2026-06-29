@@ -1,4 +1,5 @@
 import sqlite3
+from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Depends
 
@@ -6,6 +7,7 @@ from backend.database import get_db
 from backend.food_repository import save_food_item
 from backend.food_search_api import search_food_nutrition
 from backend.foodqr import get_food_info, simplify_food_info
+from backend.models import UserFoodItemCreate
 from backend.risk import evaluate_food_risk
 
 router = APIRouter()
@@ -113,15 +115,17 @@ def search_food(
     pregnancy_week: int = 20,
     page_no: int = 1,
     num_of_rows: int = 10,
+    user_id: Optional[int] = None,
     db: sqlite3.Connection = Depends(get_db)
 ):
     """
     음식명 검색
 
-    1. 식품영양성분DB API에서 음식명으로 검색
-    2. 검색 결과를 앱용 데이터로 정리
-    3. food_items 테이블에 저장/업데이트
-    4. 임신 주차 기준 위험도 판단 결과 포함
+    1. (user_id가 주어진 경우) user_food_items에서 개인 기록 먼저 검색
+    2. 식품영양성분DB API에서 음식명으로 검색
+    3. 검색 결과를 앱용 데이터로 정리
+    4. food_items 테이블에 저장/업데이트
+    5. 임신 주차 기준 위험도 판단 결과 포함
     """
 
     if not query or query.strip() == "":
@@ -129,6 +133,22 @@ def search_food(
             status_code=400,
             detail="검색어를 입력해 주세요."
         )
+
+    personal_results = []
+    if user_id is not None:
+        cursor = db.cursor()
+        cursor.execute(
+            "SELECT * FROM user_food_items WHERE user_id = ? AND food_name LIKE ?",
+            (user_id, f"%{query}%"),
+        )
+        for row in cursor.fetchall():
+            row = dict(row)
+            personal_results.append({
+                "source": "personal",
+                "food_id": row["user_food_item_id"],
+                "data": row,
+                "risk": None,
+            })
 
     try:
         foods = search_food_nutrition(
@@ -163,10 +183,62 @@ def search_food(
             "risk": risk_result
         })
 
+    results = personal_results + results
+
     return {
         "query": query,
         "count": len(results),
         "page_no": page_no,
         "num_of_rows": num_of_rows,
         "results": results
+    }
+
+
+@router.post("/foods/personal")
+def create_personal_food_item(
+    item: UserFoodItemCreate,
+    db: sqlite3.Connection = Depends(get_db)
+):
+    """
+    개인 음식 정보 저장 (직접 입력/검색 화면에서 사용)
+
+    동일 사용자가 같은 food_name으로 이미 저장한 적이 있으면 중복 생성하지 않고
+    기존 항목을 그대로 반환한다.
+    """
+    cursor = db.cursor()
+
+    cursor.execute("SELECT * FROM users WHERE user_id = ?", (item.user_id,))
+    if not cursor.fetchone():
+        raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
+
+    cursor.execute(
+        "SELECT user_food_item_id FROM user_food_items WHERE user_id = ? AND food_name = ?",
+        (item.user_id, item.food_name),
+    )
+    existing = cursor.fetchone()
+    if existing:
+        return {
+            "user_food_item_id": existing["user_food_item_id"],
+            "message": "이미 저장된 음식 정보입니다."
+        }
+
+    cursor.execute("""
+        INSERT INTO user_food_items
+        (user_id, food_name, caffeine_mg, sugar_g, sodium_mg, calories_kcal, carbohydrate_g, protein_g)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        item.user_id,
+        item.food_name,
+        item.caffeine_mg,
+        item.sugar_g,
+        item.sodium_mg,
+        item.calories_kcal,
+        item.carbohydrate_g,
+        item.protein_g,
+    ))
+    db.commit()
+
+    return {
+        "user_food_item_id": cursor.lastrowid,
+        "message": "음식 정보 저장 완료"
     }

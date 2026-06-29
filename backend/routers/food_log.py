@@ -130,29 +130,55 @@ def create_food_log(
     # 행 형태(data_source 등)를 갖추지 못하므로 추천 판정을 호출하지 않는다.
     # recommendation_status/reason_nutrient는 NULL로 남는다.
 
-    cursor.execute("""
-        INSERT INTO food_log
-        (user_id, food_id, food_name, category, input_type, amount, unit,
-         caffeine_mg, sugar_g, sodium_mg, calories_kcal, carbohydrate_g, protein_g,
-         recommendation_status, reason_nutrient)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (
-        log.user_id,
-        log.food_id,
-        food_name,
-        category,
-        log.input_type,
-        log.amount,
-        log.unit,
-        caffeine_mg,
-        sugar_g,
-        sodium_mg,
-        calories_kcal,
-        carbohydrate_g,
-        protein_g,
-        recommendation_status,
-        reason_nutrient,
-    ))
+    if log.eaten_at is not None:
+        cursor.execute("""
+            INSERT INTO food_log
+            (user_id, food_id, food_name, category, input_type, amount, unit,
+             caffeine_mg, sugar_g, sodium_mg, calories_kcal, carbohydrate_g, protein_g,
+             recommendation_status, reason_nutrient, eaten_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            log.user_id,
+            log.food_id,
+            food_name,
+            category,
+            log.input_type,
+            log.amount,
+            log.unit,
+            caffeine_mg,
+            sugar_g,
+            sodium_mg,
+            calories_kcal,
+            carbohydrate_g,
+            protein_g,
+            recommendation_status,
+            reason_nutrient,
+            log.eaten_at,
+        ))
+    else:
+        cursor.execute("""
+            INSERT INTO food_log
+            (user_id, food_id, food_name, category, input_type, amount, unit,
+             caffeine_mg, sugar_g, sodium_mg, calories_kcal, carbohydrate_g, protein_g,
+             recommendation_status, reason_nutrient)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            log.user_id,
+            log.food_id,
+            food_name,
+            category,
+            log.input_type,
+            log.amount,
+            log.unit,
+            caffeine_mg,
+            sugar_g,
+            sodium_mg,
+            calories_kcal,
+            carbohydrate_g,
+            protein_g,
+            recommendation_status,
+            reason_nutrient,
+        ))
 
     db.commit()
 

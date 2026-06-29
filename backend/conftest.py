@@ -53,6 +53,20 @@ CREATE TABLE food_items (
     updated_at     TEXT DEFAULT (datetime('now'))
 );
 
+CREATE TABLE user_food_items (
+    user_food_item_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id        INTEGER NOT NULL,
+    food_name       TEXT NOT NULL,
+    caffeine_mg     REAL,
+    sugar_g         REAL DEFAULT 0,
+    sodium_mg       REAL DEFAULT 0,
+    calories_kcal   REAL DEFAULT 0,
+    carbohydrate_g  REAL,
+    protein_g       REAL,
+    created_at      TEXT DEFAULT (datetime('now', 'localtime')),
+    FOREIGN KEY (user_id) REFERENCES users(user_id)
+);
+
 CREATE TABLE food_log (
     log_id        INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id       INTEGER NOT NULL,
@@ -151,6 +165,24 @@ def make_food_log(db, user_id, **overrides):
     cursor = db.cursor()
     cursor.execute(
         f"INSERT INTO food_log ({cols}) VALUES ({placeholders})",
+        list(defaults.values()),
+    )
+    db.commit()
+    return cursor.lastrowid
+
+
+def make_user_food_item(db, user_id, **overrides):
+    """테스트용 user_food_items 행 한 개를 생성하고 user_food_item_id를 반환한다."""
+    defaults = {
+        "user_id": user_id,
+        "food_name": "테스트 개인 음식",
+    }
+    defaults.update(overrides)
+    cols = ", ".join(defaults.keys())
+    placeholders = ", ".join("?" for _ in defaults)
+    cursor = db.cursor()
+    cursor.execute(
+        f"INSERT INTO user_food_items ({cols}) VALUES ({placeholders})",
         list(defaults.values()),
     )
     db.commit()
