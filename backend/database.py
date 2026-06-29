@@ -247,28 +247,3 @@ def init_db():
     conn.commit()
     conn.close()
     print("✅ DB 초기화 완료")
-
-
-def cleanup_expired_food_logs(db):
-    """
-    프리미엄 여부에 따라 만료된 food_log 행을 삭제한다.
-    - 일반 사용자(is_premium=0 또는 NULL): 24시간 초과 삭제
-    - 프리미엄 사용자(is_premium=1): 7일 초과 삭제
-    food_items 는 절대 삭제하지 않는다.
-    """
-    cursor = db.cursor()
-    cursor.execute("""
-        DELETE FROM food_log
-        WHERE user_id IN (
-            SELECT user_id FROM users WHERE is_premium = 0 OR is_premium IS NULL
-        )
-        AND eaten_at < datetime('now', 'localtime', '-1 day')
-    """)
-    cursor.execute("""
-        DELETE FROM food_log
-        WHERE user_id IN (
-            SELECT user_id FROM users WHERE is_premium = 1
-        )
-        AND eaten_at < datetime('now', 'localtime', '-7 days')
-    """)
-    db.commit()

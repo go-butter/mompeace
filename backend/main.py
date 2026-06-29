@@ -1,7 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-import sqlite3
-from backend.database import init_db, cleanup_expired_food_logs, DB_PATH
+from backend.database import init_db
 from backend.routers import auth, foods, premium, users, food_log, intake, recommendation
 
 
@@ -24,10 +23,8 @@ async def force_utf8_charset(request, call_next):
     return response
 
 
-# ── 앱 시작 시 DB 초기화 및 만료 로그 정리 ──────────────
+# ── 앱 시작 시 DB 초기화 ──────────────────────────────
 init_db()
-with sqlite3.connect(DB_PATH) as _startup_db:
-    cleanup_expired_food_logs(_startup_db)
 
 
 # ── 기본 확인 ─────────────────────────────────────────

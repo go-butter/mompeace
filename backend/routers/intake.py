@@ -4,9 +4,9 @@ from datetime import date
 
 from fastapi import APIRouter, HTTPException, Depends
 
-from backend.database import get_db, cleanup_expired_food_logs
+from backend.database import get_db
 from backend.risk import calculate_current_pregnancy_age, calculate_days_until_due
-from backend.intake_totals import get_trimester_limits
+from backend.intake_totals import get_trimester_limits, get_status, compute_overall_status
 
 router = APIRouter()
 
@@ -14,7 +14,6 @@ router = APIRouter()
 def _fetch_intake_summary_for_date(user_id: int, target_date: str, db: sqlite3.Connection) -> dict:
     """주어진 날짜의 누적 섭취량 계산 + Food Diary 화면용 응답"""
 
-    cleanup_expired_food_logs(db)
     cursor = db.cursor()
 
     # 1. 사용자 확인
@@ -88,36 +87,11 @@ def _fetch_intake_summary_for_date(user_id: int, target_date: str, db: sqlite3.C
     sodium_percent = get_percent(total_sodium, sodium_limit)
 
     # 7. 상태 계산
-    def get_status(value, standard, unknown_count):
-        if unknown_count > 0:
-            return "unknown"
-
-        if standard <= 0:
-            return "unknown"
-
-        ratio = value / standard
-
-        if ratio <= 0.7:
-            return "safe"
-        elif ratio <= 1.0:
-            return "caution"
-        else:
-            return "avoid"
-
     caffeine_status = get_status(total_caffeine, caffeine_limit, unknown_caffeine_count)
     sugar_status = get_status(total_sugar, sugar_limit, unknown_sugar_count)
     sodium_status = get_status(total_sodium, sodium_limit, unknown_sodium_count)
 
-    statuses = [caffeine_status, sugar_status, sodium_status]
-
-    if "avoid" in statuses:
-        overall_status = "avoid"
-    elif "unknown" in statuses:
-        overall_status = "unknown"
-    elif "caution" in statuses:
-        overall_status = "caution"
-    else:
-        overall_status = "safe"
+    overall_status = compute_overall_status(caffeine_status, sugar_status, sodium_status)
 
     # 8. 화면용 한글 라벨
     def status_label(status):
@@ -282,21 +256,39 @@ def get_food_log_calendar(
     if not (1 <= month <= 12):
         raise HTTPException(status_code=400, detail="month는 1에서 12 사이여야 합니다.")
 
-    cleanup_expired_food_logs(db)
     cursor = db.cursor()
 
-    cursor.execute("SELECT user_id FROM users WHERE user_id = ?", (user_id,))
-    if not cursor.fetchone():
+    cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
+    user_row = cursor.fetchone()
+    if not user_row:
         raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
+    user = dict(user_row)
 
     _, last_day_num = calendar.monthrange(year, month)
     first_day = date_type(year, month, 1)
     last_day = date_type(year, month, last_day_num)
 
+    computed_age = calculate_current_pregnancy_age(
+        user.get("pregnancy_week"), user.get("pregnancy_day"), user.get("pregnancy_entered_at")
+    )
+    week = computed_age["week"] or 20
+    _, limits = get_trimester_limits(cursor, week)
+    caffeine_limit = limits["caffeine_mg"]
+    sugar_limit = limits["sugar_g"]
+    sodium_limit = limits["sodium_mg"]
+
     cursor.execute("""
-        SELECT DISTINCT DATE(eaten_at) AS log_date
+        SELECT
+            DATE(eaten_at) AS log_date,
+            COALESCE(SUM(caffeine_mg), 0) AS total_caffeine,
+            COALESCE(SUM(CASE WHEN caffeine_mg IS NULL THEN 1 ELSE 0 END), 0) AS unknown_caffeine_count,
+            COALESCE(SUM(sugar_g), 0) AS total_sugar,
+            COALESCE(SUM(CASE WHEN sugar_g IS NULL THEN 1 ELSE 0 END), 0) AS unknown_sugar_count,
+            COALESCE(SUM(sodium_mg), 0) AS total_sodium,
+            COALESCE(SUM(CASE WHEN sodium_mg IS NULL THEN 1 ELSE 0 END), 0) AS unknown_sodium_count
         FROM food_log
         WHERE user_id = ? AND DATE(eaten_at) BETWEEN ? AND ?
+        GROUP BY DATE(eaten_at)
         ORDER BY log_date
     """, (
         user_id,
@@ -304,11 +296,18 @@ def get_food_log_calendar(
         last_day.isoformat()
     ))
 
-    dates = [row["log_date"] for row in cursor.fetchall()]
+    days = []
+    for row in cursor.fetchall():
+        row = dict(row)
+        caffeine_status = get_status(row["total_caffeine"], caffeine_limit, row["unknown_caffeine_count"])
+        sugar_status = get_status(row["total_sugar"], sugar_limit, row["unknown_sugar_count"])
+        sodium_status = get_status(row["total_sodium"], sodium_limit, row["unknown_sodium_count"])
+        overall_status = compute_overall_status(caffeine_status, sugar_status, sodium_status)
+        days.append({"date": row["log_date"], "overall_status": overall_status})
 
     return {
         "user_id": user_id,
         "year": year,
         "month": month,
-        "dates": dates
+        "days": days
     }

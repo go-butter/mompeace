@@ -2,7 +2,7 @@ import sqlite3
 
 from fastapi import APIRouter, HTTPException, Depends
 
-from backend.database import get_db, cleanup_expired_food_logs
+from backend.database import get_db
 from backend.models import PremiumUpgradeRequest, PremiumStatusResponse
 from backend.risk import calculate_current_pregnancy_age
 from backend.intake_totals import get_trimester_limits
@@ -173,7 +173,6 @@ def get_premium_report(
     프리미엄 회원만 접근 가능.
     공식 의학 기준 아님.
     """
-    cleanup_expired_food_logs(db)
     cursor = db.cursor()
 
     # 1. 사용자 및 프리미엄 확인

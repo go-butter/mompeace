@@ -3,7 +3,7 @@ from datetime import date
 
 from fastapi import APIRouter, HTTPException, Depends
 
-from backend.database import get_db, cleanup_expired_food_logs
+from backend.database import get_db
 from backend.models import RecommendationRequest
 from backend.recommendation_model import recommend_food
 from backend.data_confidence import calculate_data_confidence
@@ -28,7 +28,6 @@ def get_recommendations(
     공식 의학 기준 아님.
     """
 
-    cleanup_expired_food_logs(db)
     cursor = db.cursor()
 
     # 1. 사용자 확인

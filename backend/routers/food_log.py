@@ -3,7 +3,7 @@ from datetime import date
 
 from fastapi import APIRouter, HTTPException, Depends
 
-from backend.database import get_db, cleanup_expired_food_logs
+from backend.database import get_db
 from backend.models import FoodLogCreate, FoodLogFromFood, FeedbackRequest
 from backend.recommendation_model import recommend_food
 from backend.risk import calculate_current_pregnancy_age
@@ -241,7 +241,6 @@ def _text_to_list(text):
 def _fetch_food_log_for_date(user_id: int, target_date: str, db: sqlite3.Connection) -> dict:
     """주어진 날짜에 먹은 음식 목록 조회: Food Diary 전체 보기 화면용"""
 
-    cleanup_expired_food_logs(db)
     cursor = db.cursor()
 
     # 사용자 확인
