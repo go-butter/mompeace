@@ -268,7 +268,7 @@ export default function HomeScreen() {
           icon={<CalendarIcon width={24} height={24} />}
           title="Food Diary"
           subtitle="음식 기록장"
-          onPress={() => {}}
+          onPress={() => router.push('/(tabs)/home/food-diary')}
         />
         <ShortcutButton
           icon={<NoteIcon width={24} height={24} />}

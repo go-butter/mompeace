@@ -30,6 +30,38 @@ def compute_today_intake_totals(user_id: int, db: sqlite3.Connection) -> dict:
     }
 
 
+def get_status(value, standard, unknown_count) -> str:
+    """단일 영양소 섭취 상태 판정 (safe/caution/avoid/unknown)."""
+    if unknown_count > 0:
+        return "unknown"
+
+    if standard <= 0:
+        return "unknown"
+
+    ratio = value / standard
+
+    if ratio <= 0.7:
+        return "safe"
+    elif ratio <= 1.0:
+        return "caution"
+    else:
+        return "avoid"
+
+
+def compute_overall_status(caffeine_status, sugar_status, sodium_status) -> str:
+    """카페인/당류/나트륨 상태를 종합한 전체 상태 (avoid > unknown > caution > safe)."""
+    statuses = [caffeine_status, sugar_status, sodium_status]
+
+    if "avoid" in statuses:
+        return "avoid"
+    elif "unknown" in statuses:
+        return "unknown"
+    elif "caution" in statuses:
+        return "caution"
+    else:
+        return "safe"
+
+
 def get_trimester_limits(cursor, pregnancy_week: int) -> tuple[str, dict]:
     """트라이메스터 판별 및 pregnancy_limits 조회"""
     if pregnancy_week <= 12:

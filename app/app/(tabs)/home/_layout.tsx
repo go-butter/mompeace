@@ -6,6 +6,8 @@ export default function HomeLayout() {
       <Stack.Screen name="index" />
       <Stack.Screen name="scan-result" />
       <Stack.Screen name="food-diary-list" />
+      <Stack.Screen name="food-diary" />
+      <Stack.Screen name="premium-report" />
     </Stack>
   );
 }

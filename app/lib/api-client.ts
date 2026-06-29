@@ -1,5 +1,5 @@
 // Dev-machine LAN IP ??update this if the network changes.
-export const API_BASE_URL = "http://192.168.45.86:8000";
+export const API_BASE_URL = "http://192.168.219.107:8000";
 
 export interface RegisterRequest {
   nickname: string;
@@ -196,6 +196,24 @@ export interface FoodLogCreateResponse {
   message: string;
 }
 
+export interface FoodLogCalendarDay {
+  date: string;
+  overall_status: 'safe' | 'caution' | 'avoid' | 'unknown';
+}
+
+export interface FoodLogCalendarResponse {
+  user_id: number;
+  year: number;
+  month: number;
+  days: FoodLogCalendarDay[];
+}
+
+export interface PremiumStatusResponse {
+  user_id: number;
+  is_premium: boolean;
+  message: string;
+}
+
 export class ApiError extends Error {}
 
 async function request<TReq, TRes>(method: 'POST' | 'PUT', path: string, body: TReq): Promise<TRes> {
@@ -207,7 +225,7 @@ async function request<TReq, TRes>(method: 'POST' | 'PUT', path: string, body: T
       body: JSON.stringify(body),
     });
   } catch {
-    throw new Error('?�버???�결?????�습?�다');
+    throw new Error('서버에 연결할 수 없습니다. 인터넷 연결을 확인해 주세요.');
   }
 
   const data = await res.json();
@@ -227,7 +245,7 @@ async function get<TRes>(path: string): Promise<TRes> {
       headers: { 'Content-Type': 'application/json' },
     });
   } catch {
-    throw new Error('?�버???�결?????�습?�다');
+    throw new Error('서버에 연결할 수 없습니다. 인터넷 연결을 확인해 주세요.');
   }
 
   const data = await res.json();
@@ -279,4 +297,24 @@ export function getFoodByBarcode(
 
 export function createFoodLog(body: FoodLogCreateRequest): Promise<FoodLogCreateResponse> {
   return post('/food-log', body);
+}
+
+export function getIntakeByDate(userId: number, date: string): Promise<IntakeTodayResponse> {
+  return get(`/intake/by-date/${userId}?date=${date}`);
+}
+
+export function getFoodLogByDate(userId: number, date: string): Promise<FoodLogTodayResponse> {
+  return get(`/food-log/by-date/${userId}?date=${date}`);
+}
+
+export function getFoodLogCalendar(
+  userId: number,
+  year: number,
+  month: number
+): Promise<FoodLogCalendarResponse> {
+  return get(`/food-log/calendar/${userId}?year=${year}&month=${month}`);
+}
+
+export function getPremiumStatus(userId: number): Promise<PremiumStatusResponse> {
+  return get(`/premium/status/${userId}`);
 }
