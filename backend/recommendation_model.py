@@ -168,14 +168,16 @@ def make_reason(
         return "오늘 누적 섭취량 기준으로 이 음식은 비추천이에요.", None
 
     if status == "caution":
-        if caffeine_missing and caffeine_keywords:
-            return "음식명에 카페인 관련 표현이 있어 카페인 함량 확인이 필요해요.", "caffeine"
-        if food.get("sugar_g") is None or food.get("sodium_mg") is None:
-            return "일부 영양성분 정보가 없어 주의가 필요해요.", None
+        if not caffeine_missing and (today_caffeine + food_caffeine) / limits["caffeine"] > 0.7:
+            return "카페인이 남은 허용량에 비해 높아 주의가 필요해요.", "caffeine"
         if (today_sugar + food_sugar) / limits["sugar"] > 0.7:
             return "당류가 남은 허용량에 비해 높아 주의가 필요해요.", "sugar"
         if (today_sodium + food_sodium) / limits["sodium"] > 0.7:
             return "나트륨이 오늘 기준에 가까워지고 있어요.", "sodium"
+        if caffeine_missing and caffeine_keywords:
+            return "음식명에 카페인 관련 표현이 있어 카페인 함량 확인이 필요해요.", "caffeine"
+        if food.get("sugar_g") is None or food.get("sodium_mg") is None:
+            return "일부 영양성분 정보가 없어 주의가 필요해요.", None
         return "오늘 섭취 흐름을 함께 확인해 주세요.", None
 
     # possible: 카페인이 실제 값으로 존재하면 카페인 안내 우선

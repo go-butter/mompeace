@@ -332,6 +332,46 @@ class TestMakeReason:
         assert reason_nutrient is None
         assert "비추천" in reason
 
+    def test_caution_picks_caffeine_when_caffeine_ratio_exceeds_0_7(self):
+        limit = DAILY_LIMITS["middle"]["caffeine"]
+        food = make_food(caffeine_mg=limit * 0.75)
+        reason, reason_nutrient = make_reason(
+            "caution", food, today_intake=make_intake(),
+            trimester="middle", allergy_match=0,
+        )
+        assert "카페인" in reason
+        assert reason_nutrient == "caffeine"
+
+    def test_caution_picks_sugar_when_sugar_ratio_exceeds_0_7(self):
+        limit = DAILY_LIMITS["middle"]["sugar"]
+        food = make_food(sugar_g=limit * 0.75)
+        reason, reason_nutrient = make_reason(
+            "caution", food, today_intake=make_intake(),
+            trimester="middle", allergy_match=0,
+        )
+        assert "당류" in reason
+        assert reason_nutrient == "sugar"
+
+    def test_caution_picks_sodium_when_sodium_ratio_exceeds_0_7(self):
+        limit = DAILY_LIMITS["middle"]["sodium"]
+        food = make_food(sodium_mg=limit * 0.75)
+        reason, reason_nutrient = make_reason(
+            "caution", food, today_intake=make_intake(),
+            trimester="middle", allergy_match=0,
+        )
+        assert "나트륨" in reason
+        assert reason_nutrient == "sodium"
+
+    def test_caution_caffeine_wins_over_sugar_when_both_ratios_exceed_0_7(self):
+        caffeine_limit = DAILY_LIMITS["middle"]["caffeine"]
+        sugar_limit = DAILY_LIMITS["middle"]["sugar"]
+        food = make_food(caffeine_mg=caffeine_limit * 0.75, sugar_g=sugar_limit * 0.75)
+        reason, reason_nutrient = make_reason(
+            "caution", food, today_intake=make_intake(),
+            trimester="middle", allergy_match=0,
+        )
+        assert reason_nutrient == "caffeine"
+
     def test_caution_missing_sugar_or_sodium_returns_missing_info_message(self):
         food = make_food(sugar_g=None)
         reason, reason_nutrient = make_reason(

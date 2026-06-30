@@ -7,7 +7,7 @@ from backend.database import get_db
 from backend.models import RecommendationRequest
 from backend.recommendation_model import recommend_food
 from backend.data_confidence import calculate_data_confidence
-from backend.risk import calculate_current_pregnancy_age
+from backend.risk import calculate_current_pregnancy_age, get_trimester
 from backend.sensitivity import get_user_adj
 from backend.intake_totals import compute_today_intake_totals
 from backend.routers.food_log import _compute_allergy_match
@@ -113,7 +113,7 @@ def get_recommendations(
         return {
             "user_id": req.user_id,
             "pregnancy_week": week,
-            "trimester": "early" if week <= 12 else "middle" if week <= 27 else "late",
+            "trimester": get_trimester(week),
             "today_intake": today_intake,
             "week_pattern": week_pattern,
             "recommendations": [],
@@ -157,7 +157,7 @@ def get_recommendations(
         -(x["data_confidence"]["score"] or 0)
     ))
 
-    trimester = "early" if week <= 12 else "middle" if week <= 27 else "late"
+    trimester = get_trimester(week)
 
     # 6. 대체 식품 추천
     food_category_map = {f["food_id"]: f.get("category") for f in foods}
