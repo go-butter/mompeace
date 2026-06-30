@@ -419,6 +419,27 @@ def get_food_log_by_date(
     return _fetch_food_log_for_date(user_id, target_date.isoformat(), db)
 
 
+@router.delete("/food-log/{log_id}")
+def delete_food_log(
+    log_id: int,
+    user_id: int,
+    db: sqlite3.Connection = Depends(get_db)
+):
+    """음식 기록 삭제 (본인 기록만 삭제 가능)"""
+    cursor = db.cursor()
+    cursor.execute(
+        "SELECT log_id FROM food_log WHERE log_id = ? AND user_id = ?",
+        (log_id, user_id)
+    )
+    if not cursor.fetchone():
+        raise HTTPException(status_code=404, detail="해당 기록을 찾을 수 없습니다.")
+
+    cursor.execute("DELETE FROM food_log WHERE log_id = ? AND user_id = ?", (log_id, user_id))
+    db.commit()
+
+    return {"log_id": log_id, "message": "음식 기록이 삭제되었습니다."}
+
+
 @router.post("/food-log/{log_id}/feedback")
 def submit_feedback(
     log_id: int,

@@ -194,6 +194,25 @@ def search_food(
     }
 
 
+@router.get("/categories")
+def get_food_categories(db: sqlite3.Connection = Depends(get_db)):
+    """
+    추천 후보로 사용 가능한 식품의 카테고리 목록 (오늘의 추천 화면 필터용)
+
+    신뢰 가능한 출처(dish_db_download, food_qr_api)의 food_items에 실제로
+    존재하는 category 값만 반환한다.
+    """
+    cursor = db.cursor()
+    cursor.execute(
+        "SELECT DISTINCT category FROM food_items "
+        "WHERE category IS NOT NULL AND data_source IN (?,?) "
+        "ORDER BY category",
+        ("dish_db_download", "food_qr_api")
+    )
+    categories = [row["category"] for row in cursor.fetchall()]
+    return {"categories": categories}
+
+
 @router.post("/foods/personal")
 def create_personal_food_item(
     item: UserFoodItemCreate,

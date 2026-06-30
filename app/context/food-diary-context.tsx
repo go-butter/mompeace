@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { useAuth } from '@/context/auth-context';
 import {
@@ -47,11 +47,11 @@ export function useFoodDiary() {
       .finally(() => setLoadingCalendar(false));
   }, [user?.user_id, year, month]);
 
-  useEffect(() => {
-    if (!user?.user_id) return;
+  const refreshDay = useCallback(() => {
+    if (!user?.user_id) return Promise.resolve();
     setLoadingDay(true);
     setError(null);
-    Promise.all([
+    return Promise.all([
       getIntakeByDate(user.user_id, selectedDate),
       getFoodLogByDate(user.user_id, selectedDate),
     ])
@@ -62,6 +62,10 @@ export function useFoodDiary() {
       .catch((err) => setError(err instanceof ApiError ? err.message : (err as Error).message))
       .finally(() => setLoadingDay(false));
   }, [user?.user_id, selectedDate]);
+
+  useEffect(() => {
+    refreshDay();
+  }, [refreshDay]);
 
   const changeMonth = (newYear: number, newMonth: number) => {
     setYear(newYear);
@@ -80,5 +84,6 @@ export function useFoodDiary() {
     loading: loadingCalendar || loadingDay,
     error,
     isToday: selectedDate === todayIso(),
+    refreshDay,
   };
 }

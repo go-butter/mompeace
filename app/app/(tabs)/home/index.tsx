@@ -1,6 +1,6 @@
 import { LinearGradient } from 'expo-linear-gradient';
-import { router } from 'expo-router';
-import { useState } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -91,8 +91,14 @@ function FoodLogRow({ entry }: { entry: FoodLogEntry }) {
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
-  const { intake, foodLog, hasEntries, loading, error } = useIntake();
+  const { intake, foodLog, hasEntries, loading, error, refresh } = useIntake();
   const [bannerSize, setBannerSize] = useState({ width: 0, height: 0 });
+
+  useFocusEffect(
+    useCallback(() => {
+      refresh();
+    }, [refresh])
+  );
 
   const handleBannerLayout = (event: LayoutChangeEvent) => {
     const { width, height } = event.nativeEvent.layout;

@@ -1,7 +1,7 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { interpolate, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 
@@ -13,8 +13,9 @@ import { homeColors } from '@/components/home/colors';
 import AddFoodPopup from '@/components/home/AddFoodPopup';
 import Calendar from '@/components/home/Calendar';
 import { fonts } from '@/constants/fonts';
+import { useAuth } from '@/context/auth-context';
 import { useFoodDiary } from '@/context/food-diary-context';
-import { FoodLogEntry } from '@/lib/api-client';
+import { ApiError, deleteFoodLog, FoodLogEntry } from '@/lib/api-client';
 
 const EXPAND_SPRING_CONFIG = { damping: 16, stiffness: 100, mass: 1 };
 
@@ -35,7 +36,7 @@ function StatusChip({
   );
 }
 
-function FoodLogRow({ entry }: { entry: FoodLogEntry }) {
+function FoodLogRow({ entry, onDelete }: { entry: FoodLogEntry; onDelete: (entry: FoodLogEntry) => void }) {
   return (
     <View style={styles.foodRow}>
       <Text style={styles.foodTime}>{entry.time}</Text>
@@ -43,12 +44,16 @@ function FoodLogRow({ entry }: { entry: FoodLogEntry }) {
       <Text style={styles.foodKcal}>
         {entry.calories_kcal != null ? `${entry.calories_kcal}kcal` : ''}
       </Text>
+      <Pressable onPress={() => onDelete(entry)} hitSlop={8}>
+        <Text style={styles.deleteText}>삭제</Text>
+      </Pressable>
     </View>
   );
 }
 
 export default function FoodDiaryScreen() {
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
   const {
     year,
     month,
@@ -61,9 +66,29 @@ export default function FoodDiaryScreen() {
     loading,
     error,
     isToday,
+    refreshDay,
   } = useFoodDiary();
 
   const [popupVisible, setPopupVisible] = useState(false);
+
+  const handleDelete = (entry: FoodLogEntry) => {
+    Alert.alert('기록 삭제', `'${entry.food_name}' 기록을 삭제할까요?`, [
+      { text: '취소', style: 'cancel' },
+      {
+        text: '삭제',
+        style: 'destructive',
+        onPress: () => {
+          if (!user?.user_id) return;
+          deleteFoodLog(entry.log_id, user.user_id)
+            .then(() => refreshDay())
+            .catch((err) => {
+              const message = err instanceof ApiError ? err.message : (err as Error).message;
+              Alert.alert('삭제 실패', message);
+            });
+        },
+      },
+    ]);
+  };
 
   const [summaryExpanded, setSummaryExpanded] = useState(false);
   const expandProgress = useSharedValue(0);
@@ -213,7 +238,7 @@ export default function FoodDiaryScreen() {
             </Pressable>
           </View>
         }
-        renderItem={({ item }) => <FoodLogRow entry={item} />}
+        renderItem={({ item }) => <FoodLogRow entry={item} onDelete={handleDelete} />}
         ListEmptyComponent={
           !loading ? <Text style={styles.emptyListText}>기록된 음식이 없어요.</Text> : null
         }
@@ -468,5 +493,11 @@ const styles = StyleSheet.create({
     fontFamily: fonts.medium,
     fontSize: 13,
     color: authColors.pink,
+  },
+  deleteText: {
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    color: authColors.gray,
+    marginLeft: 12,
   },
 });

@@ -82,30 +82,31 @@ def get_recommendations(
 
     # 3. 후보 식품 조회 (허용 소스만 사용)
     _ALLOWED_SOURCES = ("dish_db_download", "food_qr_api")
+    _CANDIDATE_POOL_LIMIT = 500
     if req.query and req.category:
         cursor.execute(
             "SELECT * FROM food_items "
             "WHERE food_name LIKE ? AND category = ? "
-            "AND data_source IN (?,?) LIMIT 50",
-            (f"%{req.query}%", req.category, *_ALLOWED_SOURCES)
+            "AND data_source IN (?,?) ORDER BY RANDOM() LIMIT ?",
+            (f"%{req.query}%", req.category, *_ALLOWED_SOURCES, _CANDIDATE_POOL_LIMIT)
         )
     elif req.query:
         cursor.execute(
             "SELECT * FROM food_items "
-            "WHERE food_name LIKE ? AND data_source IN (?,?) LIMIT 50",
-            (f"%{req.query}%", *_ALLOWED_SOURCES)
+            "WHERE food_name LIKE ? AND data_source IN (?,?) ORDER BY RANDOM() LIMIT ?",
+            (f"%{req.query}%", *_ALLOWED_SOURCES, _CANDIDATE_POOL_LIMIT)
         )
     elif req.category:
         cursor.execute(
             "SELECT * FROM food_items "
-            "WHERE category = ? AND data_source IN (?,?) LIMIT 50",
-            (req.category, *_ALLOWED_SOURCES)
+            "WHERE category = ? AND data_source IN (?,?) ORDER BY RANDOM() LIMIT ?",
+            (req.category, *_ALLOWED_SOURCES, _CANDIDATE_POOL_LIMIT)
         )
     else:
         cursor.execute(
             "SELECT * FROM food_items "
-            "WHERE data_source IN (?,?) ORDER BY updated_at DESC LIMIT 50",
-            _ALLOWED_SOURCES
+            "WHERE data_source IN (?,?) ORDER BY RANDOM() LIMIT ?",
+            (*_ALLOWED_SOURCES, _CANDIDATE_POOL_LIMIT)
         )
     foods = [dict(f) for f in cursor.fetchall()]
 
@@ -137,9 +138,11 @@ def get_recommendations(
             "food_id": food["food_id"],
             "food_name": food["food_name"],
             "source": food.get("data_source"),
+            "category": food.get("category"),
             "status": result["status"],
             "label": result["label"],
             "reason": result["reason"],
+            "reason_nutrient": result["reason_nutrient"],
             "nutrients": {
                 "caffeine_mg": food.get("caffeine_mg"),
                 "sugar_g": food.get("sugar_g"),

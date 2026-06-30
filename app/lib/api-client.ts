@@ -310,6 +310,26 @@ function put<TReq, TRes>(path: string, body: TReq): Promise<TRes> {
   return request('PUT', path, body);
 }
 
+async function del<TRes>(path: string): Promise<TRes> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE_URL}${path}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+    });
+  } catch {
+    throw new Error('서버에 연결할 수 없습니다. 인터넷 연결을 확인해 주세요.');
+  }
+
+  const data = await res.json();
+
+  if (!res.ok) {
+    throw new ApiError(data.detail);
+  }
+
+  return data as TRes;
+}
+
 export function registerUser(body: RegisterRequest): Promise<RegisterResponse> {
   return post('/auth/register', body);
 }
@@ -344,6 +364,15 @@ export function createFoodLog(body: FoodLogCreateRequest): Promise<FoodLogCreate
   return post('/food-log', body);
 }
 
+export interface FoodLogDeleteResponse {
+  log_id: number;
+  message: string;
+}
+
+export function deleteFoodLog(logId: number, userId: number): Promise<FoodLogDeleteResponse> {
+  return del(`/food-log/${logId}?user_id=${userId}`);
+}
+
 export function getIntakeByDate(userId: number, date: string): Promise<IntakeTodayResponse> {
   return get(`/intake/by-date/${userId}?date=${date}`);
 }
@@ -368,6 +397,89 @@ export function createPersonalFoodItem(
   body: UserFoodItemCreateRequest
 ): Promise<UserFoodItemCreateResponse> {
   return post('/foods/personal', body);
+}
+
+export interface RecommendationRequest {
+  user_id: number;
+  query?: string | null;
+  category?: string | null;
+  limit?: number;
+}
+
+export interface RecommendationNutrients {
+  caffeine_mg: number | null;
+  sugar_g: number | null;
+  sodium_mg: number | null;
+  carbohydrate_g: number | null;
+  protein_g: number | null;
+}
+
+export interface RecommendationDataConfidence {
+  score: number;
+  label: string;
+  reasons: string[];
+}
+
+export interface RecommendationAlternative {
+  food_id: number;
+  food_name: string;
+  reason: string;
+}
+
+export interface RecommendationItem {
+  food_id: number;
+  food_name: string;
+  source: string | null;
+  category: string | null;
+  status: 'possible' | 'caution' | 'avoid';
+  label: string;
+  reason: string;
+  reason_nutrient: 'caffeine' | 'sugar' | 'sodium' | 'allergy' | null;
+  nutrients: RecommendationNutrients;
+  data_confidence: RecommendationDataConfidence;
+  alternative: RecommendationAlternative | null;
+}
+
+export interface RecommendationWeekPattern {
+  avg_caffeine_mg: number;
+  avg_sugar_g: number;
+  avg_sodium_mg: number;
+  unknown_caffeine_days: number;
+  unknown_sugar_days: number;
+  unknown_sodium_days: number;
+}
+
+export interface RecommendationTodayIntake {
+  caffeine_mg: number;
+  sugar_g: number;
+  sodium_mg: number;
+  unknown_caffeine_count: number;
+  unknown_sugar_count: number;
+  unknown_sodium_count: number;
+}
+
+export interface RecommendationResponse {
+  user_id: number;
+  pregnancy_week: number;
+  trimester: string;
+  today_intake: RecommendationTodayIntake;
+  week_pattern: RecommendationWeekPattern;
+  recommendations: RecommendationItem[];
+  message?: string;
+}
+
+export interface FoodCategoriesResponse {
+  categories: string[];
+}
+
+export function getRecommendations(
+  body: RecommendationRequest
+): Promise<RecommendationResponse> {
+  return post('/recommendations', body);
+}
+
+export function getFoodCategories(): Promise<FoodCategoriesResponse> {
+  return get('/categories');
 }
 
 export function searchFoods(

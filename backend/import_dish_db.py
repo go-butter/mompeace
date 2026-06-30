@@ -4,6 +4,7 @@ dish_nutrition_db Excel → food_items 임포트 스크립트
 실행 방법:
     python -m backend.import_dish_db
 """
+from __future__ import annotations
 import json
 import sqlite3
 from pathlib import Path
