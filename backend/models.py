@@ -47,6 +47,7 @@ class FoodLogCreate(BaseModel):
     protein_g: Optional[float] = None
     food_id: Optional[int] = None
     eaten_at: Optional[str] = None
+    extra_nutrients: Optional[list] = None
 
 
 class FoodLogFromFood(BaseModel):

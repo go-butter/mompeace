@@ -91,6 +91,15 @@ CREATE TABLE food_log (
     FOREIGN KEY (user_id) REFERENCES users(user_id)
 );
 
+CREATE TABLE food_log_extra_nutrients (
+    extra_nutrient_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    food_log_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    value REAL NOT NULL,
+    unit TEXT,
+    FOREIGN KEY (food_log_id) REFERENCES food_log(log_id)
+);
+
 CREATE TABLE user_sensitivity_log (
     log_id         INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id        INTEGER NOT NULL,

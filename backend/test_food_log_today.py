@@ -9,6 +9,8 @@ backend/main.py 의 get_today_food_log() 테스트.
 from datetime import date
 
 from backend.routers.food_log import get_today_food_log
+from backend.models import FoodLogCreate
+from backend.routers.food_log import create_food_log
 
 from .conftest import make_food_log, make_user
 
@@ -81,3 +83,44 @@ class TestGetTodayFoodLog:
         assert entry["sodium_mg"] == 50
         assert entry["caffeine_mg"] is None
         assert entry["protein_g"] == 1
+
+
+class TestExtraNutrients:
+    def test_extra_nutrients_persisted_and_returned(self, db):
+        user_id = make_user(db)
+        today_dt = date.today().isoformat() + " 10:00:00"
+        log_payload = FoodLogCreate(
+            user_id=user_id,
+            food_name="비타민 음료",
+            input_type="manual",
+            sugar_g=5,
+            sodium_mg=20,
+            eaten_at=today_dt,
+            extra_nutrients=[{"name": "비타민C", "value": 50, "unit": "mg"}],
+        )
+        create_food_log(log=log_payload, db=db)
+
+        result = get_today_food_log(user_id=user_id, db=db)
+
+        assert result["count"] == 1
+        entry = result["logs"][0]
+        assert entry["extra_nutrients"] == [{"name": "비타민C", "value": 50.0, "unit": "mg"}]
+
+    def test_no_extra_nutrients_returns_empty_list(self, db):
+        user_id = make_user(db)
+        today_dt = date.today().isoformat() + " 11:00:00"
+        log_payload = FoodLogCreate(
+            user_id=user_id,
+            food_name="일반 음식",
+            input_type="manual",
+            sugar_g=2,
+            sodium_mg=100,
+            eaten_at=today_dt,
+        )
+        create_food_log(log=log_payload, db=db)
+
+        result = get_today_food_log(user_id=user_id, db=db)
+
+        assert result["count"] == 1
+        entry = result["logs"][0]
+        assert entry["extra_nutrients"] == []

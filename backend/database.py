@@ -147,6 +147,18 @@ def init_db():
         )
     """)
 
+    # 3-1. FoodLogExtraNutrients 테이블 (food_log 항목별 추가 성분)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS food_log_extra_nutrients (
+            extra_nutrient_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            food_log_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            value REAL NOT NULL,
+            unit TEXT,
+            FOREIGN KEY (food_log_id) REFERENCES food_log(log_id)
+        )
+    """)
+
     # 기존 food_log 테이블에 컬럼이 없을 경우 자동 추가
     add_column_if_not_exists(cursor, "food_log", "category", "TEXT")
     add_column_if_not_exists(cursor, "food_log", "input_type", "TEXT")

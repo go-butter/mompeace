@@ -113,6 +113,7 @@ export interface FoodLogEntry {
   caffeine_mg: number | null;
   protein_g: number;
   allergens: string[];
+  extra_nutrients: { name: string; value: number; unit?: string | null }[];
 }
 
 export interface FoodLogTodayResponse {
@@ -190,6 +191,7 @@ export interface FoodLogCreateRequest {
   protein_g?: number | null;
   food_id?: number | null;
   eaten_at?: string;
+  extra_nutrients?: { name: string; value: number; unit?: string }[];
 }
 
 export interface FoodLogCreateResponse {

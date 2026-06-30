@@ -42,6 +42,14 @@ function FoodDiaryRow({
           {entry.allergens.length > 0 && (
             <Text style={styles.rowAllergyText}>알레르기: {entry.allergens.join(', ')}</Text>
           )}
+          {entry.extra_nutrients?.length > 0 && (
+            <Text style={styles.rowDetailText}>
+              추가 성분:{' '}
+              {entry.extra_nutrients
+                .map((en) => `${en.name} ${en.value}${en.unit ?? ''}`)
+                .join(', ')}
+            </Text>
+          )}
         </View>
       )}
     </View>

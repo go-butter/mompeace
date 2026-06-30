@@ -180,10 +180,17 @@ def create_food_log(
             reason_nutrient,
         ))
 
+    new_log_id = cursor.lastrowid
+    if log.extra_nutrients:
+        for en in log.extra_nutrients:
+            cursor.execute(
+                "INSERT INTO food_log_extra_nutrients (food_log_id, name, value, unit) VALUES (?,?,?,?)",
+                (new_log_id, en["name"], en["value"], en.get("unit")),
+            )
     db.commit()
 
     return {
-        "log_id": cursor.lastrowid,
+        "log_id": new_log_id,
         "message": "음식 기록 완료"
     }
 
@@ -289,6 +296,7 @@ def _fetch_food_log_for_date(user_id: int, target_date: str, db: sqlite3.Connect
 
     logs = cursor.fetchall()
 
+    extra_cursor = db.cursor()
     result = []
 
     for log in logs:
@@ -342,6 +350,15 @@ def _fetch_food_log_for_date(user_id: int, target_date: str, db: sqlite3.Connect
             }
         ]
 
+        extra_cursor.execute(
+            "SELECT name, value, unit FROM food_log_extra_nutrients WHERE food_log_id = ?",
+            (log["log_id"],),
+        )
+        extra_nutrients = [
+            {"name": r["name"], "value": r["value"], "unit": r["unit"]}
+            for r in extra_cursor.fetchall()
+        ]
+
         result.append({
             "log_id": log["log_id"],
             "user_id": log["user_id"],
@@ -360,6 +377,7 @@ def _fetch_food_log_for_date(user_id: int, target_date: str, db: sqlite3.Connect
             "caffeine_mg": log.get("caffeine_mg"),
             "protein_g": log.get("protein_g") or 0,
             "allergens": _text_to_list(log.get("food_item_allergen_info")),
+            "extra_nutrients": extra_nutrients,
 
             # 접힌 카드에서 바로 쓰는 값
             "summary": {
