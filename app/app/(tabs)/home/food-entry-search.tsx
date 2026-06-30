@@ -126,7 +126,7 @@ export default function FoodEntrySearchScreen() {
   };
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top + 7 }]}>
+    <View style={[styles.container, { paddingTop: insets.top + 7, paddingBottom: insets.bottom }]}>
       <View style={styles.headerRow}>
         <Pressable onPress={() => router.back()} style={styles.prevButton} hitSlop={8}>
           <PrevIcon width={15} height={15} />

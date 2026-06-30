@@ -4,13 +4,27 @@ import { useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import DownIcon from '@/assets/images/common/down.svg';
 import PrevIcon from '@/assets/images/common/prev.svg';
+import CaffeineIcon from '@/assets/images/foodDiary/caffeine.svg';
+import SodiumIcon from '@/assets/images/foodDiary/sodium.svg';
+import SugarIcon from '@/assets/images/foodDiary/sugar.svg';
 import { authColors } from '@/components/auth/colors';
 import { fonts, nanumSquareRound } from '@/constants/fonts';
 import { useAuth } from '@/context/auth-context';
 import { ApiError, createFoodLog, createPersonalFoodItem } from '@/lib/api-client';
 
-const UNITS = ['개', 'g', 'ml'];
+const UNITS = ['개', 'g', 'ml', '인분'];
+
+function sanitizeNonNegativeDecimal(text: string) {
+  const digitsAndDot = text.replace(/[^0-9.]/g, '');
+  const firstDotIndex = digitsAndDot.indexOf('.');
+  if (firstDotIndex === -1) return digitsAndDot;
+  return (
+    digitsAndDot.slice(0, firstDotIndex + 1) +
+    digitsAndDot.slice(firstDotIndex + 1).replace(/\./g, '')
+  );
+}
 
 function formatTimeLabel(time: Date) {
   const hours = time.getHours();
@@ -43,9 +57,13 @@ export default function FoodEntryManualScreen() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const trimmedName = foodName.trim();
+  const parsedAmount = Number(amount);
+  const isAmountValid = amount.trim() !== '' && !Number.isNaN(parsedAmount) && parsedAmount > 0;
+  const isFormValid = trimmedName.length > 0 && isAmountValid;
+
   const handleSave = () => {
-    const trimmedName = foodName.trim();
-    if (!trimmedName || !user?.user_id || !date || saving) return;
+    if (!isFormValid || !user?.user_id || !date || saving) return;
 
     const caffeine = caffeineMg.trim() === '' ? null : Number(caffeineMg);
     const sugar = sugarG.trim() === '' ? 0 : Number(sugarG);
@@ -123,93 +141,104 @@ export default function FoodEntryManualScreen() {
         />
       </View>
 
-      <View style={styles.rowOfTwo}>
-        <View style={styles.smallCard}>
-          <Text style={styles.fieldLabel}>섭취량</Text>
-          <View style={styles.amountRow}>
-            <TextInput
-              style={styles.amountInput}
-              value={amount}
-              onChangeText={setAmount}
-              keyboardType="numeric"
-            />
-            <View style={styles.unitPillRow}>
-              {UNITS.map((u) => (
-                <Pressable
-                  key={u}
-                  style={[styles.unitPill, unit === u && styles.unitPillSelected]}
-                  onPress={() => setUnit(u)}>
-                  <Text style={[styles.unitPillText, unit === u && styles.unitPillTextSelected]}>
-                    {u}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
+      <View style={styles.card}>
+        <Text style={styles.fieldLabel}>섭취량</Text>
+        <View style={styles.amountRow}>
+          <TextInput
+            style={styles.amountInput}
+            value={amount}
+            onChangeText={setAmount}
+            keyboardType="numeric"
+          />
+          <View style={styles.unitPillRow}>
+            {UNITS.map((u) => (
+              <Pressable
+                key={u}
+                style={[styles.unitPill, unit === u && styles.unitPillSelected]}
+                onPress={() => setUnit(u)}>
+                <Text style={[styles.unitPillText, unit === u && styles.unitPillTextSelected]}>
+                  {u}
+                </Text>
+              </Pressable>
+            ))}
           </View>
         </View>
+      </View>
 
-        <View style={styles.smallCard}>
-          <Text style={styles.fieldLabel}>섭취시간</Text>
-          <Pressable style={styles.timeInput} onPress={() => setShowTimePicker(true)}>
-            <Text style={styles.timeInputText}>{formatTimeLabel(time)}</Text>
-          </Pressable>
-          {showTimePicker && (
-            <DateTimePicker
-              value={time}
-              mode="time"
-              display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-              onChange={(_, selected) => {
-                setShowTimePicker(Platform.OS === 'ios');
-                if (selected) setTime(selected);
-              }}
-            />
-          )}
-        </View>
+      <View style={styles.card}>
+        <Text style={styles.fieldLabel}>섭취시간</Text>
+        <Pressable style={styles.timeInput} onPress={() => setShowTimePicker(true)}>
+          <Text style={styles.timeInputText}>{formatTimeLabel(time)}</Text>
+          <DownIcon width={10} height={10} style={styles.timeInputChevron} />
+        </Pressable>
+        {showTimePicker && (
+          <DateTimePicker
+            value={time}
+            mode="time"
+            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+            onChange={(_, selected) => {
+              setShowTimePicker(Platform.OS === 'ios');
+              if (selected) setTime(selected);
+            }}
+          />
+        )}
       </View>
 
       <View style={styles.card}>
         <Text style={styles.fieldLabel}>주요 성분 입력</Text>
         <View style={styles.nutrientInputRow}>
-          <Text style={styles.nutrientLabel}>카페인(mg)</Text>
+          <View style={styles.nutrientLabelGroup}>
+            <CaffeineIcon width={17} height={17} />
+            <Text style={styles.nutrientLabel}>카페인(mg)</Text>
+          </View>
           <TextInput
             style={styles.nutrientInput}
             value={caffeineMg}
-            onChangeText={setCaffeineMg}
+            onChangeText={(text) => setCaffeineMg(sanitizeNonNegativeDecimal(text))}
             placeholder="예: 65"
             placeholderTextColor={authColors.gray}
-            keyboardType="numeric"
+            keyboardType="decimal-pad"
           />
         </View>
         <View style={styles.nutrientInputRow}>
-          <Text style={styles.nutrientLabel}>당류(g)</Text>
+          <View style={styles.nutrientLabelGroup}>
+            <SugarIcon width={17} height={17} />
+            <Text style={styles.nutrientLabel}>당류(g)</Text>
+          </View>
           <TextInput
             style={styles.nutrientInput}
             value={sugarG}
-            onChangeText={setSugarG}
+            onChangeText={(text) => setSugarG(sanitizeNonNegativeDecimal(text))}
             placeholder="예: 8"
             placeholderTextColor={authColors.gray}
-            keyboardType="numeric"
+            keyboardType="decimal-pad"
           />
         </View>
         <View style={styles.nutrientInputRow}>
-          <Text style={styles.nutrientLabel}>나트륨(mg)</Text>
+          <View style={styles.nutrientLabelGroup}>
+            <SodiumIcon width={18} height={18} />
+            <Text style={styles.nutrientLabel}>나트륨(mg)</Text>
+          </View>
           <TextInput
             style={styles.nutrientInput}
             value={sodiumMg}
-            onChangeText={setSodiumMg}
+            onChangeText={(text) => setSodiumMg(sanitizeNonNegativeDecimal(text))}
             placeholder="예: 420"
             placeholderTextColor={authColors.gray}
-            keyboardType="numeric"
+            keyboardType="decimal-pad"
           />
         </View>
+        <Text style={styles.nutrientHint}>
+          정확한 수치를 모르면 비워두세요{'\n'}(정보 없음으로 처리됩니다)
+        </Text>
       </View>
 
       {error && <Text style={styles.errorText}>{error}</Text>}
 
       <Pressable
-        style={[styles.saveButton, saving && styles.saveButtonDisabled]}
+        style={[styles.saveButton, (!isFormValid || saving) && styles.saveButtonDisabled]}
         onPress={handleSave}
-        disabled={saving}>
+        disabled={!isFormValid || saving}>
         <Text style={styles.saveButtonText}>{saving ? '저장 중...' : '기록 저장'}</Text>
       </Pressable>
     </ScrollView>
@@ -267,19 +296,6 @@ const styles = StyleSheet.create({
     color: '#000000',
     marginTop: 10,
   },
-  rowOfTwo: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 16,
-  },
-  smallCard: {
-    flex: 1,
-    backgroundColor: authColors.white,
-    borderWidth: 0.7,
-    borderColor: '#F8BFC0',
-    borderRadius: 12,
-    padding: 14,
-  },
   amountRow: {
     marginTop: 10,
     gap: 8,
@@ -324,12 +340,17 @@ const styles = StyleSheet.create({
     borderRadius: 7,
     height: 32,
     paddingHorizontal: 12,
-    justifyContent: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     marginTop: 10,
   },
   timeInputText: {
     fontSize: 12,
     color: '#4A4A4A',
+  },
+  timeInputChevron: {
+    marginLeft: 6,
   },
   nutrientInputRow: {
     flexDirection: 'row',
@@ -337,9 +358,20 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginTop: 12,
   },
+  nutrientLabelGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
   nutrientLabel: {
     fontSize: 12,
     color: '#000000',
+  },
+  nutrientHint: {
+    fontFamily: fonts.regular,
+    fontSize: 11,
+    color: authColors.gray,
+    marginTop: 12,
   },
   nutrientInput: {
     backgroundColor: authColors.white,
