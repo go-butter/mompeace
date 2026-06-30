@@ -65,7 +65,9 @@ export default function AddFoodPopup({
     router.push({ pathname: '/(tabs)/home/food-entry-search', params: { date: selectedDate } });
   };
 
-  const isToday = selectedDate === new Date().toISOString().slice(0, 10);
+  const d = new Date();
+  const todayLocal = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const isToday = selectedDate === todayLocal;
   const subtitle = isToday
     ? '먹은 음식을 편하게 기록해 보세요 :)'
     : '그날 먹은 음식을 편하게 기록해 보세요 :)';
