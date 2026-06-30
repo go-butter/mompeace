@@ -1,4 +1,4 @@
-import { createContext, ReactNode, useContext, useEffect, useState } from 'react';
+import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
 import { useAuth } from '@/context/auth-context';
 import {
@@ -23,6 +23,7 @@ const IntakeContext = createContext<IntakeContextValue | null>(null);
 
 export function IntakeProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
+  const userId = user?.user_id;
   const [intake, setIntake] = useState<IntakeTodayResponse | null>(null);
   const [foodLog, setFoodLog] = useState<FoodLogEntry[]>([]);
   const [allFoodLog, setAllFoodLog] = useState<FoodLogEntry[]>([]);
@@ -30,15 +31,15 @@ export function IntakeProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const refresh = async () => {
-    if (!user?.user_id) return;
+  const refresh = useCallback(async () => {
+    if (!userId) return;
     setLoading(true);
     setError(null);
 
     try {
       const [intakeRes, foodLogRes] = await Promise.all([
-        getIntakeToday(user.user_id),
-        getFoodLogToday(user.user_id),
+        getIntakeToday(userId),
+        getFoodLogToday(userId),
       ]);
       setIntake(intakeRes);
       setHasEntries(foodLogRes.count > 0);
@@ -49,16 +50,19 @@ export function IntakeProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [userId]);
 
   useEffect(() => {
-    if (!user?.user_id) return;
     refresh();
-  }, [user?.user_id]);
+  }, [refresh]);
+
+  const value = useMemo(
+    () => ({ intake, foodLog, allFoodLog, hasEntries, loading, error, refresh }),
+    [intake, foodLog, allFoodLog, hasEntries, loading, error, refresh]
+  );
 
   return (
-    <IntakeContext.Provider
-      value={{ intake, foodLog, allFoodLog, hasEntries, loading, error, refresh }}>
+    <IntakeContext.Provider value={value}>
       {children}
     </IntakeContext.Provider>
   );

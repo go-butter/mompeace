@@ -1,4 +1,4 @@
-import { createContext, ReactNode, useContext, useState } from 'react';
+import { createContext, ReactNode, useCallback, useContext, useMemo, useState } from 'react';
 
 export interface AuthUser {
   user_id: number;
@@ -22,10 +22,11 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
 
-  const login = (userData: AuthUser) => setUser(userData);
-  const logout = () => setUser(null);
+  const login = useCallback((userData: AuthUser) => setUser(userData), []);
+  const logout = useCallback(() => setUser(null), []);
+  const value = useMemo(() => ({ user, login, logout }), [user, login, logout]);
 
-  return <AuthContext.Provider value={{ user, login, logout }}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {
