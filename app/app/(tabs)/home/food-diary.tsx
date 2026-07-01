@@ -1,7 +1,7 @@
 import { LinearGradient } from 'expo-linear-gradient';
-import { router } from 'expo-router';
-import { useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useState } from 'react';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { interpolate, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 
@@ -46,7 +46,10 @@ function FoodLogRow({ entry, onDelete }: { entry: FoodLogEntry; onDelete: (entry
         {entry.calories_kcal != null ? `${entry.calories_kcal}kcal` : ''}
       </Text>
       <Pressable
-        onPress={() => onDelete(entry)}
+        onPress={() => {
+          console.log('[DELETE] X pressed for log_id', entry.log_id);
+          onDelete(entry);
+        }}
         hitSlop={8}
         style={styles.deleteButton}>
         <XIcon width={19} height={19} color={authColors.pink} />
@@ -76,6 +79,7 @@ export default function FoodDiaryScreen() {
   const [popupVisible, setPopupVisible] = useState(false);
 
   const handleDelete = (entry: FoodLogEntry) => {
+    console.log('[DELETE] handleDelete called for', entry.food_name);
     Alert.alert('기록 삭제', `'${entry.food_name}' 기록을 삭제할까요?`, [
       { text: '취소', style: 'cancel' },
       {
@@ -83,9 +87,14 @@ export default function FoodDiaryScreen() {
         style: 'destructive',
         onPress: () => {
           if (!user?.user_id) return;
+          console.log('[DELETE] confirm pressed, calling deleteFoodLog', entry.log_id, user?.user_id);
           deleteFoodLog(entry.log_id, user.user_id)
-            .then(() => refreshDay())
+            .then(() => {
+              console.log('[DELETE] deleteFoodLog succeeded');
+              refreshDay();
+            })
             .catch((err) => {
+              console.log('[DELETE] deleteFoodLog failed', err);
               const message = err instanceof ApiError ? err.message : (err as Error).message;
               Alert.alert('삭제 실패', message);
             });
@@ -117,8 +126,99 @@ export default function FoodDiaryScreen() {
   const caffeinePercent = intake ? Math.min(intake.progress.caffeine_percent, 100) : 0;
   const hasEntries = foodLog.length > 0;
 
+  useFocusEffect(
+    useCallback(() => {
+      refreshDay();
+    }, [refreshDay])
+  );
+
+  const renderSummaryContent = () => {
+    if (loading) {
+      return <ActivityIndicator size="small" color={authColors.pink} style={{ marginVertical: 24 }} />;
+    }
+
+    if (error || !intake) {
+      return <Text style={styles.errorText}>{error || '데이터를 불러오지 못했습니다.'}</Text>;
+    }
+
+    if (!hasEntries) {
+      return (
+        <Text style={styles.emptyMessage}>
+          {isToday
+            ? '오늘 섭취한 음식이 추가되지 않았습니다!\nFood Diary 혹은 바코드 스캔을 통해\n음식을 추가해 주세요 :)'
+            : '이 날에는 기록된 음식이 없어요.'}
+        </Text>
+      );
+    }
+
+    return (
+      <>
+        <View style={styles.intakeRow}>
+          <View style={styles.caffeineBox}>
+            <Text style={styles.caffeineLabel}>☕ 카페인</Text>
+            <Text style={styles.caffeineValueWrapper}>
+              <Text style={styles.caffeineValueNumber}>{intake.intake.total_caffeine}</Text>
+              <Text style={styles.caffeineValueUnit}> / {intake.limits.caffeine_limit_mg}mg</Text>
+            </Text>
+            <View style={styles.progressRow}>
+              <View style={styles.progressBarTrack}>
+                <View style={[styles.progressBarFill, { width: `${caffeinePercent}%` }]} />
+              </View>
+              <Text style={styles.caffeinePercent}>{intake.progress.caffeine_percent}%</Text>
+            </View>
+          </View>
+          <View style={styles.remainingBox}>
+            <LinearGradient
+              colors={['#FEF6F6', '#FEEBEA']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 0, y: 1 }}
+              style={StyleSheet.absoluteFillObject}
+            />
+            <RemainCoffeeIcon
+              width={100}
+              height={100}
+              style={[styles.remainingIcon, { right: -10, top: 16 }]}
+            />
+            <Text style={styles.remainingLabel}>잔여 허용량</Text>
+            <Text style={styles.remainingValueWrapper}>
+              <Text style={styles.remainingValueNumber}>
+                {intake.remaining.remaining_caffeine}
+              </Text>
+              <Text style={styles.remainingValueUnit}>mg</Text>
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.chipRow}>
+          <StatusChip
+            label="당류"
+            value={intake.status_label.sugar}
+            colors={homeColors.sugar}
+          />
+          <StatusChip
+            label="나트륨"
+            value={intake.status_label.sodium}
+            colors={homeColors.sodium}
+          />
+          <StatusChip label="알레르기" value="안전" colors={homeColors.allergy} />
+          <StatusChip
+            label="물"
+            value={`${intake.water_cups ?? 0}잔`}
+            colors={homeColors.water}
+          />
+        </View>
+      </>
+    );
+  };
+
   return (
-    <View style={[styles.container, { paddingTop: insets.top + 7 }]}>
+    <View style={styles.container}>
+      <ScrollView
+        style={styles.screenScroll}
+        contentContainerStyle={[
+          styles.screenContent,
+          { paddingTop: insets.top + 7, paddingBottom: insets.bottom + 32 },
+        ]}>
       <View style={styles.headerRow}>
         <Pressable onPress={() => router.back()} style={styles.prevButton} hitSlop={8}>
           <PrevIcon width={15} height={15} />
@@ -148,80 +248,19 @@ export default function FoodDiaryScreen() {
           </Pressable>
 
           <Animated.View style={[styles.summaryContentOuter, summaryContentAnimatedStyle]}>
+            <View>
+              {renderSummaryContent()}
+            </View>
+          </Animated.View>
+
+          <View pointerEvents="none" style={styles.summaryMeasurement}>
             <View
               onLayout={(event) => {
                 summaryContentHeight.value = event.nativeEvent.layout.height;
               }}>
-              {loading ? (
-                <ActivityIndicator size="small" color={authColors.pink} style={{ marginVertical: 24 }} />
-              ) : error || !intake ? (
-                <Text style={styles.errorText}>{error || '데이터를 불러오지 못했습니다.'}</Text>
-              ) : !hasEntries ? (
-                <Text style={styles.emptyMessage}>
-                  {isToday
-                    ? '오늘 섭취한 음식이 추가되지 않았습니다!\nFood Diary 혹은 바코드 스캔을 통해\n음식을 추가해 주세요 :)'
-                    : '이 날에는 기록된 음식이 없어요.'}
-                </Text>
-              ) : (
-                <>
-                  <View style={styles.intakeRow}>
-                    <View style={styles.caffeineBox}>
-                      <Text style={styles.caffeineLabel}>☕ 카페인</Text>
-                      <Text style={styles.caffeineValueWrapper}>
-                        <Text style={styles.caffeineValueNumber}>{intake.intake.total_caffeine}</Text>
-                        <Text style={styles.caffeineValueUnit}> / {intake.limits.caffeine_limit_mg}mg</Text>
-                      </Text>
-                      <View style={styles.progressRow}>
-                        <View style={styles.progressBarTrack}>
-                          <View style={[styles.progressBarFill, { width: `${caffeinePercent}%` }]} />
-                        </View>
-                        <Text style={styles.caffeinePercent}>{intake.progress.caffeine_percent}%</Text>
-                      </View>
-                    </View>
-                    <View style={styles.remainingBox}>
-                      <LinearGradient
-                        colors={['#FEF6F6', '#FEEBEA']}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 0, y: 1 }}
-                        style={StyleSheet.absoluteFillObject}
-                      />
-                      <RemainCoffeeIcon
-                        width={100}
-                        height={100}
-                        style={[styles.remainingIcon, { right: -10, top: 16 }]}
-                      />
-                      <Text style={styles.remainingLabel}>잔여 허용량</Text>
-                      <Text style={styles.remainingValueWrapper}>
-                        <Text style={styles.remainingValueNumber}>
-                          {intake.remaining.remaining_caffeine}
-                        </Text>
-                        <Text style={styles.remainingValueUnit}>mg</Text>
-                      </Text>
-                    </View>
-                  </View>
-
-                  <View style={styles.chipRow}>
-                    <StatusChip
-                      label="당류"
-                      value={intake.status_label.sugar}
-                      colors={homeColors.sugar}
-                    />
-                    <StatusChip
-                      label="나트륨"
-                      value={intake.status_label.sodium}
-                      colors={homeColors.sodium}
-                    />
-                    <StatusChip label="알레르기" value="안전" colors={homeColors.allergy} />
-                    <StatusChip
-                      label="물"
-                      value={`${intake.water_cups ?? 0}잔`}
-                      colors={homeColors.water}
-                    />
-                  </View>
-                </>
-              )}
+              {renderSummaryContent()}
             </View>
-          </Animated.View>
+          </View>
 
           <Pressable onPress={() => router.push('/(tabs)/home/premium-report')}>
             <Text style={styles.premiumLink}>프리미엄 리포트 보기 {'>'}</Text>
@@ -229,24 +268,23 @@ export default function FoodDiaryScreen() {
         </View>
       </View>
 
-      <FlatList
-        style={styles.scrollSection}
-        contentContainerStyle={styles.listContent}
-        data={foodLog}
-        keyExtractor={(item) => String(item.log_id)}
-        ListHeaderComponent={
-          <View style={styles.listHeaderRow}>
-            <Text style={styles.cardTitle}>식사 기록</Text>
-            <Pressable onPress={() => setPopupVisible(true)}>
-              <Text style={styles.addButtonText}>+ 음식 추가하기</Text>
-            </Pressable>
-          </View>
-        }
-        renderItem={({ item }) => <FoodLogRow entry={item} onDelete={handleDelete} />}
-        ListEmptyComponent={
-          !loading ? <Text style={styles.emptyListText}>기록된 음식이 없어요.</Text> : null
-        }
-      />
+      <View style={styles.mealSection}>
+        <View style={styles.listHeaderRow}>
+          <Text style={styles.cardTitle}>식사 기록</Text>
+          <Pressable onPress={() => setPopupVisible(true)}>
+            <Text style={styles.addButtonText}>+ 음식 추가하기</Text>
+          </Pressable>
+        </View>
+
+        {foodLog.map((item) => (
+          <FoodLogRow key={item.log_id} entry={item} onDelete={handleDelete} />
+        ))}
+
+        {!loading && !hasEntries ? (
+          <Text style={styles.emptyListText}>기록된 음식이 없어요.</Text>
+        ) : null}
+      </View>
+      </ScrollView>
 
       <AddFoodPopup
         visible={popupVisible}
@@ -262,6 +300,10 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#FEFAF9',
   },
+  screenScroll: {
+    flex: 1,
+  },
+  screenContent: {},
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -318,6 +360,13 @@ const styles = StyleSheet.create({
   },
   summaryContentOuter: {
     overflow: 'hidden',
+  },
+  summaryMeasurement: {
+    position: 'absolute',
+    left: 20,
+    right: 20,
+    top: 64,
+    opacity: 0,
   },
   errorText: {
     fontFamily: fonts.regular,
@@ -444,13 +493,9 @@ const styles = StyleSheet.create({
     textAlign: 'right',
     marginTop: 16,
   },
-  scrollSection: {
-    flex: 1,
+  mealSection: {
     marginTop: 12,
     paddingHorizontal: 19,
-  },
-  listContent: {
-    paddingBottom: 32,
   },
   listHeaderRow: {
     flexDirection: 'row',
