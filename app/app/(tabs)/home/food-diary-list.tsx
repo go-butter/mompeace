@@ -1,30 +1,43 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import PrevIcon from '@/assets/images/common/prev.svg';
 import DownIcon from '@/assets/images/common/down.svg';
 import UpIcon from '@/assets/images/common/up.svg';
+import XIcon from '@/assets/images/common/x.svg';
 import { authColors } from '@/components/auth/colors';
 import { fonts } from '@/constants/fonts';
+import { useAuth } from '@/context/auth-context';
 import { useIntake } from '@/context/intake-context';
-import { FoodLogEntry } from '@/lib/api-client';
+import { ApiError, deleteFoodLog, FoodLogEntry } from '@/lib/api-client';
 
 function FoodDiaryRow({
   entry,
   expanded,
   onToggle,
+  onDelete,
 }: {
   entry: FoodLogEntry;
   expanded: boolean;
   onToggle: () => void;
+  onDelete: (entry: FoodLogEntry) => void;
 }) {
   return (
     <View style={styles.row}>
       <View style={styles.rowHeader}>
         <Text style={styles.rowTime}>{entry.time}</Text>
         <Text style={styles.rowFoodName}>{entry.food_name}</Text>
+        <Text style={styles.rowKcal}>
+          {entry.calories_kcal != null ? `${entry.calories_kcal}kcal` : ''}
+        </Text>
+        <Pressable
+          onPress={() => onDelete(entry)}
+          hitSlop={8}
+          style={styles.deleteButton}>
+          <XIcon width={19} height={19} color={authColors.pink} />
+        </Pressable>
         <Pressable onPress={onToggle} hitSlop={8}>
           {expanded ? (
             <UpIcon width={19} height={19} />
@@ -58,8 +71,28 @@ function FoodDiaryRow({
 
 export default function FoodDiaryListScreen() {
   const insets = useSafeAreaInsets();
-  const { allFoodLog } = useIntake();
+  const { user } = useAuth();
+  const { allFoodLog, refresh } = useIntake();
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
+
+  const handleDelete = (entry: FoodLogEntry) => {
+    Alert.alert('기록 삭제', `'${entry.food_name}' 기록을 삭제할까요?`, [
+      { text: '취소', style: 'cancel' },
+      {
+        text: '삭제',
+        style: 'destructive',
+        onPress: () => {
+          if (!user?.user_id) return;
+          deleteFoodLog(entry.log_id, user.user_id)
+            .then(() => refresh())
+            .catch((err) => {
+              const message = err instanceof ApiError ? err.message : (err as Error).message;
+              Alert.alert('삭제 실패', message);
+            });
+        },
+      },
+    ]);
+  };
 
   const toggleRow = (logId: number) => {
     setExpandedIds((prev) => {
@@ -94,6 +127,7 @@ export default function FoodDiaryListScreen() {
               entry={entry}
               expanded={expandedIds.has(entry.log_id)}
               onToggle={() => toggleRow(entry.log_id)}
+              onDelete={handleDelete}
             />
           ))
         )}
@@ -166,6 +200,17 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#000000',
     flex: 1,
+  },
+  rowKcal: {
+    fontFamily: fonts.medium,
+    fontSize: 12,
+    color: authColors.gray,
+  },
+  deleteButton: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   rowDetail: {
     marginTop: 8,

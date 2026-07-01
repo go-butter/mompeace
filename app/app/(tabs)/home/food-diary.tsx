@@ -7,6 +7,7 @@ import Animated, { interpolate, useAnimatedStyle, useSharedValue, withSpring } f
 
 import PrevIcon from '@/assets/images/common/prev.svg';
 import DownIcon from '@/assets/images/common/down.svg';
+import XIcon from '@/assets/images/common/x.svg';
 import RemainCoffeeIcon from '@/assets/images/home/home_remain_coffee.svg';
 import { authColors } from '@/components/auth/colors';
 import { homeColors } from '@/components/home/colors';
@@ -44,8 +45,11 @@ function FoodLogRow({ entry, onDelete }: { entry: FoodLogEntry; onDelete: (entry
       <Text style={styles.foodKcal}>
         {entry.calories_kcal != null ? `${entry.calories_kcal}kcal` : ''}
       </Text>
-      <Pressable onPress={() => onDelete(entry)} hitSlop={8}>
-        <Text style={styles.deleteText}>삭제</Text>
+      <Pressable
+        onPress={() => onDelete(entry)}
+        hitSlop={8}
+        style={styles.deleteButton}>
+        <XIcon width={19} height={19} color={authColors.pink} />
       </Pressable>
     </View>
   );
@@ -492,12 +496,13 @@ const styles = StyleSheet.create({
   foodKcal: {
     fontFamily: fonts.medium,
     fontSize: 13,
-    color: authColors.pink,
-  },
-  deleteText: {
-    fontFamily: fonts.regular,
-    fontSize: 12,
     color: authColors.gray,
-    marginLeft: 12,
+  },
+  deleteButton: {
+    width: 28,
+    height: 28,
+    marginLeft: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
