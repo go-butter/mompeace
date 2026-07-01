@@ -1,8 +1,25 @@
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
-import Animated, { Easing, runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
-import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import Animated, {
+  Easing,
+  interpolate,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
+import {
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import ChevronDownIcon from '@/assets/images/common/chevron_down_plain.svg';
@@ -20,6 +37,7 @@ import { useAuth } from '@/context/auth-context';
 import { ApiError, createFoodLog, createPersonalFoodItem } from '@/lib/api-client';
 
 const UNITS = ['개', 'g', 'ml', '인분'];
+const EXPAND_SPRING_CONFIG = { damping: 16, stiffness: 100, mass: 1 };
 
 function sanitizeNonNegativeDecimal(text: string) {
   const digitsAndDot = text.replace(/[^0-9.]/g, '');
@@ -48,6 +66,7 @@ function toEatenAt(date: string, time: Date) {
 
 // input height 30 + marginTop 12
 const DRAFT_ROW_HEIGHT = 42;
+const TIME_PICKER_HEIGHT = 216;
 
 type DraftRowProps = {
   row: { id: string; name: string; value: string };
@@ -120,11 +139,53 @@ export default function FoodEntryManualScreen() {
   const [draftRows, setDraftRows] = useState<{ id: string; name: string; value: string }[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const chevronRotation = useSharedValue(0);
+  const timePickerHeight = useSharedValue(0);
+  const timePickerOpacity = useSharedValue(0);
 
   const trimmedName = foodName.trim();
   const parsedAmount = Number(amount);
   const isAmountValid = amount.trim() !== '' && !Number.isNaN(parsedAmount) && parsedAmount > 0;
   const isFormValid = trimmedName.length > 0 && isAmountValid;
+
+  const timeChevronAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${interpolate(chevronRotation.value, [0, 1], [0, 180])}deg` }],
+  }));
+
+  const timePickerAnimatedStyle = useAnimatedStyle(() => ({
+    height: timePickerHeight.value,
+    opacity: timePickerOpacity.value,
+    overflow: 'hidden',
+  }));
+
+  const openTimePicker = () => {
+    setShowTimePicker(true);
+    chevronRotation.value = withSpring(1, EXPAND_SPRING_CONFIG);
+    timePickerHeight.value = withTiming(TIME_PICKER_HEIGHT, {
+      duration: 400,
+      easing: Easing.out(Easing.cubic),
+    });
+    timePickerOpacity.value = withTiming(1, { duration: 400 });
+  };
+
+  const closeTimePicker = () => {
+    chevronRotation.value = withSpring(0, EXPAND_SPRING_CONFIG);
+    timePickerHeight.value = withTiming(0, {
+      duration: 400,
+      easing: Easing.out(Easing.cubic),
+    });
+    timePickerOpacity.value = withTiming(0, { duration: 300 }, (finished) => {
+      if (finished) runOnJS(setShowTimePicker)(false);
+    });
+  };
+
+  const toggleTimePicker = () => {
+    if (showTimePicker) {
+      closeTimePicker();
+    } else {
+      openTimePicker();
+    }
+  };
 
   const addDraftRow = () => {
     setDraftRows((prev) => [
@@ -205,9 +266,17 @@ export default function FoodEntryManualScreen() {
   };
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={[styles.content, { paddingTop: insets.top + 7 }]}>
+    <KeyboardAvoidingView
+      style={styles.keyboardAvoidingView}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={0}>
+      <ScrollView
+        style={styles.container}
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={[
+          styles.content,
+          { paddingTop: insets.top + 7, paddingBottom: insets.bottom + 40 },
+        ]}>
       <View style={styles.headerRow}>
         <Pressable onPress={() => router.back()} style={styles.prevButton} hitSlop={8}>
           <PrevIcon width={15} height={15} />
@@ -258,21 +327,31 @@ export default function FoodEntryManualScreen() {
       {/* 섭취시간 */}
       <View style={styles.card}>
         <Text style={styles.fieldLabel}>섭취시간</Text>
-        <Pressable style={styles.timeInput} onPress={() => setShowTimePicker(true)}>
+        <Pressable style={styles.timeInput} onPress={toggleTimePicker}>
           <ClockIcon width={15} height={15} style={styles.timeInputClock} />
           <Text style={styles.timeInputText}>{formatTimeLabel(time)}</Text>
-          <ChevronDownIcon width={12} height={8} style={styles.timeInputChevron} />
+          <Animated.View style={[styles.timeInputChevron, timeChevronAnimatedStyle]}>
+            <ChevronDownIcon width={12} height={8} />
+          </Animated.View>
         </Pressable>
         {showTimePicker && (
-          <DateTimePicker
-            value={time}
-            mode="time"
-            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-            onChange={(_, selected) => {
-              setShowTimePicker(Platform.OS === 'ios');
-              if (selected) setTime(selected);
-            }}
-          />
+          <Animated.View
+            style={[
+              Platform.OS === 'ios' ? styles.timePickerContainer : undefined,
+              timePickerAnimatedStyle,
+            ]}>
+            <DateTimePicker
+              value={time}
+              mode="time"
+              display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+              themeVariant="light"
+              onChange={(_, selected) => {
+                const nextVisible = Platform.OS === 'ios';
+                if (!nextVisible) closeTimePicker();
+                if (selected) setTime(selected);
+              }}
+            />
+          </Animated.View>
         )}
       </View>
 
@@ -286,6 +365,10 @@ export default function FoodEntryManualScreen() {
             <Text style={styles.addNutrientPillText}>+ 성분 추가</Text>
           </Pressable>
         </View>
+
+        <Text style={styles.nutrientHintText}>
+          ※ 성분값은 섭취한 총량 기준으로 입력해주세요
+        </Text>
 
         <View style={styles.nutrientInputRow}>
           <View style={styles.nutrientLabelGroup}>
@@ -371,18 +454,21 @@ export default function FoodEntryManualScreen() {
         disabled={!isFormValid || saving}>
         <Text style={styles.saveButtonText}>{saving ? '저장 중...' : '기록 저장'}</Text>
       </Pressable>
-    </ScrollView>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
+  keyboardAvoidingView: {
+    flex: 1,
+  },
   container: {
     flex: 1,
     backgroundColor: authColors.white,
   },
   content: {
     paddingHorizontal: 17,
-    paddingBottom: 40,
   },
   headerRow: {
     flexDirection: 'row',
@@ -500,6 +586,15 @@ const styles = StyleSheet.create({
   timeInputChevron: {
     marginLeft: 4,
   },
+  timePickerContainer: {
+    height: 216,
+    backgroundColor: authColors.white,
+    borderWidth: 0.7,
+    borderColor: authColors.border,
+    borderRadius: 6,
+    marginTop: 10,
+    overflow: 'hidden',
+  },
   nutrientHeaderRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -516,6 +611,12 @@ const styles = StyleSheet.create({
     fontFamily: nanumSquareRound.bold,
     fontSize: 11,
     color: authColors.pink,
+  },
+  nutrientHintText: {
+    fontFamily: fonts.regular,
+    fontSize: 11,
+    color: authColors.gray,
+    marginTop: -4,
   },
   nutrientInputRow: {
     flexDirection: 'row',

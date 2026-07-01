@@ -151,21 +151,25 @@ export default function FoodEntrySearchScreen() {
 
       {error && <Text style={styles.errorText}>{error}</Text>}
 
-      {loading ? (
-        <ActivityIndicator size="small" color={authColors.pink} style={{ marginTop: 24 }} />
-      ) : (
-        <FlatList
-          style={styles.list}
-          data={results}
-          keyExtractor={(item, index) => `${item.source}-${item.food_id}-${index}`}
-          renderItem={({ item }) => (
-            <SearchResultRow item={item} onPress={() => handleSelectResult(item)} />
-          )}
-          ListEmptyComponent={
-            searched ? <Text style={styles.emptyText}>검색 결과가 없어요.</Text> : null
-          }
-        />
-      )}
+      <View style={styles.resultsArea}>
+        {loading ? (
+          <View style={styles.loadingArea}>
+            <ActivityIndicator size="small" color={authColors.pink} />
+          </View>
+        ) : (
+          <FlatList
+            style={styles.list}
+            data={results}
+            keyExtractor={(item, index) => `${item.source}-${item.food_id}-${index}`}
+            renderItem={({ item }) => (
+              <SearchResultRow item={item} onPress={() => handleSelectResult(item)} />
+            )}
+            ListEmptyComponent={
+              searched ? <Text style={styles.emptyText}>검색 결과가 없어요.</Text> : null
+            }
+          />
+        )}
+      </View>
 
       <Pressable style={styles.manualButton} onPress={goToManualEntry}>
         <Text style={styles.manualButtonText}>직접 입력하기</Text>
@@ -236,9 +240,17 @@ const styles = StyleSheet.create({
     marginTop: 12,
     paddingHorizontal: 19,
   },
-  list: {
+  resultsArea: {
     flex: 1,
     marginTop: 12,
+  },
+  loadingArea: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  list: {
+    flex: 1,
     paddingHorizontal: 19,
   },
   row: {
