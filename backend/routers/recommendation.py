@@ -21,11 +21,11 @@ def get_recommendations(
     db: sqlite3.Connection = Depends(get_db)
 ):
     """
-    ML 기반 임신 중 식품 추천
+    규칙 엔진 기반 임신 중 식품 추천
 
-    규칙 기반 기준을 바탕으로 학습한 초기 ML 추천 모델 사용.
-    모델 파일이 없을 경우 규칙 기반 안전장치로 폴백.
-    공식 의학 기준 아님.
+    오늘 누적 섭취량, 임신 주차별 섭취 기준, 알레르기 정보,
+    카페인 정보 신뢰도 등을 함께 고려해 possible/caution/avoid를 판정한다.
+    현재 경로는 ML 모델을 사용하지 않으며, 알고리즘은 변경하지 않는다.
     """
 
     cursor = db.cursor()
