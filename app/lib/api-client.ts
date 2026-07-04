@@ -45,6 +45,27 @@ export interface PregnancyUpdateResponse {
   message: string;
 }
 
+export interface AllergyUpdateRequest {
+  allergy_info: string;
+}
+
+export interface AllergyUpdateResponse {
+  user_id: number;
+  allergy_info: string;
+  message: string;
+}
+
+export interface PremiumActionRequest {
+  user_id: number;
+  agree: boolean;
+}
+
+export interface PremiumActionResponse {
+  user_id: number;
+  is_premium: boolean;
+  message: string;
+}
+
 export interface IntakeTodayResponse {
   user_id: number;
   date: string;
@@ -345,6 +366,21 @@ export function updatePregnancyInfo(
   body: PregnancyUpdateRequest
 ): Promise<PregnancyUpdateResponse> {
   return put(`/users/${userId}/pregnancy`, body);
+}
+
+export function updateAllergyInfo(
+  userId: number,
+  body: AllergyUpdateRequest
+): Promise<AllergyUpdateResponse> {
+  return put(`/users/${userId}/allergy`, body);
+}
+
+export function upgradeToPremium(userId: number): Promise<PremiumActionResponse> {
+  return post('/premium/upgrade', { user_id: userId, agree: true });
+}
+
+export function cancelPremium(userId: number): Promise<PremiumActionResponse> {
+  return post('/premium/cancel', { user_id: userId, agree: true });
 }
 
 export function getIntakeToday(userId: number): Promise<IntakeTodayResponse> {
