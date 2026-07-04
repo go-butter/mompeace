@@ -1,5 +1,5 @@
 // Dev-machine LAN IP ??update this if the network changes.
-export const API_BASE_URL = "http://192.168.219.101:8000";
+export const API_BASE_URL = "http://192.168.219.111:8000";
 
 export interface RegisterRequest {
   nickname: string;
@@ -113,7 +113,7 @@ export interface FoodLogEntry {
   caffeine_mg: number | null;
   protein_g: number;
   allergens: string[];
-  extra_nutrients: { name: string; value: number; unit?: string | null }[];
+  extra_nutrients: { name: string; value: string; unit?: string | null }[];
 }
 
 export interface FoodLogTodayResponse {
@@ -191,7 +191,7 @@ export interface FoodLogCreateRequest {
   protein_g?: number | null;
   food_id?: number | null;
   eaten_at?: string;
-  extra_nutrients?: { name: string; value: number; unit?: string }[];
+  extra_nutrients?: { name: string; value: string; unit?: string }[];
 }
 
 export interface FoodLogCreateResponse {
