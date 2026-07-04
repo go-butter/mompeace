@@ -32,6 +32,12 @@ class AllergyUpdate(BaseModel):
     allergy_info: str
 
 
+class ExtraNutrientIn(BaseModel):
+    name: str
+    value: str
+    unit: Optional[str] = None
+
+
 class FoodLogCreate(BaseModel):
     user_id: int
     food_name: str
@@ -47,7 +53,7 @@ class FoodLogCreate(BaseModel):
     protein_g: Optional[float] = None
     food_id: Optional[int] = None
     eaten_at: Optional[str] = None
-    extra_nutrients: Optional[list] = None
+    extra_nutrients: Optional[list[ExtraNutrientIn]] = None
 
 
 class FoodLogFromFood(BaseModel):

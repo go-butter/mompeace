@@ -96,7 +96,10 @@ class TestExtraNutrients:
             sugar_g=5,
             sodium_mg=20,
             eaten_at=today_dt,
-            extra_nutrients=[{"name": "비타민C", "value": 50, "unit": "mg"}],
+            extra_nutrients=[
+                {"name": "비타민C", "value": "50mg"},
+                {"name": "황산", "value": "약간"},
+            ],
         )
         create_food_log(log=log_payload, db=db)
 
@@ -104,7 +107,10 @@ class TestExtraNutrients:
 
         assert result["count"] == 1
         entry = result["logs"][0]
-        assert entry["extra_nutrients"] == [{"name": "비타민C", "value": 50.0, "unit": "mg"}]
+        assert entry["extra_nutrients"] == [
+            {"name": "비타민C", "value": "50mg", "unit": None},
+            {"name": "황산", "value": "약간", "unit": None},
+        ]
 
     def test_no_extra_nutrients_returns_empty_list(self, db):
         user_id = make_user(db)

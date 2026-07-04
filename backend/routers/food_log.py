@@ -182,11 +182,15 @@ def create_food_log(
 
     new_log_id = cursor.lastrowid
     if log.extra_nutrients:
-        for en in log.extra_nutrients:
-            cursor.execute(
-                "INSERT INTO food_log_extra_nutrients (food_log_id, name, value, unit) VALUES (?,?,?,?)",
-                (new_log_id, en["name"], en["value"], en.get("unit")),
-            )
+        try:
+            for en in log.extra_nutrients:
+                cursor.execute(
+                    "INSERT INTO food_log_extra_nutrients (food_log_id, name, value, unit) VALUES (?,?,?,?)",
+                    (new_log_id, en.name, en.value, en.unit),
+                )
+        except sqlite3.IntegrityError:
+            db.rollback()
+            raise HTTPException(status_code=400, detail="추가 성분 정보를 저장할 수 없습니다.")
     db.commit()
 
     return {

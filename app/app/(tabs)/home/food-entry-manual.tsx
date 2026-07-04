@@ -242,7 +242,7 @@ export default function FoodEntryManualScreen() {
           eaten_at: eatenAt,
           extra_nutrients: draftRows
             .filter((r) => r.name.trim() && r.value.trim())
-            .map((r) => ({ name: r.name.trim(), value: Number(r.value) })),
+            .map((r) => ({ name: r.name.trim(), value: r.value.trim() })),
         }).catch((err) => {
           const message = err instanceof ApiError ? err.message : (err as Error).message;
           throw new Error(`LOG_FAILED: ${message}`);

@@ -95,7 +95,7 @@ CREATE TABLE food_log_extra_nutrients (
     extra_nutrient_id INTEGER PRIMARY KEY AUTOINCREMENT,
     food_log_id INTEGER NOT NULL,
     name TEXT NOT NULL,
-    value REAL NOT NULL,
+    value TEXT NOT NULL,
     unit TEXT,
     FOREIGN KEY (food_log_id) REFERENCES food_log(log_id)
 );

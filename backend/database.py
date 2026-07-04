@@ -4,7 +4,7 @@ DB_PATH = "mompeace.db"
 
 
 def get_db():
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=5)
     conn.row_factory = sqlite3.Row  # dict처럼 사용 가능
     try:
         yield conn
@@ -148,12 +148,22 @@ def init_db():
     """)
 
     # 3-1. FoodLogExtraNutrients 테이블 (food_log 항목별 추가 성분)
+    # value는 사용자가 입력한 자유 텍스트(단위 포함, 예: "233g", "약간")를
+    # 그대로 저장하는 컬럼이라 REAL이 아닌 TEXT여야 한다. 기존에 REAL로
+    # 생성된 테이블이 남아있으면 CREATE TABLE IF NOT EXISTS로는 바뀌지
+    # 않으므로, 데이터가 없는 구 스키마 테이블은 한 번 드롭하고 새로 만든다.
+    cursor.execute("PRAGMA table_info(food_log_extra_nutrients)")
+    existing_columns = cursor.fetchall()
+    value_column = next((col for col in existing_columns if col[1] == "value"), None)
+    if value_column is not None and value_column[2].upper() == "REAL":
+        cursor.execute("DROP TABLE food_log_extra_nutrients")
+
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS food_log_extra_nutrients (
             extra_nutrient_id INTEGER PRIMARY KEY AUTOINCREMENT,
             food_log_id INTEGER NOT NULL,
             name TEXT NOT NULL,
-            value REAL NOT NULL,
+            value TEXT NOT NULL,
             unit TEXT,
             FOREIGN KEY (food_log_id) REFERENCES food_log(log_id)
         )
