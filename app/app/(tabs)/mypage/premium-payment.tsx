@@ -62,7 +62,8 @@ export default function PremiumPaymentScreen() {
             {isPremium && <CrownIcon width={18} height={18} />}
           </View>
           <Text style={styles.body}>
-            AI가 분석한 일간·주간 섭취 리포트를{'\n'}프리미엄에서 확인해 보세요.
+            AI가 분석한 성분 리포트로 더 꼼꼼하게 관리해보세요.{'\n'}일별/주간별 섭취 현황을 한눈에
+            확인할 수 있어요.
           </Text>
 
           {statusLoading ? (

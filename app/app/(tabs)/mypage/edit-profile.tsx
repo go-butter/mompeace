@@ -307,11 +307,8 @@ const styles = StyleSheet.create({
     backgroundColor: authColors.white,
     borderRadius: 24,
     padding: 20,
-    shadowColor: authColors.pink,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.25,
-    shadowRadius: 20,
-    elevation: 8,
+    borderWidth: 1,
+    borderColor: authColors.border,
   },
   row: {
     flexDirection: 'row',

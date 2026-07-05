@@ -1,7 +1,12 @@
 import { useNavigation } from '@react-navigation/native';
 import { Stack, useSegments } from 'expo-router';
 import { useEffect } from 'react';
+import { LayoutAnimation, Platform, UIManager } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 const VISIBLE_TAB_BAR_STYLE = {
   backgroundColor: '#fff',
@@ -25,6 +30,7 @@ export default function HomeLayout() {
   const shouldHideTabBar = HIDDEN_TAB_BAR_ROUTES.has(currentLeaf);
 
   useEffect(() => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     navigation.setOptions({
       tabBarStyle: shouldHideTabBar
         ? { display: 'none' }

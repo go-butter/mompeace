@@ -1,14 +1,16 @@
+import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import NextIcon from '@/assets/images/common/next.svg';
 import CrownIcon from '@/assets/images/mypage/crown.svg';
 import MilkIcon from '@/assets/images/mypage/milk.svg';
 import CalendarIcon from '@/assets/images/mypage/mypage_calendar.svg';
 import { authColors } from '@/components/auth/colors';
-import { fonts } from '@/constants/fonts';
+import { fonts, nanumSquareRound } from '@/constants/fonts';
 import { useAuth } from '@/context/auth-context';
 import { useIntake } from '@/context/intake-context';
 import { getPremiumStatus } from '@/lib/api-client';
@@ -23,19 +25,22 @@ function MenuRow({
   title,
   subtitle,
   onPress,
+  chevron = true,
 }: {
   icon: React.ReactNode;
   title: string;
-  subtitle: string;
+  subtitle?: string;
   onPress: () => void;
+  chevron?: boolean;
 }) {
   return (
     <Pressable style={styles.menuRow} onPress={onPress}>
       <View style={styles.menuIconCircle}>{icon}</View>
       <View style={styles.menuTextArea}>
         <Text style={styles.menuTitle}>{title}</Text>
-        <Text style={styles.menuSubtitle}>{subtitle}</Text>
+        {subtitle && <Text style={styles.menuSubtitle}>{subtitle}</Text>}
       </View>
+      {chevron && <NextIcon width={16} height={16} />}
     </Pressable>
   );
 }
@@ -50,7 +55,7 @@ export default function MyPageScreen() {
     if (!user?.user_id) return;
     getPremiumStatus(user.user_id)
       .then((res) => setIsPremium(res.is_premium))
-      .catch(() => {});
+      .catch((err) => console.warn('[mypage] failed to load premium status', err));
   }, [user?.user_id]);
 
   useEffect(() => {
@@ -81,11 +86,6 @@ export default function MyPageScreen() {
       style={styles.container}
       contentContainerStyle={[styles.content, { paddingTop: insets.top + 20 }]}>
       <View style={styles.header}>
-        <Image
-          source={require('@/assets/images/common/logo_nottext.png')}
-          style={styles.logo}
-          resizeMode="contain"
-        />
         <Text style={styles.headerTitle}>마이 페이지</Text>
       </View>
 
@@ -97,7 +97,7 @@ export default function MyPageScreen() {
         style={styles.banner}>
         <View style={styles.bannerGreetingRow}>
           <Text style={styles.bannerGreeting}>{user?.nickname}님👶🏻</Text>
-          {isPremium && <CrownIcon width={16} height={16} style={styles.bannerCrown} />}
+          {isPremium && <CrownIcon width={18} height={18} style={styles.bannerCrown} />}
         </View>
         {intake && (
           <Text style={styles.bannerWeek}>
@@ -107,7 +107,8 @@ export default function MyPageScreen() {
         )}
       </LinearGradient>
 
-      <View style={styles.menuCard}>
+      <Text style={styles.sectionLabel}>내 정보</Text>
+      <View style={styles.card}>
         <MenuRow
           icon={<CalendarIcon width={24} height={24} />}
           title="정보 수정"
@@ -129,23 +130,64 @@ export default function MyPageScreen() {
         start={CARD_GRADIENT_START}
         end={CARD_GRADIENT_END}
         style={styles.premiumCard}>
+        <Image
+          source={require('@/assets/images/premium/premium.png')}
+          style={styles.premiumIllustration}
+          resizeMode="contain"
+        />
         <View style={styles.premiumTitleRow}>
-          <Text style={styles.premiumBadge}>Premium</Text>
-          {isPremium && <CrownIcon width={18} height={18} />}
+          <Text style={styles.premiumTitle}>Premium</Text>
+          <CrownIcon width={18} height={18} />
         </View>
-        <Text style={styles.premiumBody}>
-          AI가 분석한 일간·주간 섭취 리포트를{'\n'}프리미엄에서 확인해 보세요.
-        </Text>
+        <View style={styles.premiumFeatures}>
+          <View style={styles.premiumFeatureRow}>
+            <View style={styles.premiumFeatureIcon}>
+              <Ionicons name="sparkles-outline" size={14} color="#E8536B" />
+            </View>
+            <View>
+              <Text style={styles.premiumFeatureTitle}>AI 성분 분석</Text>
+              <Text style={styles.premiumFeatureSubtitle}>식품 성분을 분석해드려요</Text>
+            </View>
+          </View>
+          <View style={styles.premiumFeatureRow}>
+            <View style={styles.premiumFeatureIcon}>
+              <Ionicons name="bar-chart-outline" size={14} color="#E8536B" />
+            </View>
+            <View>
+              <Text style={styles.premiumFeatureTitle}>주간 리포트</Text>
+              <Text style={styles.premiumFeatureSubtitle}>섭취 리포트를 제공해요</Text>
+            </View>
+          </View>
+        </View>
         <Pressable
           style={styles.premiumCta}
           onPress={() => router.push('/(tabs)/mypage/premium-payment')}>
-          <Text style={styles.premiumCtaText}>프리미엄 구독하기</Text>
+          <Text style={styles.premiumCtaText}>프리미엄 시작하기</Text>
+          <Ionicons name="chevron-forward" size={13} color={authColors.pink} />
         </Pressable>
       </LinearGradient>
 
-      <Pressable onPress={handleLogout} style={styles.logoutLink}>
-        <Text style={styles.logoutText}>로그아웃 하기</Text>
-      </Pressable>
+      <Text style={styles.sectionLabel}>기타</Text>
+      <View style={styles.card}>
+        <MenuRow
+          icon={<Ionicons name="mail-outline" size={22} color={authColors.pink} />}
+          title="문의하기"
+          onPress={() => router.push('/(tabs)/mypage/contact')}
+        />
+        <View style={styles.menuDivider} />
+        <MenuRow
+          icon={<Ionicons name="document-text-outline" size={22} color={authColors.pink} />}
+          title="개인정보 처리방침"
+          onPress={() => Alert.alert('준비중입니다', '빠른 시일 내에 준비하겠습니다.')}
+        />
+        <View style={styles.menuDivider} />
+        <MenuRow
+          icon={<Ionicons name="log-out-outline" size={22} color={authColors.pink} />}
+          title="로그아웃"
+          onPress={handleLogout}
+          chevron={false}
+        />
+      </View>
     </ScrollView>
   );
 }
@@ -160,53 +202,57 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  logo: {
-    width: 28,
-    height: 28,
+    flexDirection: 'column',
+    alignItems: 'flex-start',
   },
   headerTitle: {
-    fontFamily: fonts.bold,
-    fontSize: 20,
+    fontSize: 25,
+    fontWeight: '500',
+    color: '#000000',
+  },
+  sectionLabel: {
+    fontFamily: fonts.regular,
+    fontSize: 14,
     color: authColors.brown,
+    marginTop: 20,
+    marginBottom: 8,
+  },
+  card: {
+    backgroundColor: authColors.white,
+    borderRadius: 15,
+    paddingHorizontal: 20,
+    borderWidth: 1,
+    borderColor: authColors.border,
   },
   banner: {
-    borderRadius: 20,
+    borderRadius: 15,
     padding: 20,
     marginTop: 20,
+    borderWidth: 1,
+    borderColor: authColors.border,
   },
   bannerGreetingRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 3,
   },
   bannerGreeting: {
-    fontFamily: fonts.semiBold,
-    fontSize: 17,
+    fontFamily: nanumSquareRound.bold,
+    fontSize: 20,
     color: authColors.brown,
   },
   bannerCrown: {
     marginTop: -2,
   },
   bannerWeek: {
-    fontFamily: fonts.medium,
-    fontSize: 14,
+    fontFamily: nanumSquareRound.regular,
+    fontSize: 15,
     color: authColors.brown,
     marginTop: 6,
   },
-  menuCard: {
-    backgroundColor: authColors.white,
-    borderRadius: 24,
-    marginTop: 20,
-    paddingHorizontal: 20,
-    shadowColor: authColors.pink,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.15,
-    shadowRadius: 16,
-    elevation: 6,
+  menuDivider: {
+    height: 1,
+    backgroundColor: authColors.border,
   },
   menuRow: {
     flexDirection: 'row',
@@ -236,54 +282,78 @@ const styles = StyleSheet.create({
     color: authColors.gray,
     marginTop: 2,
   },
-  menuDivider: {
-    height: 1,
-    backgroundColor: authColors.border,
-  },
   premiumCard: {
     borderRadius: 15,
     marginTop: 20,
     padding: 20,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: authColors.border,
+  },
+  premiumIllustration: {
+    position: 'absolute',
+    right: 20,
+    bottom: -6,
+    width: 130,
+    height: 130,
+    opacity: 0.55,
   },
   premiumTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 5,
   },
-  premiumBadge: {
-    fontFamily: fonts.bold,
+  premiumTitle: {
+    fontWeight: 'bold',
     fontSize: 20,
     color: '#ff8f9b',
   },
-  premiumBody: {
-    fontFamily: fonts.regular,
+  premiumFeatures: {
+    marginTop: 12,
+    maxWidth: '68%',
+    gap: 10,
+  },
+  premiumFeatureRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  premiumFeatureIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#FFF0F0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  premiumFeatureTitle: {
+    fontFamily: nanumSquareRound.bold,
+    fontSize: 15,
+    color: '#A88770',
+  },
+  premiumFeatureSubtitle: {
+    fontFamily: nanumSquareRound.regular,
     fontSize: 12,
     color: '#848484',
-    marginTop: 12,
-    lineHeight: 18,
+    marginTop: 1,
   },
   premiumCta: {
     marginTop: 16,
+    alignSelf: 'flex-start',
+    width: 173,
+    height: 27,
     backgroundColor: '#FFF0F0',
     borderWidth: 0.7,
     borderColor: authColors.border,
-    borderRadius: 999,
-    paddingVertical: 14,
+    borderRadius: 15,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
   },
   premiumCtaText: {
-    fontFamily: fonts.bold,
-    fontSize: 15,
+    fontFamily: nanumSquareRound.regular,
+    fontSize: 13,
     color: authColors.pink,
-  },
-  logoutLink: {
-    alignItems: 'center',
-    marginTop: 24,
-  },
-  logoutText: {
-    fontFamily: fonts.regular,
-    fontSize: 14,
-    color: authColors.gray,
-    textDecorationLine: 'underline',
   },
 });

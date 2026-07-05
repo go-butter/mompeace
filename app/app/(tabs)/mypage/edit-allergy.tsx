@@ -140,11 +140,8 @@ const styles = StyleSheet.create({
     backgroundColor: authColors.white,
     borderRadius: 24,
     padding: 20,
-    shadowColor: authColors.pink,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.18,
-    shadowRadius: 24,
-    elevation: 6,
+    borderWidth: 1,
+    borderColor: authColors.border,
   },
   chipWrap: {
     flexDirection: 'row',

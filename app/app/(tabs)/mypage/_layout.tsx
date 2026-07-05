@@ -1,7 +1,12 @@
 import { useNavigation } from '@react-navigation/native';
 import { Stack, useSegments } from 'expo-router';
 import { useEffect } from 'react';
+import { LayoutAnimation, Platform, UIManager } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 const VISIBLE_TAB_BAR_STYLE = {
   backgroundColor: '#fff',
@@ -15,7 +20,12 @@ const VISIBLE_TAB_BAR_STYLE = {
 } as const;
 
 const CONTENT_HEIGHT = 80; // mirrors (tabs)/_layout.tsx's CONTENT_HEIGHT
-const HIDDEN_TAB_BAR_ROUTES = new Set(['edit-profile', 'edit-allergy', 'premium-payment']);
+const HIDDEN_TAB_BAR_ROUTES = new Set([
+  'edit-profile',
+  'edit-allergy',
+  'premium-payment',
+  'contact',
+]);
 
 export default function MyPageLayout() {
   const insets = useSafeAreaInsets();
@@ -25,6 +35,7 @@ export default function MyPageLayout() {
   const shouldHideTabBar = HIDDEN_TAB_BAR_ROUTES.has(currentLeaf);
 
   useEffect(() => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     navigation.setOptions({
       tabBarStyle: shouldHideTabBar
         ? { display: 'none' }
@@ -38,6 +49,7 @@ export default function MyPageLayout() {
       <Stack.Screen name="edit-profile" />
       <Stack.Screen name="edit-allergy" />
       <Stack.Screen name="premium-payment" />
+      <Stack.Screen name="contact" />
     </Stack>
   );
 }
