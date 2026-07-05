@@ -21,6 +21,7 @@ import FoodIcon from '@/assets/images/home/food.svg';
 import CalendarIcon from '@/assets/images/home/calendar.svg';
 import ReportIcon from '@/assets/images/home/report.svg';
 import RemainCoffeeIcon from '@/assets/images/home/home_remain_coffee.svg';
+import ProfileIcon from '@/assets/images/common/profile_circle.svg';
 import { authColors } from '@/components/auth/colors';
 import { homeColors } from '@/components/home/colors';
 import { fonts, nanumSquareRound } from '@/constants/fonts';
@@ -127,11 +128,16 @@ export default function HomeScreen() {
     <ScrollView
       style={styles.container}
       contentContainerStyle={[styles.content, { paddingTop: insets.top + 20 }]}>
-      <Image
-        source={require('@/assets/images/common/logo_2.png')}
-        style={styles.logo}
-        resizeMode="contain"
-      />
+      <View style={styles.topRow}>
+        <Image
+          source={require('@/assets/images/common/logo_2.png')}
+          style={styles.logo}
+          resizeMode="contain"
+        />
+        <Pressable onPress={() => router.push('/(tabs)/mypage')} hitSlop={12}>
+          <ProfileIcon width={26} height={26} color="#F47E8A" />
+        </Pressable>
+      </View>
 
       <View style={styles.banner} onLayout={handleBannerLayout}>
         {bannerSize.width > 0 && bannerSize.height > 0 && (
@@ -326,10 +332,15 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingHorizontal: 24,
   },
+  topRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
   logo: {
     width: 110,
     height: 29,
-    marginBottom: 16,
   },
   banner: {
     position: 'relative',
