@@ -19,7 +19,7 @@ const HEART_ASPECT_RATIO = 696 / 588;
 import BarcodeIcon from '@/assets/images/home/barcode.svg';
 import FoodIcon from '@/assets/images/home/food.svg';
 import CalendarIcon from '@/assets/images/home/calendar.svg';
-import NoteIcon from '@/assets/images/home/note.svg';
+import ReportIcon from '@/assets/images/home/report.svg';
 import RemainCoffeeIcon from '@/assets/images/home/home_remain_coffee.svg';
 import { authColors } from '@/components/auth/colors';
 import { homeColors } from '@/components/home/colors';
@@ -277,10 +277,10 @@ export default function HomeScreen() {
           onPress={() => router.push('/(tabs)/home/food-diary')}
         />
         <ShortcutButton
-          icon={<NoteIcon width={24} height={24} />}
-          title="나의 기록"
-          subtitle="스캔 기록 보기"
-          onPress={() => {}}
+          icon={<ReportIcon width={24} height={24} />}
+          title="프리미엄 리포트"
+          subtitle="식습관 분석"
+          onPress={() => router.push('/(tabs)/home/premium-report')}
         />
       </View>
 
