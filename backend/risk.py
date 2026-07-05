@@ -222,8 +222,8 @@ def evaluate_food_risk(food_data: dict, pregnancy_week: int):
 
     caffeine = food_data.get("caffeine_mg")           # None 유지 (unknown 처리)
     caffeine_keywords = food_data.get("caffeine_keywords") or []
-    sugar = food_data.get("sugar_g", 0) or 0
-    sodium = food_data.get("sodium_mg", 0) or 0
+    sugar = food_data.get("sugar_g")                  # None 유지 (unknown 처리)
+    sodium = food_data.get("sodium_mg")               # None 유지 (unknown 처리)
     allergens = food_data.get("allergens", []) or []
 
     # 카페인: None이면 키워드 유무로 unknown / check_required 분기
@@ -235,6 +235,7 @@ def evaluate_food_risk(food_data: dict, pregnancy_week: int):
     else:
         caffeine_status = get_product_status("caffeine", caffeine, trimester)
 
+    # get_product_status()는 value=None이면 "unknown"을 반환하므로 caffeine과 달리 분기 불필요
     sugar_status = get_product_status("sugar", sugar, trimester)
     sodium_status = get_product_status("sodium", sodium, trimester)
 

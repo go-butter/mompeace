@@ -96,7 +96,7 @@ class TestSearchFoodPersonalResults:
         user_id = make_user(db)
         make_user_food_item(db, user_id, food_name="아메리카노 개인", caffeine_mg=150)
 
-        result = search_food(query="아메리카노", pregnancy_week=20, page_no=1, num_of_rows=10, user_id=user_id, db=db)
+        result = search_food(query="아메리카노", page_no=1, num_of_rows=10, user_id=user_id, db=db)
 
         assert result["results"][0]["source"] == "personal"
         assert result["results"][0]["data"]["food_name"] == "아메리카노 개인"
@@ -106,6 +106,6 @@ class TestSearchFoodPersonalResults:
         other_user_id = make_user(db)
         make_user_food_item(db, other_user_id, food_name="아메리카노 개인", caffeine_mg=150)
 
-        result = search_food(query="아메리카노", pregnancy_week=20, page_no=1, num_of_rows=10, user_id=None, db=db)
+        result = search_food(query="아메리카노", page_no=1, num_of_rows=10, user_id=None, db=db)
 
         assert all(r["source"] != "personal" for r in result["results"])

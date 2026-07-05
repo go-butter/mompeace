@@ -53,8 +53,9 @@ function SearchResultRow({
           )}
         </View>
         <Text style={styles.rowMeta}>
-          칼로리 {data.calories_kcal ?? 0}kcal · 당류 {data.sugar_g ?? 0}g · 나트륨{' '}
-          {data.sodium_mg ?? 0}mg
+          칼로리 {data.calories_kcal ?? 0}kcal · 당류{' '}
+          {data.sugar_g != null ? `${data.sugar_g}g` : '정보 없음'} · 나트륨{' '}
+          {data.sodium_mg != null ? `${data.sodium_mg}mg` : '정보 없음'}
         </Text>
       </View>
     </Pressable>
@@ -78,7 +79,7 @@ export default function FoodEntrySearchScreen() {
     if (!trimmed || !user?.user_id) return;
     setLoading(true);
     setError(null);
-    searchFoods(trimmed, user.user_id, user.pregnancy_week ?? 20)
+    searchFoods(trimmed, user.user_id)
       .then((res) => {
         setResults(res.results);
         setSearched(true);

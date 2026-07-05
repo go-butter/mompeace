@@ -83,7 +83,7 @@ function formatCaffeine(value: number | null | undefined) {
 
 function formatNutrient(value: number | null | undefined, unit: string) {
   if (value == null || typeof value !== 'number' || !Number.isFinite(value)) {
-    return '-';
+    return '정보 없음';
   }
   return `${formatNumber(value)}${unit}`;
 }

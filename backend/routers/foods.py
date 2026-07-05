@@ -8,7 +8,7 @@ from backend.food_repository import save_food_item
 from backend.food_search_api import search_food_nutrition
 from backend.foodqr import get_food_info, simplify_food_info
 from backend.models import UserFoodItemCreate
-from backend.risk import evaluate_food_risk
+from backend.risk import calculate_current_pregnancy_age, evaluate_food_risk
 
 router = APIRouter()
 
@@ -20,10 +20,29 @@ router = APIRouter()
 USE_MOCK_FOODQR = True
 
 
+def _resolve_pregnancy_week(user_id: Optional[int], db: sqlite3.Connection) -> int:
+    """user_id로 사용자를 조회해 pregnancy_entered_at 기준 현재 임신 주차를 계산한다.
+    user_id가 없으면 기본값 20을 반환한다."""
+    if user_id is None:
+        return 20
+
+    cursor = db.cursor()
+    cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
+    user = cursor.fetchone()
+    if not user:
+        raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
+
+    user = dict(user)
+    computed_age = calculate_current_pregnancy_age(
+        user.get("pregnancy_week"), user.get("pregnancy_day"), user.get("pregnancy_entered_at")
+    )
+    return computed_age["week"] or 20
+
+
 @router.get("/foods/barcode/{barcode}")
 def get_food_by_barcode(
     barcode: str,
-    pregnancy_week: int = 20,
+    user_id: Optional[int] = None,
     db: sqlite3.Connection = Depends(get_db)
 ):
     """
@@ -96,6 +115,8 @@ def get_food_by_barcode(
         db=db
     )
 
+    pregnancy_week = _resolve_pregnancy_week(user_id, db)
+
     risk_result = evaluate_food_risk(
         food_data=simplified_data,
         pregnancy_week=pregnancy_week
@@ -112,7 +133,6 @@ def get_food_by_barcode(
 @router.get("/foods/search")
 def search_food(
     query: str,
-    pregnancy_week: int = 20,
     page_no: int = 1,
     num_of_rows: int = 10,
     user_id: Optional[int] = None,
@@ -133,6 +153,8 @@ def search_food(
             status_code=400,
             detail="검색어를 입력해 주세요."
         )
+
+    pregnancy_week = _resolve_pregnancy_week(user_id, db)
 
     personal_results = []
     if user_id is not None:

@@ -18,6 +18,8 @@ CREATE TABLE users (
     login_id    TEXT,
     password    TEXT,
     pregnancy_week INTEGER,
+    pregnancy_day INTEGER,
+    pregnancy_entered_at TEXT,
     due_date    TEXT,
     allergy_info TEXT,
     interest_ingredients TEXT,

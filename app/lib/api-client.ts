@@ -205,8 +205,8 @@ export interface FoodLogCreateRequest {
   amount?: number;
   unit?: string;
   caffeine_mg?: number | null;
-  sugar_g?: number;
-  sodium_mg?: number;
+  sugar_g?: number | null;
+  sodium_mg?: number | null;
   calories_kcal?: number;
   carbohydrate_g?: number | null;
   protein_g?: number | null;
@@ -393,9 +393,10 @@ export function getFoodLogToday(userId: number): Promise<FoodLogTodayResponse> {
 
 export function getFoodByBarcode(
   barcode: string,
-  pregnancyWeek: number
+  userId?: number
 ): Promise<BarcodeFoodResponse> {
-  return get(`/foods/barcode/${encodeURIComponent(barcode)}?pregnancy_week=${pregnancyWeek}`);
+  const userParam = userId != null ? `?user_id=${userId}` : '';
+  return get(`/foods/barcode/${encodeURIComponent(barcode)}${userParam}`);
 }
 
 export function createFoodLog(body: FoodLogCreateRequest): Promise<FoodLogCreateResponse> {
@@ -522,10 +523,7 @@ export function getFoodCategories(): Promise<FoodCategoriesResponse> {
 
 export function searchFoods(
   query: string,
-  userId: number,
-  pregnancyWeek: number
+  userId: number
 ): Promise<FoodSearchResponse> {
-  return get(
-    `/foods/search?query=${encodeURIComponent(query)}&user_id=${userId}&pregnancy_week=${pregnancyWeek}`
-  );
+  return get(`/foods/search?query=${encodeURIComponent(query)}&user_id=${userId}`);
 }

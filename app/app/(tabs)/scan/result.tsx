@@ -107,7 +107,7 @@ export default function BarcodeScanResultScreen() {
     setLoading(true);
     setError(null);
 
-    getFoodByBarcode(barcode, user?.pregnancy_week ?? 20)
+    getFoodByBarcode(barcode, user?.user_id)
       .then((res) => {
         if (!isMounted) return;
         setResult(res);
@@ -123,7 +123,7 @@ export default function BarcodeScanResultScreen() {
     return () => {
       isMounted = false;
     };
-  }, [barcode, user?.pregnancy_week]);
+  }, [barcode, user?.user_id]);
 
   const handleAddToFoodDiary = () => {
     if (!result || !user?.user_id || adding || added) return;
@@ -136,8 +136,8 @@ export default function BarcodeScanResultScreen() {
       amount: 1,
       unit: '개',
       caffeine_mg: result.risk.details.caffeine.value,
-      sugar_g: result.risk.details.sugar.value ?? 0,
-      sodium_mg: result.risk.details.sodium.value ?? 0,
+      sugar_g: result.risk.details.sugar.value,
+      sodium_mg: result.risk.details.sodium.value,
       calories_kcal: result.data.calories_kcal ?? 0,
     })
       .then(() => {
