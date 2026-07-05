@@ -477,25 +477,41 @@ def get_premium_report(
     prev_sunday = sunday - timedelta(days=7)
     prev_week_days, prev_row_count = _aggregate_week(cursor, user_id, prev_monday, prev_sunday)
 
-    if prev_row_count == 0:
+    unknown_caffeine_count_prev = sum(d["unknown_caffeine"] for d in prev_week_days)
+    unknown_sugar_count_prev    = sum(d["unknown_sugar"]    for d in prev_week_days)
+    unknown_sodium_count_prev   = sum(d["unknown_sodium"]   for d in prev_week_days)
+
+    # nutrient별로 "확인된 값이 하나도 없음"을 따로 판정한다.
+    # prev_row_count==0(기록 자체가 없음)과 prev_row_count>0인데 그 nutrient만 전부 NULL인 경우를
+    # 모두 포괄한다 (두 경우 다 known_count == 0).
+    prev_known_caffeine_count = prev_row_count - unknown_caffeine_count_prev
+    prev_known_sugar_count    = prev_row_count - unknown_sugar_count_prev
+    prev_known_sodium_count   = prev_row_count - unknown_sodium_count_prev
+
+    prev_total_caffeine = sum(d["caffeine_mg"] for d in prev_week_days)
+    prev_total_sugar    = sum(d["sugar_g"]     for d in prev_week_days)
+    prev_total_sodium   = sum(d["sodium_mg"]   for d in prev_week_days)
+
+    prev_days_with_data = sum(1 for d in prev_week_days if d["log_count"] > 0)
+    prev_divisor = prev_days_with_data or 1
+
+    if prev_known_caffeine_count == 0:
         caffeine_vs_previous_pct = None
+    else:
+        prev_avg_caffeine_pct = _get_percent(round(prev_total_caffeine / prev_divisor, 1), caffeine_limit)
+        caffeine_vs_previous_pct = round(caffeine_avg_pct - prev_avg_caffeine_pct, 1)
+
+    if prev_known_sugar_count == 0:
         sugar_vs_previous_pct = None
+    else:
+        prev_avg_sugar_pct = _get_percent(round(prev_total_sugar / prev_divisor, 1), sugar_limit)
+        sugar_vs_previous_pct = round(sugar_avg_pct - prev_avg_sugar_pct, 1)
+
+    if prev_known_sodium_count == 0:
         sodium_vs_previous_pct = None
     else:
-        prev_total_caffeine = sum(d["caffeine_mg"] for d in prev_week_days)
-        prev_total_sugar    = sum(d["sugar_g"]     for d in prev_week_days)
-        prev_total_sodium   = sum(d["sodium_mg"]   for d in prev_week_days)
-
-        prev_days_with_data = sum(1 for d in prev_week_days if d["log_count"] > 0)
-        prev_divisor = prev_days_with_data or 1
-
-        prev_avg_caffeine_pct = _get_percent(round(prev_total_caffeine / prev_divisor, 1), caffeine_limit)
-        prev_avg_sugar_pct    = _get_percent(round(prev_total_sugar    / prev_divisor, 1), sugar_limit)
-        prev_avg_sodium_pct   = _get_percent(round(prev_total_sodium   / prev_divisor, 1), sodium_limit)
-
-        caffeine_vs_previous_pct = round(caffeine_avg_pct - prev_avg_caffeine_pct, 1)
-        sugar_vs_previous_pct    = round(sugar_avg_pct    - prev_avg_sugar_pct, 1)
-        sodium_vs_previous_pct   = round(sodium_avg_pct   - prev_avg_sodium_pct, 1)
+        prev_avg_sodium_pct = _get_percent(round(prev_total_sodium / prev_divisor, 1), sodium_limit)
+        sodium_vs_previous_pct = round(sodium_avg_pct - prev_avg_sodium_pct, 1)
 
     date_range_str = f"{monday.strftime('%Y.%m.%d.')} ~ {sunday.strftime('%m.%d.')}"
     return {

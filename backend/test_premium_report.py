@@ -197,3 +197,24 @@ class TestGetPremiumReportWeekly:
         assert result["comparison"]["caffeine_vs_previous_pct"] is None
         assert result["comparison"]["sugar_vs_previous_pct"] is None
         assert result["comparison"]["sodium_vs_previous_pct"] is None
+
+    def test_comparison_is_null_only_for_nutrient_unknown_on_every_previous_week_row(self, db):
+        # 지난 주에 기록은 있지만, sugar_g만 모든 행에서 NULL(unknown)인 경우
+        # sugar만 null이고 caffeine/sodium은 정상적으로 계산되어야 한다.
+        user_id = make_user(db, is_premium=1, pregnancy_week=20)
+        for i in range(7):
+            day = 14 + i
+            make_food_log(db, user_id, caffeine_mg=100, sugar_g=0, sodium_mg=100,
+                           eaten_at=f"2030-01-{day:02d} 09:00:00")
+        for i in range(7):
+            day = 7 + i
+            make_food_log(db, user_id, caffeine_mg=50, sugar_g=None, sodium_mg=50,
+                           eaten_at=f"2030-01-{day:02d} 09:00:00")
+
+        result = get_premium_report(user_id=user_id, period="weekly", date="2030-01-14", db=db)
+
+        assert result["comparison"]["sugar_vs_previous_pct"] is None
+        assert result["comparison"]["caffeine_vs_previous_pct"] is not None
+        assert result["comparison"]["sodium_vs_previous_pct"] is not None
+        assert result["comparison"]["caffeine_vs_previous_pct"] == 25.0  # 50% - 25%
+        assert result["comparison"]["sodium_vs_previous_pct"] == 2.1     # 4.3% - 2.2%
