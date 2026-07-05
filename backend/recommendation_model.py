@@ -13,15 +13,21 @@ from pathlib import Path
 from typing import Optional
 
 from backend.food_search_api import detect_caffeine_keywords
+from backend.nutrition_constants import (
+    DAILY_CAFFEINE_LIMIT_MG,
+    DAILY_SODIUM_LIMIT_MG,
+    DAILY_SUGAR_LIMIT_G,
+)
 from backend.risk import get_trimester
 
 _HERE = Path(__file__).resolve().parent
 
-# 트라이메스터별 1일 허용 기준 (앱 내부 보수적 기준, 공식 의학 기준 아님)
+# 1일 허용 기준 (앱 내부 보수적 기준, 공식 의학 기준 아님). 트라이메스터와 무관하게 항상 동일하며,
+# 트라이메스터는 apply_safety_guard()의 caution 민감도(early 카페인 60%, late 나트륨 80%)에만 영향을 준다.
 DAILY_LIMITS = {
-    "early":  {"caffeine": 200.0, "sugar": 50.0, "sodium": 2000.0},
-    "middle": {"caffeine": 200.0, "sugar": 50.0, "sodium": 2000.0},
-    "late":   {"caffeine": 200.0, "sugar": 50.0, "sodium": 1500.0},
+    "caffeine": DAILY_CAFFEINE_LIMIT_MG,
+    "sugar": DAILY_SUGAR_LIMIT_G,
+    "sodium": DAILY_SODIUM_LIMIT_MG,
 }
 
 STATUS_LABEL_KO = {"possible": "섭취 가능", "caution": "주의", "avoid": "비추천"}
@@ -31,14 +37,14 @@ SENSITIVITY_ADJ_MIN = -0.15
 SENSITIVITY_ADJ_MAX = 0.15
 
 
-def get_effective_limits(trimester: str, user_adj: Optional[dict] = None) -> dict:
+def get_effective_limits(user_adj: Optional[dict] = None) -> dict:
     """
-    DAILY_LIMITS[trimester]를 사용자별 민감도 조정값으로 스케일링한다.
+    DAILY_LIMITS를 사용자별 민감도 조정값으로 스케일링한다.
     user_adj: {"caffeine": float, "sugar": float, "sodium": float}, 각 [-0.15, 0.15] 범위.
     알레르기 일치/절대 초과 같은 하드 안전 규칙에는 영향을 주지 않고,
     그 규칙이 사용하는 비율 계산의 기준값만 조정한다.
     """
-    base = DAILY_LIMITS[trimester]
+    base = DAILY_LIMITS
     user_adj = user_adj or {}
 
     def _scaled(nutrient: str) -> float:
@@ -79,7 +85,7 @@ def apply_safety_guard(
     ML 예측 결과에 규칙 기반 안전장치를 적용한다.
     안전 방향(avoid/caution)으로만 올릴 수 있으며, 내리지 않는다.
     """
-    limits = get_effective_limits(trimester, user_adj)
+    limits = get_effective_limits(user_adj)
     today_caffeine = today_intake.get("caffeine_mg") or 0.0
     today_sugar = today_intake.get("sugar_g") or 0.0
     today_sodium = today_intake.get("sodium_mg") or 0.0
@@ -142,7 +148,7 @@ def make_reason(
     user_adj: Optional[dict] = None,
 ) -> tuple:
     """반환값: (한국어 이유 메시지, reason_nutrient 태그)"""
-    limits = get_effective_limits(trimester, user_adj)
+    limits = get_effective_limits(user_adj)
     today_caffeine = today_intake.get("caffeine_mg") or 0.0
     today_sugar = today_intake.get("sugar_g") or 0.0
     today_sodium = today_intake.get("sodium_mg") or 0.0
@@ -194,7 +200,7 @@ def judge_food_rules(
     allergy_match: int,
     user_adj: Optional[dict] = None,
 ) -> str:
-    limits = get_effective_limits(trimester, user_adj)
+    limits = get_effective_limits(user_adj)
     today_caffeine = today_intake.get("caffeine_mg") or 0.0
     today_sugar = today_intake.get("sugar_g") or 0.0
     today_sodium = today_intake.get("sodium_mg") or 0.0

@@ -203,7 +203,7 @@ def get_premium_report(
         user.get("pregnancy_week"), user.get("pregnancy_day"), user.get("pregnancy_entered_at")
     )
     week = computed_age["week"] or 20
-    trimester, limits = get_trimester_limits(cursor, week)
+    trimester, limits = get_trimester_limits(week)
     caffeine_limit = limits["caffeine_mg"]
     sugar_limit    = limits["sugar_g"]
     sodium_limit   = limits["sodium_mg"]

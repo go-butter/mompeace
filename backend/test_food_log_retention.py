@@ -13,18 +13,8 @@ from backend.routers.intake import get_food_log_calendar
 from .conftest import make_food_log, make_user
 
 
-def _seed_pregnancy_limit(db, trimester="middle"):
-    db.execute(
-        "INSERT INTO pregnancy_limits (trimester, caffeine_limit_mg, sugar_caution_g, sodium_caution_mg, note) "
-        "VALUES (?, 200, 50, 2000, '')",
-        (trimester,),
-    )
-    db.commit()
-
-
 class TestFoodLogRetention:
     def test_old_food_log_survives_by_date_and_calendar(self, db):
-        _seed_pregnancy_limit(db)
         user_id = make_user(db, is_premium=0, pregnancy_week=20)
         past_date = "2026-06-19"
         make_food_log(

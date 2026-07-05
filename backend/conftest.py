@@ -112,17 +112,6 @@ CREATE TABLE user_sensitivity_log (
     created_at     TEXT DEFAULT (datetime('now')),
     FOREIGN KEY (user_id) REFERENCES users(user_id)
 );
-
-CREATE TABLE pregnancy_limits (
-    limit_id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    trimester         TEXT,
-    week_min          INTEGER,
-    week_max          INTEGER,
-    caffeine_limit_mg REAL DEFAULT 200,
-    sugar_caution_g   REAL DEFAULT 50,
-    sodium_caution_mg REAL DEFAULT 2000,
-    note              TEXT
-);
 """
 
 

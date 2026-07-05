@@ -14,21 +14,11 @@ from backend.routers.intake import get_food_log_calendar
 from .conftest import make_user, make_food_log
 
 
-def _seed_pregnancy_limit(db, trimester="middle"):
-    db.execute(
-        "INSERT INTO pregnancy_limits (trimester, caffeine_limit_mg, sugar_caution_g, sodium_caution_mg, note) "
-        "VALUES (?, 200, 50, 2000, '')",
-        (trimester,),
-    )
-    db.commit()
-
-
 class TestGetFoodLogCalendar:
     def test_mixed_status_days_in_month(self, db):
         # food_log cleanup deletes non-premium rows older than 1 day, so use
         # a month far in the future to keep these rows from being purged
         # regardless of when the suite actually runs.
-        _seed_pregnancy_limit(db)
         user_id = make_user(db, pregnancy_week=20)
 
         # safe: well under limits (caffeine 50/200=25%)
@@ -58,7 +48,6 @@ class TestGetFoodLogCalendar:
         assert result["month"] == 1
 
     def test_empty_month_returns_empty_days(self, db):
-        _seed_pregnancy_limit(db)
         user_id = make_user(db)
 
         result = get_food_log_calendar(user_id=user_id, year=2030, month=2, db=db)

@@ -1,7 +1,12 @@
 import sqlite3
 from datetime import date
 
-from fastapi import HTTPException
+from backend.nutrition_constants import (
+    DAILY_CAFFEINE_LIMIT_MG,
+    DAILY_SODIUM_LIMIT_MG,
+    DAILY_SUGAR_LIMIT_G,
+    TRIMESTER_NOTES,
+)
 
 
 def compute_today_intake_totals(user_id: int, db: sqlite3.Connection) -> dict:
@@ -62,22 +67,21 @@ def compute_overall_status(caffeine_status, sugar_status, sodium_status) -> str:
         return "safe"
 
 
-def get_trimester_limits(cursor, pregnancy_week: int) -> tuple[str, dict]:
-    """트라이메스터 판별 및 pregnancy_limits 조회"""
+def get_trimester_limits(pregnancy_week: int) -> tuple[str, dict]:
+    """트라이메스터 판별 및 1일 허용 기준 조회.
+
+    절대 기준값(카페인/당류/나트륨)은 트라이메스터와 무관하게 항상 동일하다(nutrition_constants 참고).
+    트라이메스터별로 달라지는 것은 note(안내 문구)뿐이다.
+    """
     if pregnancy_week <= 12:
         trimester = "early"
     elif pregnancy_week <= 27:
         trimester = "middle"
     else:
         trimester = "late"
-    cursor.execute("SELECT * FROM pregnancy_limits WHERE trimester = ?", (trimester,))
-    limit_row = cursor.fetchone()
-    if not limit_row:
-        raise HTTPException(status_code=500, detail="임신 주차별 기준 정보를 찾을 수 없습니다.")
-    limits = dict(limit_row)
     return trimester, {
-        "caffeine_mg": limits["caffeine_limit_mg"],
-        "sugar_g":     limits["sugar_caution_g"],
-        "sodium_mg":   limits["sodium_caution_mg"],
-        "note":        limits["note"],
+        "caffeine_mg": DAILY_CAFFEINE_LIMIT_MG,
+        "sugar_g":     DAILY_SUGAR_LIMIT_G,
+        "sodium_mg":   DAILY_SODIUM_LIMIT_MG,
+        "note":        TRIMESTER_NOTES[trimester],
     }

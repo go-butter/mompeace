@@ -5,7 +5,7 @@ backend/recommendation_model.py 의 핵심 안전 판정 로직 테스트.
 - judge_food_rules(): 누적 섭취 비율 기반 1차 판정 (possible/caution/avoid)
 - apply_safety_guard(): 알레르기/임계 초과 등 안전 방향 보정 (절대 하향 금지)
 
-DAILY_LIMITS (트라이메스터별 1일 허용 기준)을 직접 import해서 사용하므로,
+DAILY_LIMITS (1일 허용 기준, 트라이메스터 불변)을 직접 import해서 사용하므로,
 이 파일의 수치가 나중에 바뀌어도 테스트는 "70% 이상이면 caution, 100% 이상이면
 avoid"라는 *관계*를 검증하지, 하드코딩된 mg/g 값을 검증하지 않는다.
 """
@@ -55,7 +55,7 @@ class TestJudgeFoodRulesBoundaries:
         ("sodium", "sodium_mg"),
     ])
     def test_just_under_70_percent_is_possible(self, trimester, nutrient, key):
-        limit = DAILY_LIMITS[trimester][nutrient]
+        limit = DAILY_LIMITS[nutrient]
         food = make_food(**{key: limit * 0.69})
         status = judge_food_rules(food, trimester, make_intake(), allergy_match=0)
         assert status == "possible"
@@ -67,7 +67,7 @@ class TestJudgeFoodRulesBoundaries:
         ("sodium", "sodium_mg"),
     ])
     def test_just_over_70_percent_is_caution(self, trimester, nutrient, key):
-        limit = DAILY_LIMITS[trimester][nutrient]
+        limit = DAILY_LIMITS[nutrient]
         food = make_food(**{key: limit * 0.71})
         status = judge_food_rules(food, trimester, make_intake(), allergy_match=0)
         assert status == "caution"
@@ -79,14 +79,14 @@ class TestJudgeFoodRulesBoundaries:
         ("sodium", "sodium_mg"),
     ])
     def test_just_over_100_percent_is_avoid(self, trimester, nutrient, key):
-        limit = DAILY_LIMITS[trimester][nutrient]
+        limit = DAILY_LIMITS[nutrient]
         food = make_food(**{key: limit * 1.01})
         status = judge_food_rules(food, trimester, make_intake(), allergy_match=0)
         assert status == "avoid"
 
     def test_cumulative_intake_plus_food_can_tip_over(self):
         # 오늘 이미 60% 섭취한 상태에서 50%를 더 먹으면 110% → avoid
-        limit = DAILY_LIMITS["middle"]["sugar"]
+        limit = DAILY_LIMITS["sugar"]
         food = make_food(sugar_g=limit * 0.5)
         intake = make_intake(sugar_g=limit * 0.6)
         status = judge_food_rules(food, "middle", intake, allergy_match=0)
@@ -132,7 +132,7 @@ class TestApplySafetyGuard:
         ("sodium_mg", "sodium"),
     ])
     def test_absolute_excess_forces_avoid(self, trimester, key, limit_key):
-        limit = DAILY_LIMITS[trimester][limit_key]
+        limit = DAILY_LIMITS[limit_key]
         food = make_food(**{key: limit * 1.5})
         result = apply_safety_guard(
             "possible", food, allergy_match=0,
@@ -158,7 +158,7 @@ class TestApplySafetyGuard:
         assert STATUS_RANK[result] >= STATUS_RANK["caution"]
 
     def test_early_trimester_caffeine_60_percent_triggers_caution(self):
-        limit = DAILY_LIMITS["early"]["caffeine"]
+        limit = DAILY_LIMITS["caffeine"]
         food = make_food(caffeine_mg=limit * 0.61)
         result = apply_safety_guard(
             "possible", food, allergy_match=0,
@@ -167,7 +167,7 @@ class TestApplySafetyGuard:
         assert result == "caution"
 
     def test_early_trimester_caffeine_under_60_percent_stays_possible(self):
-        limit = DAILY_LIMITS["early"]["caffeine"]
+        limit = DAILY_LIMITS["caffeine"]
         food = make_food(caffeine_mg=limit * 0.5)
         result = apply_safety_guard(
             "possible", food, allergy_match=0,
@@ -177,7 +177,7 @@ class TestApplySafetyGuard:
 
     def test_middle_trimester_does_not_apply_early_caffeine_rule(self):
         # early 전용 60% 카페인 규칙이 다른 트라이메스터에 새지 않는지 확인
-        limit = DAILY_LIMITS["middle"]["caffeine"]
+        limit = DAILY_LIMITS["caffeine"]
         food = make_food(caffeine_mg=limit * 0.61)
         result = apply_safety_guard(
             "possible", food, allergy_match=0,
@@ -186,7 +186,7 @@ class TestApplySafetyGuard:
         assert result == "possible"
 
     def test_late_trimester_sodium_80_percent_triggers_caution(self):
-        limit = DAILY_LIMITS["late"]["sodium"]
+        limit = DAILY_LIMITS["sodium"]
         food = make_food(sodium_mg=limit * 0.81)
         result = apply_safety_guard(
             "possible", food, allergy_match=0,
@@ -225,7 +225,7 @@ class TestApplySafetyGuard:
     def test_caffeine_missing_real_value_not_counted_toward_ratio(self):
         # data_source가 missing-소스인 경우, 실제 caffeine_mg 값이 커도
         # 절대 초과(avoid) 트리거에 반영되면 안 된다 (missing 처리 정의상).
-        limit = DAILY_LIMITS["middle"]["caffeine"]
+        limit = DAILY_LIMITS["caffeine"]
         food = make_food(
             food_name="커피",  # CAFFEINE_KEYWORDS에 포함된 단어
             caffeine_mg=limit * 5,  # 명백히 과한 값이지만 missing 소스
@@ -240,7 +240,7 @@ class TestApplySafetyGuard:
 
     def test_sensitivity_adjustment_loosens_limit(self):
         # user_adj가 양수(+)면 기준이 완화되어 동일 섭취량이 avoid가 안 될 수 있다
-        limit = DAILY_LIMITS["middle"]["sodium"]
+        limit = DAILY_LIMITS["sodium"]
         food = make_food(sodium_mg=limit * 1.05)  # 조정 없으면 avoid
         result_no_adj = apply_safety_guard(
             "possible", food, allergy_match=0,
@@ -292,7 +292,7 @@ class TestMakeReason:
             assert reason_nutrient == "allergy"
 
     def test_avoid_picks_caffeine_when_caffeine_exceeds_limit(self):
-        limit = DAILY_LIMITS["middle"]["caffeine"]
+        limit = DAILY_LIMITS["caffeine"]
         food = make_food(caffeine_mg=limit * 1.1)
         reason, reason_nutrient = make_reason(
             "avoid", food, today_intake=make_intake(),
@@ -302,7 +302,7 @@ class TestMakeReason:
         assert reason_nutrient == "caffeine"
 
     def test_avoid_picks_sugar_when_sugar_exceeds_limit(self):
-        limit = DAILY_LIMITS["middle"]["sugar"]
+        limit = DAILY_LIMITS["sugar"]
         food = make_food(sugar_g=limit * 1.1)
         reason, reason_nutrient = make_reason(
             "avoid", food, today_intake=make_intake(),
@@ -312,7 +312,7 @@ class TestMakeReason:
         assert reason_nutrient == "sugar"
 
     def test_avoid_picks_sodium_when_sodium_exceeds_limit(self):
-        limit = DAILY_LIMITS["middle"]["sodium"]
+        limit = DAILY_LIMITS["sodium"]
         food = make_food(sodium_mg=limit * 1.1)
         reason, reason_nutrient = make_reason(
             "avoid", food, today_intake=make_intake(),
@@ -333,7 +333,7 @@ class TestMakeReason:
         assert "비추천" in reason
 
     def test_caution_picks_caffeine_when_caffeine_ratio_exceeds_0_7(self):
-        limit = DAILY_LIMITS["middle"]["caffeine"]
+        limit = DAILY_LIMITS["caffeine"]
         food = make_food(caffeine_mg=limit * 0.75)
         reason, reason_nutrient = make_reason(
             "caution", food, today_intake=make_intake(),
@@ -343,7 +343,7 @@ class TestMakeReason:
         assert reason_nutrient == "caffeine"
 
     def test_caution_picks_sugar_when_sugar_ratio_exceeds_0_7(self):
-        limit = DAILY_LIMITS["middle"]["sugar"]
+        limit = DAILY_LIMITS["sugar"]
         food = make_food(sugar_g=limit * 0.75)
         reason, reason_nutrient = make_reason(
             "caution", food, today_intake=make_intake(),
@@ -353,7 +353,7 @@ class TestMakeReason:
         assert reason_nutrient == "sugar"
 
     def test_caution_picks_sodium_when_sodium_ratio_exceeds_0_7(self):
-        limit = DAILY_LIMITS["middle"]["sodium"]
+        limit = DAILY_LIMITS["sodium"]
         food = make_food(sodium_mg=limit * 0.75)
         reason, reason_nutrient = make_reason(
             "caution", food, today_intake=make_intake(),
@@ -363,8 +363,8 @@ class TestMakeReason:
         assert reason_nutrient == "sodium"
 
     def test_caution_caffeine_wins_over_sugar_when_both_ratios_exceed_0_7(self):
-        caffeine_limit = DAILY_LIMITS["middle"]["caffeine"]
-        sugar_limit = DAILY_LIMITS["middle"]["sugar"]
+        caffeine_limit = DAILY_LIMITS["caffeine"]
+        sugar_limit = DAILY_LIMITS["sugar"]
         food = make_food(caffeine_mg=caffeine_limit * 0.75, sugar_g=sugar_limit * 0.75)
         reason, reason_nutrient = make_reason(
             "caution", food, today_intake=make_intake(),

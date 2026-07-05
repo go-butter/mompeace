@@ -51,7 +51,7 @@ def _fetch_intake_summary_for_date(user_id: int, target_date: str, db: sqlite3.C
     days_until_due = calculate_days_until_due(user.get("due_date"))
 
     # 3. 임신 단계 판별 + 4. 주차별 기준값 조회
-    trimester, limits = get_trimester_limits(cursor, week)
+    trimester, limits = get_trimester_limits(week)
     trimester_label = {
         "early": "임신 초기",
         "middle": "임신 중기",
@@ -272,7 +272,7 @@ def get_food_log_calendar(
         user.get("pregnancy_week"), user.get("pregnancy_day"), user.get("pregnancy_entered_at")
     )
     week = computed_age["week"] or 20
-    _, limits = get_trimester_limits(cursor, week)
+    _, limits = get_trimester_limits(week)
     caffeine_limit = limits["caffeine_mg"]
     sugar_limit = limits["sugar_g"]
     sodium_limit = limits["sodium_mg"]

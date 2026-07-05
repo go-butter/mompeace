@@ -11,18 +11,8 @@ from backend.routers.intake import get_today_intake
 from .conftest import make_user
 
 
-def _seed_pregnancy_limit(db, trimester="middle"):
-    db.execute(
-        "INSERT INTO pregnancy_limits (trimester, caffeine_limit_mg, sugar_caution_g, sodium_caution_mg, note) "
-        "VALUES (?, 200, 50, 2000, '')",
-        (trimester,),
-    )
-    db.commit()
-
-
 class TestGetTodayIntakeDueDate:
     def test_includes_due_date_fields_when_due_date_set(self, db):
-        _seed_pregnancy_limit(db)
         user_id = make_user(db, due_date="2099-01-01")
 
         result = get_today_intake(user_id=user_id, db=db)
@@ -35,7 +25,6 @@ class TestGetTodayIntakeDueDate:
         assert result["days_until_due"] > 0
 
     def test_days_until_due_is_none_when_due_date_not_set(self, db):
-        _seed_pregnancy_limit(db)
         user_id = make_user(db, due_date=None)
 
         result = get_today_intake(user_id=user_id, db=db)
