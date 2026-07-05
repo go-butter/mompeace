@@ -1,13 +1,68 @@
 import sqlite3
+from datetime import date as date_type, timedelta
 
 from fastapi import APIRouter, HTTPException, Depends
 
 from backend.database import get_db
 from backend.models import PremiumUpgradeRequest, PremiumStatusResponse
 from backend.risk import calculate_current_pregnancy_age
-from backend.intake_totals import get_trimester_limits
+from backend.intake_totals import compute_overall_status, get_status, get_trimester_limits
 
 router = APIRouter()
+
+WEEKDAY_LABELS = ["월", "화", "수", "목", "금", "토", "일"]
+
+
+def _aggregate_week(cursor, user_id: int, monday: date_type, sunday: date_type) -> tuple[list[dict], int]:
+    """월요일~일요일 7일간 요일별 영양소 합계 + unknown 카운트 집계.
+
+    반환: (week_days, row_count). row_count는 해당 기간에 존재하는 food_log 행 수로,
+    "기록이 아예 없음"과 "기록은 있지만 합계가 0"을 구분하는 데 쓰인다.
+    """
+    cursor.execute("""
+        SELECT caffeine_mg, sugar_g, sodium_mg, DATE(eaten_at) AS log_date
+        FROM food_log
+        WHERE user_id = ? AND DATE(eaten_at) BETWEEN ? AND ?
+    """, (user_id, monday.isoformat(), sunday.isoformat()))
+    rows = [dict(r) for r in cursor.fetchall()]
+
+    week_days = []
+    for i in range(7):
+        d = monday + timedelta(days=i)
+        week_days.append({
+            "label":       WEEKDAY_LABELS[i],
+            "date":        d.isoformat(),
+            "caffeine_mg": 0.0,
+            "sugar_g":     0.0,
+            "sodium_mg":   0.0,
+            "unknown_caffeine": 0,
+            "unknown_sugar":    0,
+            "unknown_sodium":   0,
+            "log_count":        0,
+        })
+
+    for r in rows:
+        caffeine_val = r.get("caffeine_mg")
+        sugar_val = r.get("sugar_g")
+        sodium_val = r.get("sodium_mg")
+        c = caffeine_val or 0.0
+        s = sugar_val or 0.0
+        n = sodium_val or 0.0
+        for day in week_days:
+            if day["date"] == r["log_date"]:
+                day["caffeine_mg"] += c
+                day["sugar_g"]     += s
+                day["sodium_mg"]   += n
+                day["log_count"]   += 1
+                if caffeine_val is None:
+                    day["unknown_caffeine"] += 1
+                if sugar_val is None:
+                    day["unknown_sugar"] += 1
+                if sodium_val is None:
+                    day["unknown_sodium"] += 1
+                break
+
+    return week_days, len(rows)
 
 
 @router.get("/premium/status/{user_id}", response_model=PremiumStatusResponse)
@@ -190,7 +245,6 @@ def get_premium_report(
         raise HTTPException(status_code=400, detail="period는 daily 또는 weekly만 허용됩니다.")
 
     # 3. date 파싱
-    from datetime import date as date_type, timedelta
     if date:
         try:
             target_date = date_type.fromisoformat(date)
@@ -220,13 +274,29 @@ def get_premium_report(
 
         # 시간대 초기화
         SLOTS = ["새벽", "오전", "오후", "저녁"]
-        slot_data = {s: {"caffeine_mg": 0.0, "sugar_g": 0.0, "sodium_mg": 0.0} for s in SLOTS}
+        slot_data = {
+            s: {
+                "caffeine_mg": 0.0, "sugar_g": 0.0, "sodium_mg": 0.0,
+                "unknown_caffeine": 0, "unknown_sugar": 0, "unknown_sodium": 0,
+            }
+            for s in SLOTS
+        }
 
         total_caffeine = total_sugar = total_sodium = 0.0
+        unknown_caffeine_count = unknown_sugar_count = unknown_sodium_count = 0
         for r in rows:
-            c = r.get("caffeine_mg") or 0.0
-            s = r.get("sugar_g") or 0.0
-            n = r.get("sodium_mg") or 0.0
+            caffeine_val = r.get("caffeine_mg")
+            sugar_val = r.get("sugar_g")
+            sodium_val = r.get("sodium_mg")
+            if caffeine_val is None:
+                unknown_caffeine_count += 1
+            if sugar_val is None:
+                unknown_sugar_count += 1
+            if sodium_val is None:
+                unknown_sodium_count += 1
+            c = caffeine_val or 0.0
+            s = sugar_val or 0.0
+            n = sodium_val or 0.0
             total_caffeine += c
             total_sugar    += s
             total_sodium   += n
@@ -246,10 +316,21 @@ def get_premium_report(
             slot_data[slot]["caffeine_mg"] += c
             slot_data[slot]["sugar_g"]     += s
             slot_data[slot]["sodium_mg"]   += n
+            if caffeine_val is None:
+                slot_data[slot]["unknown_caffeine"] += 1
+            if sugar_val is None:
+                slot_data[slot]["unknown_sugar"] += 1
+            if sodium_val is None:
+                slot_data[slot]["unknown_sodium"] += 1
 
         caffeine_pct = _get_percent(total_caffeine, caffeine_limit)
         sugar_pct    = _get_percent(total_sugar,    sugar_limit)
         sodium_pct   = _get_percent(total_sodium,   sodium_limit)
+
+        caffeine_status = get_status(total_caffeine, caffeine_limit, unknown_caffeine_count)
+        sugar_status    = get_status(total_sugar,    sugar_limit,    unknown_sugar_count)
+        sodium_status   = get_status(total_sodium,   sodium_limit,   unknown_sodium_count)
+        overall_status  = compute_overall_status(caffeine_status, sugar_status, sodium_status)
 
         # 시간대별 정규화 점수 (AI 요약용)
         slot_scores = {
@@ -261,15 +342,25 @@ def get_premium_report(
             for slot in SLOTS
         }
 
-        chart_items = [
-            {
-                "label":       slot,
-                "caffeine_mg": round(slot_data[slot]["caffeine_mg"], 2),
-                "sugar_g":     round(slot_data[slot]["sugar_g"], 2),
-                "sodium_mg":   round(slot_data[slot]["sodium_mg"], 2),
-            }
-            for slot in SLOTS
-        ]
+        chart_items = []
+        for slot in SLOTS:
+            d = slot_data[slot]
+            item_caffeine_status = get_status(d["caffeine_mg"], caffeine_limit, d["unknown_caffeine"])
+            item_sugar_status    = get_status(d["sugar_g"],     sugar_limit,    d["unknown_sugar"])
+            item_sodium_status   = get_status(d["sodium_mg"],   sodium_limit,   d["unknown_sodium"])
+            chart_items.append({
+                "label":  slot,
+                "status": compute_overall_status(item_caffeine_status, item_sugar_status, item_sodium_status),
+                "caffeine_mg":     round(d["caffeine_mg"], 2),
+                "caffeine_pct":    _get_percent(d["caffeine_mg"], caffeine_limit),
+                "caffeine_status": item_caffeine_status,
+                "sugar_g":         round(d["sugar_g"], 2),
+                "sugar_pct":       _get_percent(d["sugar_g"], sugar_limit),
+                "sugar_status":    item_sugar_status,
+                "sodium_mg":       round(d["sodium_mg"], 2),
+                "sodium_pct":      _get_percent(d["sodium_mg"], sodium_limit),
+                "sodium_status":   item_sodium_status,
+            })
 
         formatted_date = target_date.strftime("%Y.%m.%d")
         return {
@@ -300,6 +391,12 @@ def get_premium_report(
                 "sugar":    sugar_pct,
                 "sodium":   sodium_pct,
             },
+            "status": {
+                "overall_status":  overall_status,
+                "caffeine_status": caffeine_status,
+                "sugar_status":    sugar_status,
+                "sodium_status":   sodium_status,
+            },
             "chart": {
                 "type":  "time_slot",
                 "title": "일간 섭취 추이",
@@ -311,50 +408,32 @@ def get_premium_report(
         }
 
     # ── 주간 리포트 ──────────────────────────────────────
-    from datetime import timedelta
     monday = target_date - timedelta(days=target_date.weekday())
     sunday = monday + timedelta(days=6)
 
-    cursor.execute("""
-        SELECT caffeine_mg, sugar_g, sodium_mg, DATE(eaten_at) AS log_date
-        FROM food_log
-        WHERE user_id = ? AND DATE(eaten_at) BETWEEN ? AND ?
-    """, (user_id, monday.isoformat(), sunday.isoformat()))
-    rows = [dict(r) for r in cursor.fetchall()]
-
-    # 요일별 집계 초기화
-    WEEKDAY_LABELS = ["월", "화", "수", "목", "금", "토", "일"]
-    week_days = []
-    for i in range(7):
-        d = monday + timedelta(days=i)
-        week_days.append({
-            "label":       WEEKDAY_LABELS[i],
-            "date":        d.isoformat(),
-            "caffeine_mg": 0.0,
-            "sugar_g":     0.0,
-            "sodium_mg":   0.0,
-        })
-
-    for r in rows:
-        c = r.get("caffeine_mg") or 0.0
-        s = r.get("sugar_g") or 0.0
-        n = r.get("sodium_mg") or 0.0
-        for day in week_days:
-            if day["date"] == r["log_date"]:
-                day["caffeine_mg"] += c
-                day["sugar_g"]     += s
-                day["sodium_mg"]   += n
-                break
+    week_days, _ = _aggregate_week(cursor, user_id, monday, sunday)
 
     # 주간 합계
     total_caffeine = sum(d["caffeine_mg"] for d in week_days)
     total_sugar    = sum(d["sugar_g"]     for d in week_days)
     total_sodium   = sum(d["sodium_mg"]   for d in week_days)
 
-    # 일평균 (7일 기준)
-    avg_caffeine = round(total_caffeine / 7, 1)
-    avg_sugar    = round(total_sugar    / 7, 1)
-    avg_sodium   = round(total_sodium   / 7, 1)
+    unknown_caffeine_count = sum(d["unknown_caffeine"] for d in week_days)
+    unknown_sugar_count    = sum(d["unknown_sugar"]    for d in week_days)
+    unknown_sodium_count   = sum(d["unknown_sodium"]   for d in week_days)
+
+    caffeine_status = get_status(total_caffeine, caffeine_limit, unknown_caffeine_count)
+    sugar_status    = get_status(total_sugar,    sugar_limit,    unknown_sugar_count)
+    sodium_status   = get_status(total_sodium,   sodium_limit,   unknown_sodium_count)
+    overall_status  = compute_overall_status(caffeine_status, sugar_status, sodium_status)
+
+    # 일평균 (기록이 있는 날 수 기준. 기록이 아예 없는 주는 0으로 나누지 않도록 1로 대체 -
+    # 이 경우 분자도 0이므로 결과는 어차피 0.0)
+    days_with_data = sum(1 for d in week_days if d["log_count"] > 0)
+    divisor = days_with_data or 1
+    avg_caffeine = round(total_caffeine / divisor, 1)
+    avg_sugar    = round(total_sugar    / divisor, 1)
+    avg_sodium   = round(total_sodium   / divisor, 1)
 
     caffeine_avg_pct = _get_percent(avg_caffeine, caffeine_limit)
     sugar_avg_pct    = _get_percent(avg_sugar,    sugar_limit)
@@ -373,16 +452,50 @@ def get_premium_report(
         for d in week_days
     ]
 
-    chart_items = [
-        {
-            "label":       d["label"],
-            "date":        d["date"],
-            "caffeine_mg": round(d["caffeine_mg"], 2),
-            "sugar_g":     round(d["sugar_g"], 2),
-            "sodium_mg":   round(d["sodium_mg"], 2),
-        }
-        for d in week_days
-    ]
+    chart_items = []
+    for d in week_days:
+        item_caffeine_status = get_status(d["caffeine_mg"], caffeine_limit, d["unknown_caffeine"])
+        item_sugar_status    = get_status(d["sugar_g"],     sugar_limit,    d["unknown_sugar"])
+        item_sodium_status   = get_status(d["sodium_mg"],   sodium_limit,   d["unknown_sodium"])
+        chart_items.append({
+            "label":  d["label"],
+            "date":   d["date"],
+            "status": compute_overall_status(item_caffeine_status, item_sugar_status, item_sodium_status),
+            "caffeine_mg":     round(d["caffeine_mg"], 2),
+            "caffeine_pct":    _get_percent(d["caffeine_mg"], caffeine_limit),
+            "caffeine_status": item_caffeine_status,
+            "sugar_g":         round(d["sugar_g"], 2),
+            "sugar_pct":       _get_percent(d["sugar_g"], sugar_limit),
+            "sugar_status":    item_sugar_status,
+            "sodium_mg":       round(d["sodium_mg"], 2),
+            "sodium_pct":      _get_percent(d["sodium_mg"], sodium_limit),
+            "sodium_status":   item_sodium_status,
+        })
+
+    # 지난주 대비 비교 (퍼센트포인트 차이, daily_average와 동일하게 기록이 있는 날 수 기준으로 계산)
+    prev_monday = monday - timedelta(days=7)
+    prev_sunday = sunday - timedelta(days=7)
+    prev_week_days, prev_row_count = _aggregate_week(cursor, user_id, prev_monday, prev_sunday)
+
+    if prev_row_count == 0:
+        caffeine_vs_previous_pct = None
+        sugar_vs_previous_pct = None
+        sodium_vs_previous_pct = None
+    else:
+        prev_total_caffeine = sum(d["caffeine_mg"] for d in prev_week_days)
+        prev_total_sugar    = sum(d["sugar_g"]     for d in prev_week_days)
+        prev_total_sodium   = sum(d["sodium_mg"]   for d in prev_week_days)
+
+        prev_days_with_data = sum(1 for d in prev_week_days if d["log_count"] > 0)
+        prev_divisor = prev_days_with_data or 1
+
+        prev_avg_caffeine_pct = _get_percent(round(prev_total_caffeine / prev_divisor, 1), caffeine_limit)
+        prev_avg_sugar_pct    = _get_percent(round(prev_total_sugar    / prev_divisor, 1), sugar_limit)
+        prev_avg_sodium_pct   = _get_percent(round(prev_total_sodium   / prev_divisor, 1), sodium_limit)
+
+        caffeine_vs_previous_pct = round(caffeine_avg_pct - prev_avg_caffeine_pct, 1)
+        sugar_vs_previous_pct    = round(sugar_avg_pct    - prev_avg_sugar_pct, 1)
+        sodium_vs_previous_pct   = round(sodium_avg_pct   - prev_avg_sodium_pct, 1)
 
     date_range_str = f"{monday.strftime('%Y.%m.%d.')} ~ {sunday.strftime('%m.%d.')}"
     return {
@@ -420,6 +533,21 @@ def get_premium_report(
             "caffeine": caffeine_avg_pct,
             "sugar":    sugar_avg_pct,
             "sodium":   sodium_avg_pct,
+        },
+        "status": {
+            "overall_status":  overall_status,
+            "caffeine_status": caffeine_status,
+            "sugar_status":    sugar_status,
+            "sodium_status":   sodium_status,
+        },
+        "comparison": {
+            "previous_period": {
+                "start": prev_monday.isoformat(),
+                "end":   prev_sunday.isoformat(),
+            },
+            "caffeine_vs_previous_pct": caffeine_vs_previous_pct,
+            "sugar_vs_previous_pct":    sugar_vs_previous_pct,
+            "sodium_vs_previous_pct":   sodium_vs_previous_pct,
         },
         "chart": {
             "type":  "weekday",
