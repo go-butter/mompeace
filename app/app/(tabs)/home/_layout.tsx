@@ -20,7 +20,7 @@ const VISIBLE_TAB_BAR_STYLE = {
 } as const;
 
 const CONTENT_HEIGHT = 80; // mirrors (tabs)/_layout.tsx's CONTENT_HEIGHT
-const HIDDEN_TAB_BAR_ROUTES = new Set(['food-entry-search', 'food-entry-manual']);
+const HIDDEN_TAB_BAR_ROUTES = new Set(['food-entry-search', 'food-entry-manual', 'premium-report']);
 
 export default function HomeLayout() {
   const insets = useSafeAreaInsets();
