@@ -1,5 +1,5 @@
 // Dev-machine LAN IP ??update this if the network changes.
-export const API_BASE_URL = "http://192.168.219.111:8000";
+export const API_BASE_URL = "http://192.168.0.3:8000";
 
 export interface RegisterRequest {
   nickname: string;
@@ -282,6 +282,139 @@ export interface PremiumStatusResponse {
   message: string;
 }
 
+// "unknown" means the bucket contains at least one food-log row with a NULL
+// value for that nutrient (or the trimester limit is <=0) — must be rendered
+// distinctly, never treated as 0.
+export type NutrientStatus = 'safe' | 'caution' | 'avoid' | 'unknown';
+
+export interface PremiumReportSummaryCard {
+  title: string;
+  subtitle: string;
+  date_range: string;
+}
+
+export interface PremiumReportTotals {
+  caffeine_mg: number;
+  sugar_g: number;
+  sodium_mg: number;
+}
+
+export interface PremiumReportPercentages {
+  caffeine: number;
+  sugar: number;
+  sodium: number;
+}
+
+export interface PremiumReportStatus {
+  overall_status: NutrientStatus;
+  caffeine_status: NutrientStatus;
+  sugar_status: NutrientStatus;
+  sodium_status: NutrientStatus;
+}
+
+export interface PremiumReportAiSummary {
+  title: string;
+  messages: string[];
+}
+
+export interface PremiumReportDailyChartItem {
+  label: '새벽' | '오전' | '오후' | '저녁';
+  status: NutrientStatus;
+  caffeine_mg: number;
+  caffeine_pct: number;
+  caffeine_status: NutrientStatus;
+  sugar_g: number;
+  sugar_pct: number;
+  sugar_status: NutrientStatus;
+  sodium_mg: number;
+  sodium_pct: number;
+  sodium_status: NutrientStatus;
+}
+
+export interface PremiumReportWeeklyChartItem {
+  label: '월' | '화' | '수' | '목' | '금' | '토' | '일';
+  date: string;
+  status: NutrientStatus;
+  caffeine_mg: number;
+  caffeine_pct: number;
+  caffeine_status: NutrientStatus;
+  sugar_g: number;
+  sugar_pct: number;
+  sugar_status: NutrientStatus;
+  sodium_mg: number;
+  sodium_pct: number;
+  sodium_status: NutrientStatus;
+}
+
+export interface PremiumDailyReportResponse {
+  user_id: number;
+  is_premium: true;
+  period: 'daily';
+  date: string;
+  pregnancy_week: number;
+  trimester: 'early' | 'middle' | 'late';
+  title: string;
+  summary_card: PremiumReportSummaryCard;
+  totals: PremiumReportTotals;
+  limits: {
+    caffeine_mg: number;
+    sugar_g: number;
+    sodium_mg: number;
+  };
+  percentages: PremiumReportPercentages;
+  status: PremiumReportStatus;
+  chart: {
+    type: 'time_slot';
+    title: string;
+    items: PremiumReportDailyChartItem[];
+  };
+  ai_summary: PremiumReportAiSummary;
+}
+
+export interface PremiumWeeklyReportResponse {
+  user_id: number;
+  is_premium: true;
+  period: 'weekly';
+  date_range: {
+    start: string;
+    end: string;
+  };
+  pregnancy_week: number;
+  trimester: 'early' | 'middle' | 'late';
+  title: string;
+  summary_card: PremiumReportSummaryCard;
+  totals: PremiumReportTotals;
+  daily_average: {
+    caffeine_mg: number;
+    sugar_g: number;
+    sodium_mg: number;
+  };
+  limits: {
+    daily_caffeine_mg: number;
+    daily_sugar_g: number;
+    daily_sodium_mg: number;
+  };
+  percentages: PremiumReportPercentages;
+  status: PremiumReportStatus;
+  comparison: {
+    previous_period: {
+      start: string;
+      end: string;
+    };
+    caffeine_vs_previous_pct: number | null;
+    sugar_vs_previous_pct: number | null;
+    sodium_vs_previous_pct: number | null;
+  };
+  chart: {
+    type: 'weekday';
+    title: string;
+    items: PremiumReportWeeklyChartItem[];
+  };
+  ai_summary: PremiumReportAiSummary;
+}
+
+export type PremiumReportResponse = PremiumDailyReportResponse | PremiumWeeklyReportResponse;
+
 export class ApiError extends Error {}
 
 async function request<TReq, TRes>(method: 'POST' | 'PUT', path: string, body: TReq): Promise<TRes> {
@@ -430,6 +563,14 @@ export function getFoodLogCalendar(
 
 export function getPremiumStatus(userId: number): Promise<PremiumStatusResponse> {
   return get(`/premium/status/${userId}`);
+}
+
+export function getPremiumReport(
+  userId: number,
+  period: 'daily' | 'weekly',
+  date: string
+): Promise<PremiumReportResponse> {
+  return get(`/premium/report/${userId}?period=${period}&date=${date}`);
 }
 
 export function createPersonalFoodItem(
