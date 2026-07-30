@@ -4,7 +4,6 @@ from datetime import date as date_type, timedelta
 from fastapi import APIRouter, HTTPException, Depends
 
 from backend.database import get_db
-from backend.models import PremiumUpgradeRequest, PremiumStatusResponse
 from backend.risk import calculate_current_pregnancy_age
 from backend.intake_totals import compute_overall_status, get_status, get_trimester_limits
 
@@ -63,94 +62,6 @@ def _aggregate_week(cursor, user_id: int, monday: date_type, sunday: date_type) 
                 break
 
     return week_days, len(rows)
-
-
-@router.get("/premium/status/{user_id}", response_model=PremiumStatusResponse)
-def get_premium_status(
-    user_id: int,
-    db: sqlite3.Connection = Depends(get_db)
-):
-    """프리미엄 가입 여부 확인"""
-    cursor = db.cursor()
-    cursor.execute("SELECT user_id, is_premium, premium_started_at, premium_updated_at FROM users WHERE user_id = ?", (user_id,))
-    user = cursor.fetchone()
-    if not user:
-        raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
-    user = dict(user)
-    is_premium = bool(user.get("is_premium"))
-    if is_premium:
-        return {
-            "user_id": user_id,
-            "is_premium": True,
-            "premium_started_at": user.get("premium_started_at"),
-            "premium_updated_at": user.get("premium_updated_at"),
-            "message": "프리미엄 회원입니다.",
-        }
-    return {
-        "user_id": user_id,
-        "is_premium": False,
-        "message": "프리미엄 리포트는 유료 회원 전용 기능입니다.",
-    }
-
-
-@router.post("/premium/upgrade")
-def upgrade_to_premium(
-    req: PremiumUpgradeRequest,
-    db: sqlite3.Connection = Depends(get_db)
-):
-    """프리미엄 전환 (시뮬레이션, 실제 결제 없음)"""
-    if not req.agree:
-        raise HTTPException(status_code=400, detail="동의 항목을 체크해야 프리미엄으로 전환됩니다.")
-    cursor = db.cursor()
-    cursor.execute("SELECT user_id, is_premium, premium_started_at FROM users WHERE user_id = ?", (req.user_id,))
-    user = cursor.fetchone()
-    if not user:
-        raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
-    user = dict(user)
-    # premium_started_at은 처음 전환 시에만 기록
-    if user.get("premium_started_at"):
-        cursor.execute("""
-            UPDATE users
-            SET is_premium = 1, premium_updated_at = datetime('now')
-            WHERE user_id = ?
-        """, (req.user_id,))
-    else:
-        cursor.execute("""
-            UPDATE users
-            SET is_premium = 1,
-                premium_started_at = datetime('now'),
-                premium_updated_at = datetime('now')
-            WHERE user_id = ?
-        """, (req.user_id,))
-    db.commit()
-    return {
-        "user_id": req.user_id,
-        "is_premium": True,
-        "message": "프리미엄 회원으로 전환되었습니다.",
-    }
-
-
-@router.post("/premium/cancel")
-def cancel_premium(
-    req: PremiumUpgradeRequest,
-    db: sqlite3.Connection = Depends(get_db)
-):
-    """프리미엄 해지 (로그 즉시 삭제 없음, 다음 cleanup 시 24시간 기준 적용)"""
-    cursor = db.cursor()
-    cursor.execute("SELECT user_id FROM users WHERE user_id = ?", (req.user_id,))
-    if not cursor.fetchone():
-        raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
-    cursor.execute("""
-        UPDATE users
-        SET is_premium = 0, premium_updated_at = datetime('now')
-        WHERE user_id = ?
-    """, (req.user_id,))
-    db.commit()
-    return {
-        "user_id": req.user_id,
-        "is_premium": False,
-        "message": "프리미엄이 해지되었습니다.",
-    }
 
 
 def _get_percent(value: float, standard: float) -> float:
@@ -225,20 +136,16 @@ def get_premium_report(
     프리미엄 일간/주간 섭취 리포트.
     period: "daily" | "weekly"
     date: YYYY-MM-DD (기본값: 오늘)
-    프리미엄 회원만 접근 가능.
     공식 의학 기준 아님.
     """
     cursor = db.cursor()
 
-    # 1. 사용자 및 프리미엄 확인
+    # 1. 사용자 확인
     cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
     user = cursor.fetchone()
     if not user:
         raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
     user = dict(user)
-
-    if user.get("is_premium") != 1:
-        raise HTTPException(status_code=403, detail="프리미엄 리포트는 유료 회원만 이용할 수 있습니다.")
 
     # 2. period 유효성
     if period not in ("daily", "weekly"):
@@ -365,7 +272,6 @@ def get_premium_report(
         formatted_date = target_date.strftime("%Y.%m.%d")
         return {
             "user_id":        user_id,
-            "is_premium":     True,
             "period":         "daily",
             "date":           date_str,
             "pregnancy_week": week,
@@ -516,7 +422,6 @@ def get_premium_report(
     date_range_str = f"{monday.strftime('%Y.%m.%d.')} ~ {sunday.strftime('%m.%d.')}"
     return {
         "user_id":        user_id,
-        "is_premium":     True,
         "period":         "weekly",
         "date_range": {
             "start": monday.isoformat(),

@@ -2,7 +2,7 @@
 backend/routers/premium.py 의 get_premium_report() 테스트 (기존 커버리지 없음).
 
 핵심 검증 대상:
-- 403/400/404 기본 검증
+- 400/404 기본 검증
 - daily: 4개 시간대(새벽/오전/오후/저녁) 버킷팅, 항목별 caffeine_pct/sugar_pct/sodium_pct,
   항목별/전체 status가 unknown(NULL 존재)을 safe/caution/avoid와 구분해서 반영
 - weekly: 요일별 버킷팅, 항목별/전체 status, daily_average는 항상 7일 기준
@@ -18,20 +18,14 @@ from .conftest import make_food_log, make_user
 
 
 class TestGetPremiumReportBasicValidation:
-    def test_non_premium_user_returns_403(self, db):
-        user_id = make_user(db, is_premium=0)
-        with pytest.raises(HTTPException) as exc_info:
-            get_premium_report(user_id=user_id, period="daily", db=db)
-        assert exc_info.value.status_code == 403
-
     def test_invalid_period_returns_400(self, db):
-        user_id = make_user(db, is_premium=1)
+        user_id = make_user(db)
         with pytest.raises(HTTPException) as exc_info:
             get_premium_report(user_id=user_id, period="monthly", db=db)
         assert exc_info.value.status_code == 400
 
     def test_invalid_date_format_returns_400(self, db):
-        user_id = make_user(db, is_premium=1)
+        user_id = make_user(db)
         with pytest.raises(HTTPException) as exc_info:
             get_premium_report(user_id=user_id, period="daily", date="not-a-date", db=db)
         assert exc_info.value.status_code == 400
@@ -47,7 +41,7 @@ class TestGetPremiumReportDaily:
         return next(i for i in result["chart"]["items"] if i["label"] == label)
 
     def test_basic_totals_and_slot_bucketing(self, db):
-        user_id = make_user(db, is_premium=1, pregnancy_week=20)
+        user_id = make_user(db, pregnancy_week=20)
         make_food_log(db, user_id, caffeine_mg=20, sugar_g=0, sodium_mg=0,
                        eaten_at="2030-01-10 03:00:00")   # 새벽
         make_food_log(db, user_id, caffeine_mg=30, sugar_g=0, sodium_mg=0,
@@ -68,7 +62,7 @@ class TestGetPremiumReportDaily:
         assert self._item(result, "저녁")["caffeine_mg"] == 50.0
 
     def test_unknown_sugar_marks_status_unknown_but_keeps_partial_sum(self, db):
-        user_id = make_user(db, is_premium=1, pregnancy_week=20)
+        user_id = make_user(db, pregnancy_week=20)
         make_food_log(db, user_id, caffeine_mg=0, sugar_g=8, sodium_mg=0,
                        eaten_at="2030-01-11 02:00:00")   # 새벽, 확인된 값
         make_food_log(db, user_id, caffeine_mg=0, sugar_g=None, sodium_mg=0,
@@ -83,7 +77,7 @@ class TestGetPremiumReportDaily:
 
     def test_empty_slot_is_safe_not_unknown(self, db):
         # 시간대에 로그가 아예 없는 것과 unknown 값이 있는 것은 다른 상태여야 한다
-        user_id = make_user(db, is_premium=1, pregnancy_week=20)
+        user_id = make_user(db, pregnancy_week=20)
         make_food_log(db, user_id, caffeine_mg=10, sugar_g=5, sodium_mg=50,
                        eaten_at="2030-01-12 03:00:00")   # 새벽만 기록
 
@@ -102,7 +96,7 @@ class TestGetPremiumReportWeekly:
         return next(i for i in result["chart"]["items"] if i["label"] == label)
 
     def test_basic_totals_and_weekday_bucketing(self, db):
-        user_id = make_user(db, is_premium=1, pregnancy_week=20)
+        user_id = make_user(db, pregnancy_week=20)
         make_food_log(db, user_id, caffeine_mg=100, sugar_g=20, sodium_mg=500,
                        eaten_at="2030-01-07 09:00:00")   # 월요일
         make_food_log(db, user_id, caffeine_mg=50, sugar_g=10, sodium_mg=300,
@@ -118,7 +112,7 @@ class TestGetPremiumReportWeekly:
         assert self._item(result, "수")["caffeine_mg"] == 0.0
 
     def test_unknown_status_propagates_top_level_and_per_item(self, db):
-        user_id = make_user(db, is_premium=1, pregnancy_week=20)
+        user_id = make_user(db, pregnancy_week=20)
         make_food_log(db, user_id, caffeine_mg=None, sugar_g=10, sodium_mg=300,
                        eaten_at="2030-01-08 09:00:00")   # 화요일, 카페인 unknown
 
@@ -130,7 +124,7 @@ class TestGetPremiumReportWeekly:
 
     def test_daily_average_divides_by_days_with_data(self, db):
         # 7일 중 3일(월/수/금)에만 기록이 있으면 daily_average는 3으로 나눈다 (7로 나누지 않는다)
-        user_id = make_user(db, is_premium=1, pregnancy_week=20)
+        user_id = make_user(db, pregnancy_week=20)
         make_food_log(db, user_id, caffeine_mg=210, sugar_g=0, sodium_mg=0,
                        eaten_at="2030-01-07 09:00:00")  # 월
         make_food_log(db, user_id, caffeine_mg=210, sugar_g=0, sodium_mg=0,
@@ -143,14 +137,14 @@ class TestGetPremiumReportWeekly:
         assert result["daily_average"]["caffeine_mg"] == 210.0  # 630/3, not 630/7
 
     def test_daily_average_is_zero_not_error_when_week_is_entirely_empty(self, db):
-        user_id = make_user(db, is_premium=1, pregnancy_week=20)
+        user_id = make_user(db, pregnancy_week=20)
 
         result = get_premium_report(user_id=user_id, period="weekly", date="2030-01-07", db=db)
 
         assert result["daily_average"] == {"caffeine_mg": 0.0, "sugar_g": 0.0, "sodium_mg": 0.0}
 
     def test_comparison_uses_days_with_data_on_previous_week_too(self, db):
-        user_id = make_user(db, is_premium=1, pregnancy_week=20)
+        user_id = make_user(db, pregnancy_week=20)
         # 이번 주: 7일 모두 기록, 하루 평균 카페인 100mg = 50%
         for i in range(7):
             day = 14 + i
@@ -168,7 +162,7 @@ class TestGetPremiumReportWeekly:
         assert result["comparison"]["caffeine_vs_previous_pct"] == 25.0  # 50% - 25%
 
     def test_comparison_percentage_point_delta(self, db):
-        user_id = make_user(db, is_premium=1, pregnancy_week=20)
+        user_id = make_user(db, pregnancy_week=20)
         # 이번 주(2030-01-14~01-20): 하루 평균 카페인 100mg = 50%
         for i in range(7):
             day = 14 + i
@@ -187,7 +181,7 @@ class TestGetPremiumReportWeekly:
         assert result["comparison"]["caffeine_vs_previous_pct"] == 25.0  # 50% - 25%
 
     def test_comparison_is_null_when_previous_week_has_no_logs(self, db):
-        user_id = make_user(db, is_premium=1, pregnancy_week=20)
+        user_id = make_user(db, pregnancy_week=20)
         make_food_log(db, user_id, caffeine_mg=100, sugar_g=10, sodium_mg=100,
                        eaten_at="2030-01-14 09:00:00")
         # 지난 주(2030-01-07~01-13)에는 아무 기록도 없음
@@ -201,7 +195,7 @@ class TestGetPremiumReportWeekly:
     def test_comparison_is_null_only_for_nutrient_unknown_on_every_previous_week_row(self, db):
         # 지난 주에 기록은 있지만, sugar_g만 모든 행에서 NULL(unknown)인 경우
         # sugar만 null이고 caffeine/sodium은 정상적으로 계산되어야 한다.
-        user_id = make_user(db, is_premium=1, pregnancy_week=20)
+        user_id = make_user(db, pregnancy_week=20)
         for i in range(7):
             day = 14 + i
             make_food_log(db, user_id, caffeine_mg=100, sugar_g=0, sodium_mg=100,

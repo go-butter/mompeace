@@ -55,17 +55,6 @@ export interface AllergyUpdateResponse {
   message: string;
 }
 
-export interface PremiumActionRequest {
-  user_id: number;
-  agree: boolean;
-}
-
-export interface PremiumActionResponse {
-  user_id: number;
-  is_premium: boolean;
-  message: string;
-}
-
 export interface IntakeTodayResponse {
   user_id: number;
   date: string;
@@ -276,12 +265,6 @@ export interface FoodLogCalendarResponse {
   days: FoodLogCalendarDay[];
 }
 
-export interface PremiumStatusResponse {
-  user_id: number;
-  is_premium: boolean;
-  message: string;
-}
-
 export class ApiError extends Error {}
 
 async function request<TReq, TRes>(method: 'POST' | 'PUT', path: string, body: TReq): Promise<TRes> {
@@ -375,14 +358,6 @@ export function updateAllergyInfo(
   return put(`/users/${userId}/allergy`, body);
 }
 
-export function upgradeToPremium(userId: number): Promise<PremiumActionResponse> {
-  return post('/premium/upgrade', { user_id: userId, agree: true });
-}
-
-export function cancelPremium(userId: number): Promise<PremiumActionResponse> {
-  return post('/premium/cancel', { user_id: userId, agree: true });
-}
-
 export function getIntakeToday(userId: number): Promise<IntakeTodayResponse> {
   return get(`/intake/today/${userId}`);
 }
@@ -428,9 +403,7 @@ export function getFoodLogCalendar(
   return get(`/food-log/calendar/${userId}?year=${year}&month=${month}`);
 }
 
-export function getPremiumStatus(userId: number): Promise<PremiumStatusResponse> {
-  return get(`/premium/status/${userId}`);
-}
+// TODO: getPremiumReport() — added in a separate task, wires premium-report.tsx to live data.
 
 export function createPersonalFoodItem(
   body: UserFoodItemCreateRequest

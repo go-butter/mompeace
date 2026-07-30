@@ -15,7 +15,7 @@ from .conftest import make_food_log, make_user
 
 class TestFoodLogRetention:
     def test_old_food_log_survives_by_date_and_calendar(self, db):
-        user_id = make_user(db, is_premium=0, pregnancy_week=20)
+        user_id = make_user(db, pregnancy_week=20)
         past_date = "2026-06-19"
         make_food_log(
             db,

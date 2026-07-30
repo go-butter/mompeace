@@ -81,19 +81,6 @@ class RecommendationRequest(BaseModel):
     limit: int = 10
 
 
-class PremiumUpgradeRequest(BaseModel):
-    user_id: int
-    agree: bool
-
-
-class PremiumStatusResponse(BaseModel):
-    user_id: int
-    is_premium: bool
-    premium_started_at: Optional[str] = None
-    premium_updated_at: Optional[str] = None
-    message: str
-
-
 class FeedbackRequest(BaseModel):
     user_id: int
     log_id: int

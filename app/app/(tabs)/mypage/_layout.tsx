@@ -23,7 +23,6 @@ const CONTENT_HEIGHT = 80; // mirrors (tabs)/_layout.tsx's CONTENT_HEIGHT
 const HIDDEN_TAB_BAR_ROUTES = new Set([
   'edit-profile',
   'edit-allergy',
-  'premium-payment',
   'contact',
 ]);
 
@@ -48,7 +47,6 @@ export default function MyPageLayout() {
       <Stack.Screen name="index" />
       <Stack.Screen name="edit-profile" />
       <Stack.Screen name="edit-allergy" />
-      <Stack.Screen name="premium-payment" />
       <Stack.Screen name="contact" />
     </Stack>
   );
