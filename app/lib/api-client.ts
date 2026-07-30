@@ -500,3 +500,37 @@ export function searchFoods(
 ): Promise<FoodSearchResponse> {
   return get(`/foods/search?query=${encodeURIComponent(query)}&user_id=${userId}`);
 }
+
+export interface CoffeeCaffeineEntry {
+  brand: string;
+  menu: string;
+  size: string | null;
+  volume_ml: number | null;
+  hot_or_ice: 'hot' | 'ice';
+  is_decaf: boolean;
+  caffeine_mg: number;
+  source_tier: number;
+  source_url: string;
+  verified_date: string;
+  note?: string;
+}
+
+export interface HomeCoffeePreset {
+  brand: string;
+  menu: string;
+  serving: string;
+  caffeine_mg: number;
+  source_tier: number;
+  source_url: string;
+  verified_date: string;
+  note?: string;
+}
+
+export interface CoffeeOptionsResponse {
+  brands: CoffeeCaffeineEntry[];
+  home_presets: HomeCoffeePreset[];
+}
+
+export function getCoffeeOptions(): Promise<CoffeeOptionsResponse> {
+  return get('/coffee/options');
+}

@@ -1190,19 +1190,4 @@ HOME_COFFEE_PRESETS = [
         "verified_date": "2026-07-30",
         "note": "원 출처는 2020년 식약처 식품의약품안전평가원 조사(원문 미확인, 다수 매체 corroborate).",
     },
-    {
-        "brand": "집에서 만든 커피",
-        "menu": "캡슐커피",
-        "serving": "1캡슐 (평균, 브랜드별 편차 큼)",
-        "caffeine_mg": 63.8,
-        "source_tier": 2,
-        "source_url": "https://www.kca.go.kr/webzine/board/view?menuId=MENU00307&linkId=588&div=kca_2309",
-        "verified_date": "2026-07-30",
-        "note": (
-            "한국소비자원 2023-07-27 캡슐커피머신 제품 10종 실측치 평균. "
-            "제품별 편차가 커 36.6~93mg 범위 — 63.8mg 단일 수치만 노출하지 말고 "
-            "범위(caffeine_range_mg)도 함께 표기할 것을 권장."
-        ),
-        "caffeine_range_mg": [36.6, 93.0],
-    },
 ]

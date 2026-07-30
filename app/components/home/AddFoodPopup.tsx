@@ -12,6 +12,7 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import BarcodeIcon from '@/assets/images/common/tab_barcode.svg';
+import CoffeeIcon from '@/assets/images/common/coffee.svg';
 import SearchIcon from '@/assets/images/scan/search.svg';
 import { authColors } from '@/components/auth/colors';
 import { fonts, nanumSquareRound } from '@/constants/fonts';
@@ -35,6 +36,7 @@ export default function AddFoodPopup({
   const isClosingRef = useRef(false);
   const barcodeScale = useSharedValue(1);
   const searchScale = useSharedValue(1);
+  const coffeeScale = useSharedValue(1);
 
   useEffect(() => {
     if (visible) {
@@ -65,6 +67,11 @@ export default function AddFoodPopup({
     router.push({ pathname: '/(tabs)/home/food-entry-search', params: { date: selectedDate } });
   };
 
+  const goToCoffeeCalculator = () => {
+    runDismiss();
+    router.push({ pathname: '/(tabs)/home/food-entry-coffee', params: { date: selectedDate } });
+  };
+
   const d = new Date();
   const todayLocal = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   const isToday = selectedDate === todayLocal;
@@ -86,6 +93,10 @@ export default function AddFoodPopup({
 
   const searchCardStyle = useAnimatedStyle(() => ({
     transform: [{ scale: searchScale.value }],
+  }));
+
+  const coffeeCardStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: coffeeScale.value }],
   }));
 
   return (
@@ -135,6 +146,24 @@ export default function AddFoodPopup({
                     <Text style={styles.optionDesc}>카페 음료·식사 메뉴{'\n'}검색/직접 기록</Text>
                   </Animated.View>
                 </Pressable>
+
+                <Pressable
+                  style={styles.optionButton}
+                  onPress={goToCoffeeCalculator}
+                  onPressIn={() => {
+                    coffeeScale.value = withTiming(0.97, { duration: 90 });
+                  }}
+                  onPressOut={() => {
+                    coffeeScale.value = withTiming(1, { duration: 90 });
+                  }}>
+                  <Animated.View style={coffeeCardStyle}>
+                    <View style={styles.optionIconWrap}>
+                      <CoffeeIcon width={30} height={30} color={authColors.pink} />
+                    </View>
+                    <Text style={styles.optionLabel}>커피 계산</Text>
+                    <Text style={styles.optionDesc}>브랜드 메뉴로{'\n'}카페인 확인</Text>
+                  </Animated.View>
+                </Pressable>
               </View>
 
               <Pressable onPress={runDismiss}>
@@ -176,7 +205,7 @@ const styles = StyleSheet.create({
   },
   buttonRow: {
     flexDirection: 'row',
-    gap: 18,
+    gap: 12,
     marginTop: 16,
   },
   optionButton: {
@@ -186,6 +215,7 @@ const styles = StyleSheet.create({
     borderColor: authColors.border,
     borderRadius: 18,
     paddingVertical: 12,
+    paddingHorizontal: 4,
     alignItems: 'center',
   },
   optionIconWrap: {

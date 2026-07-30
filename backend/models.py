@@ -46,8 +46,8 @@ class FoodLogCreate(BaseModel):
     amount: float = 1.0
     unit: str = "개"
     caffeine_mg: Optional[float] = None
-    sugar_g: float = 0
-    sodium_mg: float = 0
+    sugar_g: Optional[float] = None
+    sodium_mg: Optional[float] = None
     calories_kcal: float = 0
     carbohydrate_g: Optional[float] = None
     protein_g: Optional[float] = None
