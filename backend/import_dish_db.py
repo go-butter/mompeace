@@ -6,6 +6,7 @@ dish_nutrition_db Excel → food_items 임포트 스크립트
 """
 from __future__ import annotations
 import json
+import re
 import sqlite3
 from pathlib import Path
 
@@ -43,6 +44,9 @@ REQUIRED_COLUMNS = {"식품명"}
 # 숫자로 변환할 컬럼
 NUMERIC_COLUMNS = {"단백질(g)", "탄수화물(g)", "당류(g)", "나트륨(mg)", "카페인(mg)"}
 
+# 실제 식품 중량 (영양성분함량기준량과 다를 수 있음 — 스케일링용, COLUMN_MAP에는 없음)
+FOOD_WEIGHT_COLUMN = "식품중량"
+
 MISSING_VALUES = {"", "-", "N/A", "n/a"}
 
 
@@ -62,6 +66,54 @@ def _to_float_or_none(value) -> float | None:
         return float(s)
     except (ValueError, TypeError):
         return None
+
+
+_LEADING_NUMBER_RE = re.compile(r"[-+]?\d+(?:\.\d+)?")
+
+
+def _parse_weight_value(value) -> float | None:
+    """
+    영양성분함량기준량/식품중량 전용 파서.
+    "100g", "532ml", "462.60g", "100 ml" 처럼 단위(g/ml)가 붙은 값에서
+    맨 앞의 숫자(소수 포함) 부분만 뽑아 float로 변환한다.
+    숫자 부분이 전혀 없으면 None. (단백질/탄수화물/... 5개 영양소 컬럼에
+    쓰이는 _to_float_or_none()과는 별개 — 그쪽은 순수 숫자 문자열만 다루므로
+    그대로 둔다.)
+    """
+    if value is None:
+        return None
+    if isinstance(value, float):
+        import math
+        if math.isnan(value):
+            return None
+        return value
+    s = str(value).strip()
+    if s in MISSING_VALUES:
+        return None
+    match = _LEADING_NUMBER_RE.search(s)
+    if not match:
+        return None
+    try:
+        return float(match.group())
+    except ValueError:
+        return None
+
+
+def _compute_scale(basis_amount: float | None, food_weight: float | None) -> float | None:
+    """
+    영양성분함량기준량(basis_amount) 대비 실제 식품중량(food_weight)의 배율.
+    둘 중 하나라도 없거나 basis_amount가 0 이하면 스케일을 계산할 수 없음 (None).
+    """
+    if basis_amount is None or food_weight is None or basis_amount <= 0:
+        return None
+    return food_weight / basis_amount
+
+
+def _scale(value: float | None, scale: float | None) -> float | None:
+    """None은 그대로 None 유지. scale이 없으면 raw 값 그대로 반환."""
+    if value is None or scale is None:
+        return value
+    return value * scale
 
 
 def _clean_text(value) -> str:
@@ -112,6 +164,7 @@ def main():
     skip_count = 0
     caffeine_has = 0
     caffeine_missing = 0
+    unscaled_count = 0
 
     for _, excel_row in df.iterrows():
         try:
@@ -130,12 +183,26 @@ def main():
                 if subcategory_col else None
             )
 
-            # 영양소 (None = 미기재)
-            protein_g = _to_float_or_none(excel_row.get("단백질(g)"))
-            carbohydrate_g = _to_float_or_none(excel_row.get("탄수화물(g)"))
-            sugar_g = _to_float_or_none(excel_row.get("당류(g)"))
-            sodium_mg = _to_float_or_none(excel_row.get("나트륨(mg)"))
-            caffeine_mg = _to_float_or_none(excel_row.get("카페인(mg)"))
+            # 영양성분함량기준량 대비 실제 식품중량 스케일 계산
+            # (기준량과 식품중량이 다른 경우가 93%+ — 스케일 없이는 영양소가
+            #  최대 ~30배까지 과소/과대 보고됨)
+            basis_amount = _parse_weight_value(excel_row.get("영양성분함량기준량"))
+            food_weight = _parse_weight_value(excel_row.get(FOOD_WEIGHT_COLUMN))
+            scale = _compute_scale(basis_amount, food_weight)
+            if scale is None:
+                unscaled_count += 1
+                print(
+                    f"  ⚠️ 스케일 계산 불가 (raw 값 사용): {food_name!r} "
+                    f"기준량={excel_row.get('영양성분함량기준량')!r} "
+                    f"식품중량={excel_row.get(FOOD_WEIGHT_COLUMN)!r}"
+                )
+
+            # 영양소 (None = 미기재, 스케일 적용 후에도 None 유지)
+            protein_g = _scale(_to_float_or_none(excel_row.get("단백질(g)")), scale)
+            carbohydrate_g = _scale(_to_float_or_none(excel_row.get("탄수화물(g)")), scale)
+            sugar_g = _scale(_to_float_or_none(excel_row.get("당류(g)")), scale)
+            sodium_mg = _scale(_to_float_or_none(excel_row.get("나트륨(mg)")), scale)
+            caffeine_mg = _scale(_to_float_or_none(excel_row.get("카페인(mg)")), scale)
 
             if caffeine_mg is not None:
                 caffeine_has += 1
@@ -223,6 +290,27 @@ def main():
             skip_count += 1
             continue
 
+    # ── xlsx에서 사라진 food_code 정리 (data_source 범위 한정) ──────
+    # DROP+재삽입 대신 UPDATE/INSERT로 food_id를 보존한 뒤, 더 이상
+    # xlsx에 없는 dish_db_download 행만 삭제한다 (다른 data_source나
+    # food_log가 참조 중인 food_id의 불필요한 churn을 피하기 위함).
+    xlsx_food_codes = {
+        _clean_text(v) for v in df["식품코드"].dropna() if _clean_text(v)
+    }
+    cursor.execute(
+        "SELECT food_id, food_code FROM food_items WHERE data_source = ?",
+        (DATA_SOURCE,),
+    )
+    stale_ids = [
+        row["food_id"] for row in cursor.fetchall()
+        if row["food_code"] and row["food_code"] not in xlsx_food_codes
+    ]
+    if stale_ids:
+        cursor.executemany(
+            "DELETE FROM food_items WHERE food_id = ?",
+            [(i,) for i in stale_ids],
+        )
+
     conn.commit()
     conn.close()
 
@@ -231,6 +319,8 @@ def main():
     print(f"skip: {skip_count}")
     print(f"카페인 값 있음: {caffeine_has}")
     print(f"카페인 값 없음: {caffeine_missing}")
+    print(f"스케일 미적용 (raw 값 유지): {unscaled_count}")
+    print(f"삭제된 stale food_code: {len(stale_ids)}")
     print("✅ dish_db_download 임포트 완료")
 
 

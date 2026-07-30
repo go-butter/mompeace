@@ -130,11 +130,11 @@ def simplify_food_info(api_data: dict):
             }
 
     # 앱에서 자주 쓸 값만 따로 꺼내기
-    calories_kcal = nutrition.get("열량", {}).get("amount", 0)
-    sodium_mg = nutrition.get("나트륨", {}).get("amount", 0)
-    sugar_g = nutrition.get("당류", {}).get("amount", 0)
-    carbohydrate_g = nutrition.get("탄수화물", {}).get("amount", 0)
-    protein_g = nutrition.get("단백질", {}).get("amount", 0)
+    calories_kcal = nutrition.get("열량", {}).get("amount")
+    sodium_mg = nutrition.get("나트륨", {}).get("amount")
+    sugar_g = nutrition.get("당류", {}).get("amount")
+    carbohydrate_g = nutrition.get("탄수화물", {}).get("amount")
+    protein_g = nutrition.get("단백질", {}).get("amount")
 
     # 알레르기 정보 정리
     allergens = []

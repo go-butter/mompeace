@@ -144,12 +144,12 @@ def simplify_food_nutrition_item(item: dict):
         # 핵심 판단 성분
         "caffeine_mg": None,
         "caffeine_keywords": detect_caffeine_keywords(food_name),
-        "sugar_g": to_float(item.get("AMT_NUM23")),
-        "sodium_mg": to_float(item.get("AMT_NUM13")),
+        "sugar_g": to_float(item.get("AMT_NUM23"), default=None),
+        "sodium_mg": to_float(item.get("AMT_NUM13"), default=None),
 
         # 보조 참고 성분
-        "carbohydrate_g": to_float(item.get("AMT_NUM6")),
-        "protein_g": to_float(item.get("AMT_NUM3")),
+        "carbohydrate_g": to_float(item.get("AMT_NUM6"), default=None),
+        "protein_g": to_float(item.get("AMT_NUM3"), default=None),
 
         # 이 API에는 알레르기 정보가 안정적으로 없음
         "allergens": [],
