@@ -90,6 +90,8 @@ def get_food_by_barcode(
         try:
             api_data = get_food_info(barcode)
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             raise HTTPException(
                 status_code=500,
                 detail=f"푸드QR API 호출 실패: {str(e)}"
