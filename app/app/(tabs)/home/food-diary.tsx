@@ -13,6 +13,7 @@ import { authColors } from '@/components/auth/colors';
 import { homeColors } from '@/components/home/colors';
 import AddFoodPopup from '@/components/home/AddFoodPopup';
 import Calendar from '@/components/home/Calendar';
+import { waterColors } from '@/components/water/colors';
 import { fonts } from '@/constants/fonts';
 import { useAuth } from '@/context/auth-context';
 import { useFoodDiary } from '@/context/food-diary-context';
@@ -69,6 +70,7 @@ export default function FoodDiaryScreen() {
     changeMonth,
     statusByDate,
     intake,
+    water,
     foodLog,
     loading,
     error,
@@ -200,11 +202,13 @@ export default function FoodDiaryScreen() {
             value={intake.status_label.sodium}
             colors={homeColors.sodium}
           />
-          <StatusChip
-            label="물"
-            value={`${intake.water_cups ?? 0}잔`}
-            colors={homeColors.water}
-          />
+          <Pressable style={styles.chipPressable} onPress={() => router.push('/(tabs)/home/water-diary')}>
+            <StatusChip
+              label="물"
+              value={`${Math.round(water?.total_ml ?? 0)}ml`}
+              colors={waterColors.chip}
+            />
+          </Pressable>
         </View>
       </>
     );
@@ -469,6 +473,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
     marginTop: 14,
+  },
+  chipPressable: {
+    flex: 1,
   },
   chip: {
     flex: 1,

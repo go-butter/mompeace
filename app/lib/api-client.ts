@@ -226,6 +226,53 @@ export interface FoodLogCalendarResponse {
   days: FoodLogCalendarDay[];
 }
 
+export interface WaterLogEntry {
+  log_id: number;
+  amount_ml: number;
+  logged_at: string;
+  time: string | null;
+}
+
+export interface WaterTodayResponse {
+  user_id: number;
+  date: string;
+  target_ml: number;
+  total_ml: number;
+  percent: number;
+  logs: WaterLogEntry[];
+}
+
+export interface WaterWeekDay {
+  label: string;
+  date: string;
+  amount_ml: number;
+  hit_target: boolean;
+  is_today: boolean;
+}
+
+export interface WaterWeekResponse {
+  user_id: number;
+  date_range: { start: string; end: string };
+  target_ml: number;
+  days: WaterWeekDay[];
+}
+
+export interface WaterLogCreateRequest {
+  user_id: number;
+  amount_ml: number;
+  logged_at?: string;
+}
+
+export interface WaterLogCreateResponse {
+  log_id: number;
+  message: string;
+}
+
+export interface WaterLogDeleteResponse {
+  log_id: number;
+  message: string;
+}
+
 export class ApiError extends Error {}
 
 async function request<TReq, TRes>(method: 'POST' | 'PUT', path: string, body: TReq): Promise<TRes> {
@@ -371,6 +418,26 @@ export function getFoodLogCalendar(
   month: number
 ): Promise<FoodLogCalendarResponse> {
   return get(`/food-log/calendar/${userId}?year=${year}&month=${month}`);
+}
+
+export function getWaterToday(userId: number): Promise<WaterTodayResponse> {
+  return get(`/water-log/today/${userId}`);
+}
+
+export function getWaterByDate(userId: number, date: string): Promise<WaterTodayResponse> {
+  return get(`/water-log/by-date/${userId}?date=${date}`);
+}
+
+export function getWaterWeek(userId: number, date?: string): Promise<WaterWeekResponse> {
+  return get(`/water-log/week/${userId}${date ? `?date=${date}` : ''}`);
+}
+
+export function createWaterLog(body: WaterLogCreateRequest): Promise<WaterLogCreateResponse> {
+  return post('/water-log', body);
+}
+
+export function deleteWaterLog(logId: number, userId: number): Promise<WaterLogDeleteResponse> {
+  return del(`/water-log/${logId}?user_id=${userId}`);
 }
 
 // TODO: getPremiumReport() — added in a separate task, wires premium-report.tsx to live data.

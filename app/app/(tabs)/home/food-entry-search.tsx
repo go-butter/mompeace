@@ -3,6 +3,7 @@ import { useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
+  Keyboard,
   Pressable,
   StyleSheet,
   Text,
@@ -89,6 +90,7 @@ export default function FoodEntrySearchScreen() {
   };
 
   const handleSelectResult = (item: FoodSearchResultItem) => {
+    Keyboard.dismiss();
     if (!user?.user_id || !date || logging) return;
     const data = item.data as Record<string, any>;
     const { time } = formatNow();

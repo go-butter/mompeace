@@ -53,6 +53,12 @@ class FoodLogFromFood(BaseModel):
     unit: str = "개"
 
 
+class WaterLogCreate(BaseModel):
+    user_id: int
+    amount_ml: float
+    logged_at: Optional[str] = None
+
+
 class UserFoodItemCreate(BaseModel):
     user_id: int
     food_name: str

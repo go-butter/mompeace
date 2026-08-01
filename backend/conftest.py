@@ -100,6 +100,15 @@ CREATE TABLE food_log_extra_nutrients (
     FOREIGN KEY (food_log_id) REFERENCES food_log(log_id)
 );
 
+CREATE TABLE water_log (
+    log_id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL,
+    amount_ml   REAL NOT NULL,
+    logged_at   TEXT DEFAULT (datetime('now', 'localtime')),
+    created_at  TEXT DEFAULT (datetime('now', 'localtime')),
+    FOREIGN KEY (user_id) REFERENCES users(user_id)
+);
+
 CREATE TABLE user_sensitivity_log (
     log_id         INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id        INTEGER NOT NULL,
@@ -163,6 +172,24 @@ def make_food_log(db, user_id, **overrides):
     cursor = db.cursor()
     cursor.execute(
         f"INSERT INTO food_log ({cols}) VALUES ({placeholders})",
+        list(defaults.values()),
+    )
+    db.commit()
+    return cursor.lastrowid
+
+
+def make_water_log(db, user_id, **overrides):
+    """테스트용 water_log 행 한 개를 생성하고 log_id를 반환한다."""
+    defaults = {
+        "user_id": user_id,
+        "amount_ml": 250,
+    }
+    defaults.update(overrides)
+    cols = ", ".join(defaults.keys())
+    placeholders = ", ".join("?" for _ in defaults)
+    cursor = db.cursor()
+    cursor.execute(
+        f"INSERT INTO water_log ({cols}) VALUES ({placeholders})",
         list(defaults.values()),
     )
     db.commit()

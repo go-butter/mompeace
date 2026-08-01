@@ -27,6 +27,7 @@ const HIDDEN_TAB_BAR_ROUTES = new Set([
   'food-entry-ocr-capture',
   'food-entry-ocr-confirm',
   'food-entry-ocr-failure',
+  'water-diary',
 ]);
 
 export default function HomeLayout() {
@@ -56,6 +57,7 @@ export default function HomeLayout() {
       <Stack.Screen name="food-entry-ocr-capture" />
       <Stack.Screen name="food-entry-ocr-confirm" />
       <Stack.Screen name="food-entry-ocr-failure" />
+      <Stack.Screen name="water-diary" />
     </Stack>
   );
 }

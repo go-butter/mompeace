@@ -23,6 +23,7 @@ import RemainCoffeeIcon from '@/assets/images/home/home_remain_coffee.svg';
 import ProfileIcon from '@/assets/images/common/profile_circle.svg';
 import { authColors } from '@/components/auth/colors';
 import { homeColors } from '@/components/home/colors';
+import { waterColors } from '@/components/water/colors';
 import { fonts, nanumSquareRound } from '@/constants/fonts';
 import { useAuth } from '@/context/auth-context';
 import { useIntake } from '@/context/intake-context';
@@ -91,7 +92,7 @@ function FoodLogRow({ entry }: { entry: FoodLogEntry }) {
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
-  const { intake, foodLog, hasEntries, loading, error, refresh } = useIntake();
+  const { intake, water, foodLog, hasEntries, loading, error, refresh } = useIntake();
   const [bannerSize, setBannerSize] = useState({ width: 0, height: 0 });
 
   useFocusEffect(
@@ -255,7 +256,13 @@ export default function HomeScreen() {
                 value={intake.status_label.sodium}
                 colors={homeColors.sodium}
               />
-              <StatusChip label="물" value={`${intake.water_cups ?? 0}잔`} colors={homeColors.water} />
+              <Pressable style={styles.chipPressable} onPress={() => router.push('/(tabs)/home/water-diary')}>
+                <StatusChip
+                  label="물"
+                  value={`${Math.round(water?.total_ml ?? 0)}ml`}
+                  colors={waterColors.chip}
+                />
+              </Pressable>
             </View>
           </>
         )}
@@ -513,6 +520,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
     marginTop: 14,
+  },
+  chipPressable: {
+    flex: 1,
   },
   chip: {
     flex: 1,

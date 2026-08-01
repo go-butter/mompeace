@@ -6,11 +6,14 @@ import {
   FoodLogEntry,
   getFoodLogToday,
   getIntakeToday,
+  getWaterToday,
   IntakeTodayResponse,
+  WaterTodayResponse,
 } from '@/lib/api-client';
 
 interface IntakeContextValue {
   intake: IntakeTodayResponse | null;
+  water: WaterTodayResponse | null;
   foodLog: FoodLogEntry[];
   allFoodLog: FoodLogEntry[];
   hasEntries: boolean;
@@ -25,6 +28,7 @@ export function IntakeProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const userId = user?.user_id;
   const [intake, setIntake] = useState<IntakeTodayResponse | null>(null);
+  const [water, setWater] = useState<WaterTodayResponse | null>(null);
   const [foodLog, setFoodLog] = useState<FoodLogEntry[]>([]);
   const [allFoodLog, setAllFoodLog] = useState<FoodLogEntry[]>([]);
   const [hasEntries, setHasEntries] = useState(false);
@@ -37,14 +41,16 @@ export function IntakeProvider({ children }: { children: ReactNode }) {
     setError(null);
 
     try {
-      const [intakeRes, foodLogRes] = await Promise.all([
+      const [intakeRes, foodLogRes, waterRes] = await Promise.all([
         getIntakeToday(userId),
         getFoodLogToday(userId),
+        getWaterToday(userId),
       ]);
       setIntake(intakeRes);
       setHasEntries(foodLogRes.count > 0);
       setFoodLog(foodLogRes.logs.slice(-3));
       setAllFoodLog(foodLogRes.logs);
+      setWater(waterRes);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : (err as Error).message);
     } finally {
@@ -57,8 +63,8 @@ export function IntakeProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   const value = useMemo(
-    () => ({ intake, foodLog, allFoodLog, hasEntries, loading, error, refresh }),
-    [intake, foodLog, allFoodLog, hasEntries, loading, error, refresh]
+    () => ({ intake, water, foodLog, allFoodLog, hasEntries, loading, error, refresh }),
+    [intake, water, foodLog, allFoodLog, hasEntries, loading, error, refresh]
   );
 
   return (

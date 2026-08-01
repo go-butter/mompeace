@@ -185,6 +185,21 @@ def init_db():
     add_column_if_not_exists(cursor, "food_log", "reason_nutrient", "TEXT")
     add_column_if_not_exists(cursor, "food_log", "needs_review", "INTEGER DEFAULT 0")
 
+    # 3-2. WaterLog 테이블 (사용자 수분 섭취 기록)
+    # amount_ml은 사용자가 직접 입력하는 값(1잔 버튼 또는 커스텀 입력)이라 데이터 소스 결측이
+    # 존재하지 않으므로 food_log의 영양소 컬럼과 달리 NOT NULL. 기록이 없는 날의 합계는
+    # COALESCE(SUM(amount_ml), 0)으로 계산되는 진짜 0이며, unknown 카운트가 필요 없다.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS water_log (
+            log_id      INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id     INTEGER NOT NULL,
+            amount_ml   REAL NOT NULL,
+            logged_at   TEXT DEFAULT (datetime('now', 'localtime')),
+            created_at  TEXT DEFAULT (datetime('now', 'localtime')),
+            FOREIGN KEY (user_id) REFERENCES users(user_id)
+        )
+    """)
+
     # 4. UserSensitivityLog 테이블 (사용자별 민감도 조정 이력)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS user_sensitivity_log (
