@@ -1,25 +1,17 @@
 # 맘편하게 (Mompeace)
 
  임신 중 식품 섭취를 더 안심하고 결정할 수 있도록 돕는 모바일 앱입니다.
-식품을 검색하거나 바코드를 스캔하면, **오늘 하루 누적 섭취량(카페인·당류·나트륨)**과
+식품을 검색하거나 영양성분표를 촬영하면, **오늘 하루 누적 섭취량(카페인·당류·나트륨)**과
 **임신 주차**를 함께 고려해 해당 식품을 **섭취 가능(possible) / 주의(caution) / 비추천(avoid)**
 중 하나로 안내합니다.
 
 ## Screenshots
 
-| 온보딩 | 홈 | 바코드 스캔 |
-|---|---|---|
-| ![welcome](example/welcome.png) | ![home](example/home.png) | ![scan](example/barcode_scan.png) |
-
-| 안전 | 주의 | 비추천 |
-|---|---|---|
-| ![safe](example/barcode_scan_result_safe.png) | ![caution](example/barcode_scan_result_caution.png) | ![danger](example/barcode_scan_result_danger.png) |
-
 더 많은 화면은 [`example/`](example) 폴더에서 확인할 수 있습니다.
 
 ## Core Features
 
-- **식품 안전 판정**: 바코드 스캔 또는 검색으로 식품을 찾으면, 오늘 누적 섭취량 + 임신 주차
+- **식품 안전 판정**: 영양성분표 스캔 또는 검색으로 식품을 찾으면, 오늘 누적 섭취량 + 임신 주차
   기준으로 섭취 가능 여부를 판정
 - **개인 맞춤 민감도 조정**: 사용자 피드백을 바탕으로 영양소별 허용 기준을 점진적으로
   조정 (안전을 위해 더 관대해지는 방향으로만 자동 조정됨)
@@ -63,7 +55,7 @@
 
 **백엔드**: FastAPI · SQLite · Python
 **프론트엔드**: React Native (Expo) · expo-router · expo-camera
-**외부 API**: 식품의약품안전처 FoodQR API, data.go.kr
+**외부 API**: data.go.kr, Gemini Vision (영양성분표 OCR)
 **디자인**: Figma
 
 ## Getting Started
@@ -99,7 +91,6 @@ mompeace/
 │   ├── main.py             # API 엔드포인트
 │   ├── recommendation_model.py  # 식품 안전 판정 규칙 엔진
 │   ├── sensitivity.py       # 사용자별 민감도 조정
-│   ├── foodqr.py            # 식약처 FoodQR API 연동
 │   └── ...
 ├── app/              # React Native (Expo) 앱
 └── example/          # 화면 스크린샷

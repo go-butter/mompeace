@@ -1,0 +1,60 @@
+﻿Remove barcode/FoodQR scanning and allergy matching, pivot to OCR
+
+1. 바코드/FoodQR 기능 제거:
+- FoodQR은 일반 EAN 바코드 조회 시스템이 아님. 식약처가 별도로 인쇄한
+  "정보무늬" 전용 QR코드가 있어야 동작하는데, 이건 극소수 시범사업
+  참여 제품에만 인쇄되어 있음. 우리 앱은 일반 바코드를 스캔하는
+  구조라서 애초에 서로 호환이 안 됐음.
+- 게다가 F003 엔드포인트가 위 문제와 별개로 타임아웃/502 응답을
+  반복하고 있었음.
+- I2570(유통바코드 API)은 data.go.kr 메타정보에 명시된 대로 2018년
+  이후 대한상공회의소 유통물류진흥원 요청으로 데이터 갱신이 중단됨
+  → 최근 제품 커버리지가 사실상 없음.
+- I2570의 원재료 API(15062098)와 가공식품 표준영양성분 API 둘 다
+  카페인 필드 자체가 없음 — 우리 앱 핵심 안전 지표에 치명적인 결격
+  사유.
+→ 결론: 바코드 경로 전체 폐기, OCR 기반 영양성분표 스캔으로 전환.
+
+2. 알레르기 매칭 + 자가입력 제거:
+- 음식별 알레르기 정보(allergen_info)는 FoodQR에서만 채워졌음. 검색
+  API/dish_db 임포트/OCR/수동입력 등 다른 모든 경로는 알레르기를
+  빈 값으로 고정하거나 아예 관련 컬럼이 없음. FoodQR이 사라지면
+  알레르기 매칭 로직은 입력값이 전혀 없는 죽은 코드가 됨.
+- 매칭 로직뿐 아니라 사용자 자가입력/수정 화면까지 함께 제거하기로
+  결정. 앱 어디에서도 소비되지 않는 필드는 제품 가치가
+  없고, 온보딩에서 이미 피했던 "의미 없는 정보 수집" 패턴을
+  마이페이지에 그대로 옮겨놓은 것에 불과함.
+
+- 백엔드: foodqr.py, 바코드 엔드포인트(GET /foods/barcode/{barcode}),
+  USE_MOCK_FOODQR, recommendation_model.py의 judge_food_rules/
+  apply_safety_guard/make_reason 전반에 걸친 allergy_match 파라미터,
+  _compute_allergy_match(), allergy_info/AllergyUpdate(모델,
+  POST /users, PUT /users/{id}/allergy), risk.py::evaluate_food_risk()
+  내 알레르기 표시 슬라이스(함수 자체는 유지 — /foods/search가 여전히
+  의존), data_confidence.py의 알레르겐 신뢰도 가산점.
+- 프론트엔드: scan/ 라우트 디렉토리, scan/colors.ts, edit-allergy.tsx,
+  constants/allergens.ts, scan-result.tsx(원래 죽어있던 스텁),
+  바코드 전용 에셋, AuthUser/api-client.ts의 알레르기 필드, 홈/
+  food-diary 화면의 하드코딩된 알레르기 칩.
+- DB 컬럼(allergy_info, allergen_info)은 스키마에 의도적으로 남겨둠
+  (미사용 상태). 기존 마이그레이션 컨벤션에 따라 DROP COLUMN 없음.
+
+남긴 것(검토 중 과삭제 방지 위해 플래그된 항목):
+- risk.py::evaluate_food_risk()와 그 helper들. 애초 가정과 달리
+  바코드 전용이 아니라 /foods/search와 공유되는 함수였음.
+- api-client.ts의 BarcodeRisk / RiskDetailEntry 타입.
+  FoodSearchResultItem과 공유됨.
+- scan/caution.svg, scan/search.svg. 바코드 전용 형제 파일들과 같은
+  에셋 폴더에 있지만 OCR 화면들 및 AddFoodPopup과 공유됨.
+
+검증:
+- 백엔드: 183/183 테스트 통과.
+- 프론트엔드: tsc --noEmit 클린.
+- 레포 전체 grep(food_qr_api / foodqr / allergy_info / allergen_info /
+  getFoodByBarcode / updateAllergyInfo) 잔여 참조 없음.
+
+참고: 이 diff에 보이는 OCR 관련 추가분(needs_review 컬럼, OCR 캡처/
+확인/실패 화면, api-client.ts의 scanNutritionLabel())은 이번 제거
+작업 시작 전부터 커밋 안 된 상태로 working tree에 이미 존재하던
+것으로, 이번 변경이 도입한 게 아님. 세션 시작 시점 working tree
+상태로 확인함.

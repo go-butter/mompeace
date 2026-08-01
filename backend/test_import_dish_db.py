@@ -238,7 +238,7 @@ def test_stale_food_code_removed_on_reimport_scoped_to_data_source(import_env):
     conn = sqlite3.connect(str(db_path))
     conn.execute(
         "INSERT INTO food_items (food_code, food_name, data_source) "
-        "VALUES ('F005', '다른출처음식', 'food_qr_api')"
+        "VALUES ('F005', '다른출처음식', 'manual_test')"
     )
     conn.commit()
     conn.close()
@@ -253,4 +253,4 @@ def test_stale_food_code_removed_on_reimport_scoped_to_data_source(import_env):
     assert ("F006", "dish_db_download") in codes_and_sources
     assert ("F005", "dish_db_download") not in codes_and_sources
     # 다른 data_source의 F005는 그대로 남아 있어야 한다
-    assert ("F005", "food_qr_api") in codes_and_sources
+    assert ("F005", "manual_test") in codes_and_sources

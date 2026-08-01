@@ -201,16 +201,3 @@ def save_food_item(food_data: dict, source: str, db: sqlite3.Connection):
     db.commit()
 
     return food_id
-
-
-def save_food_item_from_foodqr(food_data: dict, db: sqlite3.Connection):
-    """
-    기존 코드 호환용 함수.
-    내부적으로는 공통 저장 함수 save_food_item을 사용한다.
-    """
-
-    return save_food_item(
-        food_data=food_data,
-        source="food_qr",
-        db=db
-    )

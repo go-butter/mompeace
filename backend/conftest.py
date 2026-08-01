@@ -87,6 +87,7 @@ CREATE TABLE food_log (
     feedback      INTEGER DEFAULT 0,
     recommendation_status TEXT,
     reason_nutrient TEXT,
+    needs_review  INTEGER DEFAULT 0,
     FOREIGN KEY (user_id) REFERENCES users(user_id)
 );
 

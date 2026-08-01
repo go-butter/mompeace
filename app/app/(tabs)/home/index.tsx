@@ -16,7 +16,6 @@ import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
 
 const HEART_ASPECT_RATIO = 696 / 588;
 
-import BarcodeIcon from '@/assets/images/home/barcode.svg';
 import FoodIcon from '@/assets/images/home/food.svg';
 import CalendarIcon from '@/assets/images/home/calendar.svg';
 import ReportIcon from '@/assets/images/home/report.svg';
@@ -205,7 +204,7 @@ export default function HomeScreen() {
 
         {!hasEntries ? (
           <Text style={styles.emptyMessage}>
-            오늘 섭취한 음식이 추가되지 않았습니다!{'\n'}Food Diary 혹은 바코드 스캔을 통해{'\n'}
+            오늘 섭취한 음식이 추가되지 않았습니다!{'\n'}Food Diary 혹은 영양성분표 스캔을 통해{'\n'}
             음식을 추가해 주세요 :)
           </Text>
         ) : (
@@ -256,7 +255,6 @@ export default function HomeScreen() {
                 value={intake.status_label.sodium}
                 colors={homeColors.sodium}
               />
-              <StatusChip label="알레르기" value="안전" colors={homeColors.allergy} />
               <StatusChip label="물" value={`${intake.water_cups ?? 0}잔`} colors={homeColors.water} />
             </View>
           </>
@@ -264,12 +262,6 @@ export default function HomeScreen() {
       </View>
 
       <View style={styles.shortcutCard}>
-        <ShortcutButton
-          icon={<BarcodeIcon width={24} height={24} />}
-          title="바코드 스캔"
-          subtitle="식품 안전 확인"
-          onPress={() => router.push('/(tabs)/scan')}
-        />
         <ShortcutButton
           icon={<FoodIcon width={24} height={24} />}
           title="오늘의 추천"

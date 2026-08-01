@@ -13,12 +13,6 @@ from backend.intake_totals import compute_today_intake_totals
 router = APIRouter()
 
 
-def _compute_allergy_match(food_row: dict, allergy_list: list) -> int:
-    """음식의 allergen_info 문자열에 사용자 알레르기 항목이 포함되는지 확인한다."""
-    allergen_info_str = food_row.get("allergen_info") or ""
-    return 1 if any(a in allergen_info_str for a in allergy_list) else 0
-
-
 def _multiply(value, factor):
     if value is None:
         return None
@@ -41,9 +35,6 @@ def _judge_food_log_from_food_item(food: dict, amount: float, user: dict, db: sq
 
     # today_intake는 이번에 기록할 항목을 제외한, 지금까지 누적된 양이어야 한다 (INSERT 이전 호출)
     today_intake = compute_today_intake_totals(user["user_id"], db)
-    allergy_info = user.get("allergy_info") or ""
-    allergy_list = [a.strip() for a in allergy_info.split(",") if a.strip()]
-    allergy_match = _compute_allergy_match(food, allergy_list)
     computed_age = calculate_current_pregnancy_age(
         user.get("pregnancy_week"), user.get("pregnancy_day"), user.get("pregnancy_entered_at")
     )
@@ -63,7 +54,6 @@ def _judge_food_log_from_food_item(food: dict, amount: float, user: dict, db: sq
         food=food_for_judgment,
         pregnancy_week=week,
         today_intake=today_intake,
-        allergy_match=allergy_match,
         user_adj=user_adj,
     )
 
@@ -135,7 +125,33 @@ def create_food_log(
             INSERT INTO food_log
             (user_id, food_id, food_name, category, input_type, amount, unit,
              caffeine_mg, sugar_g, sodium_mg, calories_kcal, carbohydrate_g, protein_g,
-             recommendation_status, reason_nutrient, eaten_at)
+             recommendation_status, reason_nutrient, needs_review, eaten_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            log.user_id,
+            log.food_id,
+            food_name,
+            category,
+            log.input_type,
+            log.amount,
+            log.unit,
+            caffeine_mg,
+            sugar_g,
+            sodium_mg,
+            calories_kcal,
+            carbohydrate_g,
+            protein_g,
+            recommendation_status,
+            reason_nutrient,
+            log.needs_review,
+            log.eaten_at,
+        ))
+    else:
+        cursor.execute("""
+            INSERT INTO food_log
+            (user_id, food_id, food_name, category, input_type, amount, unit,
+             caffeine_mg, sugar_g, sodium_mg, calories_kcal, carbohydrate_g, protein_g,
+             recommendation_status, reason_nutrient, needs_review)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             log.user_id,
@@ -153,31 +169,7 @@ def create_food_log(
             protein_g,
             recommendation_status,
             reason_nutrient,
-            log.eaten_at,
-        ))
-    else:
-        cursor.execute("""
-            INSERT INTO food_log
-            (user_id, food_id, food_name, category, input_type, amount, unit,
-             caffeine_mg, sugar_g, sodium_mg, calories_kcal, carbohydrate_g, protein_g,
-             recommendation_status, reason_nutrient)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            log.user_id,
-            log.food_id,
-            food_name,
-            category,
-            log.input_type,
-            log.amount,
-            log.unit,
-            caffeine_mg,
-            sugar_g,
-            sodium_mg,
-            calories_kcal,
-            carbohydrate_g,
-            protein_g,
-            recommendation_status,
-            reason_nutrient,
+            log.needs_review,
         ))
 
     new_log_id = cursor.lastrowid
@@ -268,13 +260,6 @@ def create_food_log_from_food(
     }
 
 
-def _text_to_list(text):
-    """allergen_info 등 food_repository.list_to_text()로 ", " 구분 저장된 문자열을 리스트로 복원."""
-    if not text:
-        return []
-    return [item.strip() for item in text.split(",") if item.strip()]
-
-
 def _fetch_food_log_for_date(user_id: int, target_date: str, db: sqlite3.Connection) -> dict:
     """주어진 날짜에 먹은 음식 목록 조회: Food Diary 전체 보기 화면용"""
 
@@ -288,11 +273,9 @@ def _fetch_food_log_for_date(user_id: int, target_date: str, db: sqlite3.Connect
         raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
 
     cursor.execute("""
-        SELECT food_log.*, food_items.allergen_info AS food_item_allergen_info
-        FROM food_log
-        LEFT JOIN food_items ON food_log.food_id = food_items.food_id
-        WHERE food_log.user_id = ? AND DATE(food_log.eaten_at) = ?
-        ORDER BY food_log.eaten_at ASC
+        SELECT * FROM food_log
+        WHERE user_id = ? AND DATE(eaten_at) = ?
+        ORDER BY eaten_at ASC
     """, (
         user_id,
         target_date
@@ -380,7 +363,6 @@ def _fetch_food_log_for_date(user_id: int, target_date: str, db: sqlite3.Connect
             "sodium_mg": log.get("sodium_mg"),
             "caffeine_mg": log.get("caffeine_mg"),
             "protein_g": log.get("protein_g") or 0,
-            "allergens": _text_to_list(log.get("food_item_allergen_info")),
             "extra_nutrients": extra_nutrients,
 
             # 접힌 카드에서 바로 쓰는 값

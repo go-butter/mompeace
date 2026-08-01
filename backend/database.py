@@ -183,6 +183,7 @@ def init_db():
     add_column_if_not_exists(cursor, "food_log", "feedback", "INTEGER DEFAULT 0")
     add_column_if_not_exists(cursor, "food_log", "recommendation_status", "TEXT")
     add_column_if_not_exists(cursor, "food_log", "reason_nutrient", "TEXT")
+    add_column_if_not_exists(cursor, "food_log", "needs_review", "INTEGER DEFAULT 0")
 
     # 4. UserSensitivityLog 테이블 (사용자별 민감도 조정 이력)
     cursor.execute("""

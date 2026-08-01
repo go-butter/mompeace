@@ -14,22 +14,10 @@ class LoginRequest(BaseModel):
     password: str
 
 
-class UserCreate(BaseModel):
-    nickname: str
-    pregnancy_week: Optional[int] = None
-    due_date: Optional[str] = None
-    allergy_info: Optional[str] = None
-    interest_ingredients: Optional[str] = None
-
-
 class PregnancyUpdate(BaseModel):
     pregnancy_week: Optional[int] = None
     pregnancy_day: Optional[int] = None
     due_date: Optional[str] = None
-
-
-class AllergyUpdate(BaseModel):
-    allergy_info: str
 
 
 class ExtraNutrientIn(BaseModel):
@@ -54,6 +42,7 @@ class FoodLogCreate(BaseModel):
     food_id: Optional[int] = None
     eaten_at: Optional[str] = None
     extra_nutrients: Optional[list[ExtraNutrientIn]] = None
+    needs_review: Optional[bool] = False
 
 
 class FoodLogFromFood(BaseModel):

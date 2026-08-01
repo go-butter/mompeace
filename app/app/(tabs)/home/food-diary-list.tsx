@@ -52,9 +52,6 @@ function FoodDiaryRow({
             칼로리 {entry.calories_kcal ?? 0}kcal · 당류 {entry.sugar_g}g · 나트륨{' '}
             {entry.sodium_mg}mg · 단백질 {entry.protein_g}g
           </Text>
-          {entry.allergens.length > 0 && (
-            <Text style={styles.rowAllergyText}>알레르기: {entry.allergens.join(', ')}</Text>
-          )}
           {entry.extra_nutrients?.length > 0 && (
             <Text style={styles.rowDetailText}>
               추가 성분:{' '}
@@ -221,11 +218,5 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#4A4A4A',
     lineHeight: 16,
-  },
-  rowAllergyText: {
-    fontFamily: fonts.regular,
-    fontSize: 11,
-    color: authColors.pink,
-    marginTop: 4,
   },
 });

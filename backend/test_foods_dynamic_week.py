@@ -1,5 +1,5 @@
 """
-GET /foods/barcode, GET /foods/search의 임신 주차 서버 계산 검증.
+GET /foods/search의 임신 주차 서버 계산 검증.
 
 핵심 검증 대상:
 - pregnancy_entered_at 앵커로부터 경과일을 더한 "오늘" 기준 주차가 사용되는지
@@ -13,7 +13,7 @@ import pytest
 from fastapi import HTTPException
 
 import backend.routers.foods as foods_router
-from backend.routers.foods import get_food_by_barcode, search_food
+from backend.routers.foods import search_food
 
 from .conftest import make_user
 
@@ -39,16 +39,6 @@ class TestDynamicPregnancyWeek:
         assert risk["pregnancy_week"] == 14
         assert risk["trimester"] == "middle"
 
-    def test_get_food_by_barcode_uses_recalculated_week(self, db, monkeypatch):
-        entered_at = (date.today() - timedelta(days=30)).isoformat()
-        user_id = make_user(db, pregnancy_week=10, pregnancy_day=0, pregnancy_entered_at=entered_at)
-        monkeypatch.setattr(foods_router, "USE_MOCK_FOODQR", True)
-
-        result = get_food_by_barcode(barcode="1234567890", user_id=user_id, db=db)
-
-        assert result["risk"]["pregnancy_week"] == 14
-        assert result["risk"]["trimester"] == "middle"
-
     def test_search_food_without_user_id_defaults_to_week_20(self, db, monkeypatch):
         monkeypatch.setattr(foods_router, "search_food_nutrition", lambda **kwargs: [MOCK_FOOD])
 
@@ -61,13 +51,5 @@ class TestDynamicPregnancyWeek:
 
         with pytest.raises(HTTPException) as exc_info:
             search_food(query="테스트", page_no=1, num_of_rows=10, user_id=999999, db=db)
-
-        assert exc_info.value.status_code == 404
-
-    def test_get_food_by_barcode_with_nonexistent_user_id_raises_404(self, db, monkeypatch):
-        monkeypatch.setattr(foods_router, "USE_MOCK_FOODQR", True)
-
-        with pytest.raises(HTTPException) as exc_info:
-            get_food_by_barcode(barcode="1234567890", user_id=999999, db=db)
 
         assert exc_info.value.status_code == 404

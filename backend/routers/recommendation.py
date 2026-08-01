@@ -10,7 +10,6 @@ from backend.data_confidence import calculate_data_confidence
 from backend.risk import calculate_current_pregnancy_age, get_trimester
 from backend.sensitivity import get_user_adj
 from backend.intake_totals import compute_today_intake_totals
-from backend.routers.food_log import _compute_allergy_match
 
 router = APIRouter()
 
@@ -23,7 +22,7 @@ def get_recommendations(
     """
     규칙 엔진 기반 임신 중 식품 추천
 
-    오늘 누적 섭취량, 임신 주차별 섭취 기준, 알레르기 정보,
+    오늘 누적 섭취량, 임신 주차별 섭취 기준,
     카페인 정보 신뢰도 등을 함께 고려해 possible/caution/avoid를 판정한다.
     현재 경로는 ML 모델을 사용하지 않으며, 알고리즘은 변경하지 않는다.
     """
@@ -41,8 +40,6 @@ def get_recommendations(
         user.get("pregnancy_week"), user.get("pregnancy_day"), user.get("pregnancy_entered_at")
     )
     week = computed_age["week"] or 20
-    allergy_info = user.get("allergy_info") or ""
-    allergy_list = [a.strip() for a in allergy_info.split(",") if a.strip()]
     user_adj = get_user_adj(user)
 
     # 2. 오늘 누적 섭취량
@@ -81,32 +78,32 @@ def get_recommendations(
         }
 
     # 3. 후보 식품 조회 (허용 소스만 사용)
-    _ALLOWED_SOURCES = ("dish_db_download", "food_qr_api")
+    _ALLOWED_SOURCE = "dish_db_download"
     _CANDIDATE_POOL_LIMIT = 500
     if req.query and req.category:
         cursor.execute(
             "SELECT * FROM food_items "
             "WHERE food_name LIKE ? AND category = ? "
-            "AND data_source IN (?,?) ORDER BY RANDOM() LIMIT ?",
-            (f"%{req.query}%", req.category, *_ALLOWED_SOURCES, _CANDIDATE_POOL_LIMIT)
+            "AND data_source = ? ORDER BY RANDOM() LIMIT ?",
+            (f"%{req.query}%", req.category, _ALLOWED_SOURCE, _CANDIDATE_POOL_LIMIT)
         )
     elif req.query:
         cursor.execute(
             "SELECT * FROM food_items "
-            "WHERE food_name LIKE ? AND data_source IN (?,?) ORDER BY RANDOM() LIMIT ?",
-            (f"%{req.query}%", *_ALLOWED_SOURCES, _CANDIDATE_POOL_LIMIT)
+            "WHERE food_name LIKE ? AND data_source = ? ORDER BY RANDOM() LIMIT ?",
+            (f"%{req.query}%", _ALLOWED_SOURCE, _CANDIDATE_POOL_LIMIT)
         )
     elif req.category:
         cursor.execute(
             "SELECT * FROM food_items "
-            "WHERE category = ? AND data_source IN (?,?) ORDER BY RANDOM() LIMIT ?",
-            (req.category, *_ALLOWED_SOURCES, _CANDIDATE_POOL_LIMIT)
+            "WHERE category = ? AND data_source = ? ORDER BY RANDOM() LIMIT ?",
+            (req.category, _ALLOWED_SOURCE, _CANDIDATE_POOL_LIMIT)
         )
     else:
         cursor.execute(
             "SELECT * FROM food_items "
-            "WHERE data_source IN (?,?) ORDER BY RANDOM() LIMIT ?",
-            (*_ALLOWED_SOURCES, _CANDIDATE_POOL_LIMIT)
+            "WHERE data_source = ? ORDER BY RANDOM() LIMIT ?",
+            (_ALLOWED_SOURCE, _CANDIDATE_POOL_LIMIT)
         )
     foods = [dict(f) for f in cursor.fetchall()]
 
@@ -124,13 +121,10 @@ def get_recommendations(
     # 4. 각 식품 추천 판정
     results = []
     for food in foods:
-        allergy_match = _compute_allergy_match(food, allergy_list)
-
         result = recommend_food(
             food=food,
             pregnancy_week=week,
             today_intake=today_intake,
-            allergy_match=allergy_match,
             user_adj=user_adj,
         )
 

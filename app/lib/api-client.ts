@@ -26,7 +26,6 @@ export interface LoginResponse {
   login_id: string;
   pregnancy_week: number | null;
   due_date: string | null;
-  allergy_info: string | null;
   message: string;
 }
 
@@ -42,16 +41,6 @@ export interface PregnancyUpdateResponse {
   pregnancy_day: number | null;
   due_date: string | null;
   pregnancy_entered_at: string | null;
-  message: string;
-}
-
-export interface AllergyUpdateRequest {
-  allergy_info: string;
-}
-
-export interface AllergyUpdateResponse {
-  user_id: number;
-  allergy_info: string;
   message: string;
 }
 
@@ -122,7 +111,6 @@ export interface FoodLogEntry {
   sodium_mg: number;
   caffeine_mg: number | null;
   protein_g: number;
-  allergens: string[];
   extra_nutrients: { name: string; value: string; unit?: string | null }[];
 }
 
@@ -142,27 +130,6 @@ export interface RiskDetailEntry {
   keywords?: string[];
 }
 
-export interface RiskAllergyEntry {
-  allergens: string[];
-  status: 'check_required' | 'safe';
-  label: string;
-}
-
-export interface BarcodeFoodData {
-  barcode: string;
-  food_name: string;
-  food_category: string | null;
-  food_type: string | null;
-  serving_size: string | null;
-  calories_kcal: number;
-  sodium_mg: number;
-  sugar_g: number;
-  carbohydrate_g: number;
-  protein_g: number;
-  allergens: string[];
-  warnings: string[];
-}
-
 export interface BarcodeRisk {
   pregnancy_week: number;
   trimester: 'early' | 'middle' | 'late';
@@ -174,16 +141,8 @@ export interface BarcodeRisk {
     caffeine: RiskDetailEntry;
     sugar: RiskDetailEntry;
     sodium: RiskDetailEntry;
-    allergy: RiskAllergyEntry;
   };
   messages: string[];
-}
-
-export interface BarcodeFoodResponse {
-  source: string;
-  food_id: number;
-  data: BarcodeFoodData;
-  risk: BarcodeRisk;
 }
 
 export interface FoodLogCreateRequest {
@@ -202,6 +161,7 @@ export interface FoodLogCreateRequest {
   food_id?: number | null;
   eaten_at?: string;
   extra_nutrients?: { name: string; value: string; unit?: string }[];
+  needs_review?: boolean;
 }
 
 export interface FoodLogCreateResponse {
@@ -351,13 +311,6 @@ export function updatePregnancyInfo(
   return put(`/users/${userId}/pregnancy`, body);
 }
 
-export function updateAllergyInfo(
-  userId: number,
-  body: AllergyUpdateRequest
-): Promise<AllergyUpdateResponse> {
-  return put(`/users/${userId}/allergy`, body);
-}
-
 export function getIntakeToday(userId: number): Promise<IntakeTodayResponse> {
   return get(`/intake/today/${userId}`);
 }
@@ -366,16 +319,31 @@ export function getFoodLogToday(userId: number): Promise<FoodLogTodayResponse> {
   return get(`/food-log/today/${userId}`);
 }
 
-export function getFoodByBarcode(
-  barcode: string,
-  userId?: number
-): Promise<BarcodeFoodResponse> {
-  const userParam = userId != null ? `?user_id=${userId}` : '';
-  return get(`/foods/barcode/${encodeURIComponent(barcode)}${userParam}`);
-}
-
 export function createFoodLog(body: FoodLogCreateRequest): Promise<FoodLogCreateResponse> {
   return post('/food-log', body);
+}
+
+export interface OcrScanRequest {
+  image: string; // base64, no data URI prefix
+}
+
+export type OcrScaleMethod =
+  | 'total_content'
+  | 'per_basis_with_total'
+  | 'per_serving_with_count'
+  | 'unknown';
+
+export interface OcrScanResponse {
+  product_name: string | null;
+  sugar_g: number | null;
+  sodium_mg: number | null;
+  scale_method: OcrScaleMethod;
+  scale_factor_applied: number | null;
+  needs_review: boolean;
+}
+
+export function scanNutritionLabel(body: OcrScanRequest): Promise<OcrScanResponse> {
+  return post('/ocr/scan', body);
 }
 
 export interface FoodLogDeleteResponse {
@@ -446,7 +414,7 @@ export interface RecommendationItem {
   status: 'possible' | 'caution' | 'avoid';
   label: string;
   reason: string;
-  reason_nutrient: 'caffeine' | 'sugar' | 'sodium' | 'allergy' | null;
+  reason_nutrient: 'caffeine' | 'sugar' | 'sodium' | null;
   nutrients: RecommendationNutrients;
   data_confidence: RecommendationDataConfidence;
   alternative: RecommendationAlternative | null;

@@ -8,7 +8,6 @@ export interface AuthUser {
   pregnancy_day?: number | null;
   pregnancy_entered_at?: string | null;
   due_date: string | null;
-  allergy_info: string | null;
 }
 
 interface AuthContextValue {

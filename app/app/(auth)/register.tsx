@@ -112,7 +112,6 @@ export default function RegisterScreen() {
         login_id: response.login_id,
         pregnancy_week: null,
         due_date: null,
-        allergy_info: null,
       });
       if (!isMountedRef.current) return;
       router.push('/(auth)/input');

@@ -6,7 +6,6 @@ import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import NextIcon from '@/assets/images/common/next.svg';
-import MilkIcon from '@/assets/images/mypage/milk.svg';
 import CalendarIcon from '@/assets/images/mypage/mypage_calendar.svg';
 import { authColors } from '@/components/auth/colors';
 import { fonts, nanumSquareRound } from '@/constants/fonts';
@@ -59,13 +58,6 @@ export default function MyPageScreen() {
     router.replace('/(auth)/intro');
   };
 
-  const allergyList = user?.allergy_info
-    ? user.allergy_info
-        .split(',')
-        .map((item) => item.trim())
-        .filter(Boolean)
-    : [];
-
   return (
     <ScrollView
       style={styles.container}
@@ -98,13 +90,6 @@ export default function MyPageScreen() {
           title="정보 수정"
           subtitle="임신 주차 및 예정일 수정"
           onPress={() => router.push('/(tabs)/mypage/edit-profile')}
-        />
-        <View style={styles.menuDivider} />
-        <MenuRow
-          icon={<MilkIcon width={24} height={24} />}
-          title="알레르기 정보"
-          subtitle={allergyList.length > 0 ? allergyList.join(', ') : '설정된 알레르기 없음'}
-          onPress={() => router.push('/(tabs)/mypage/edit-allergy')}
         />
       </View>
 

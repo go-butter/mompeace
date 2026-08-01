@@ -145,7 +145,7 @@ export default function FoodDiaryScreen() {
       return (
         <Text style={styles.emptyMessage}>
           {isToday
-            ? '오늘 섭취한 음식이 추가되지 않았습니다!\nFood Diary 혹은 바코드 스캔을 통해\n음식을 추가해 주세요 :)'
+            ? '오늘 섭취한 음식이 추가되지 않았습니다!\nFood Diary 혹은 영양성분표 스캔을 통해\n음식을 추가해 주세요 :)'
             : '이 날에는 기록된 음식이 없어요.'}
         </Text>
       );
@@ -200,7 +200,6 @@ export default function FoodDiaryScreen() {
             value={intake.status_label.sodium}
             colors={homeColors.sodium}
           />
-          <StatusChip label="알레르기" value="안전" colors={homeColors.allergy} />
           <StatusChip
             label="물"
             value={`${intake.water_cups ?? 0}잔`}

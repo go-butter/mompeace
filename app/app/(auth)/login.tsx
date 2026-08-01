@@ -40,7 +40,6 @@ export default function LoginScreen() {
         login_id: response.login_id,
         pregnancy_week: response.pregnancy_week,
         due_date: response.due_date,
-        allergy_info: response.allergy_info,
       });
       if (!isMountedRef.current) return;
       if (response.pregnancy_week === null || response.pregnancy_week === undefined) {
@@ -78,7 +77,7 @@ export default function LoginScreen() {
           <Text style={{ color: authColors.brown }}> 시작해요</Text>
         </Text>
         <Text style={styles.subtitle}>
-          로그인 하고 바코드 스캔, 맞춤 추천,{'\n'}푸드 다이어리 기능을 이용해 보세요 :)
+          로그인 하고 영양성분표 스캔, 맞춤 추천,{'\n'}푸드 다이어리 기능을 이용해 보세요 :)
         </Text>
       </View>
 

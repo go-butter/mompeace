@@ -11,8 +11,8 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import BarcodeIcon from '@/assets/images/common/tab_barcode.svg';
 import CoffeeIcon from '@/assets/images/common/coffee.svg';
+import OcrScanIcon from '@/assets/images/common/ocr_scan.svg';
 import SearchIcon from '@/assets/images/scan/search.svg';
 import { authColors } from '@/components/auth/colors';
 import { fonts, nanumSquareRound } from '@/constants/fonts';
@@ -34,9 +34,9 @@ export default function AddFoodPopup({
   const [internalVisible, setInternalVisible] = useState(visible);
   const progress = useSharedValue(0);
   const isClosingRef = useRef(false);
-  const barcodeScale = useSharedValue(1);
   const searchScale = useSharedValue(1);
   const coffeeScale = useSharedValue(1);
+  const ocrScale = useSharedValue(1);
 
   useEffect(() => {
     if (visible) {
@@ -57,11 +57,6 @@ export default function AddFoodPopup({
     });
   };
 
-  const goToBarcodeScan = () => {
-    runDismiss();
-    router.push('/(tabs)/scan');
-  };
-
   const goToSearch = () => {
     runDismiss();
     router.push({ pathname: '/(tabs)/home/food-entry-search', params: { date: selectedDate } });
@@ -70,6 +65,11 @@ export default function AddFoodPopup({
   const goToCoffeeCalculator = () => {
     runDismiss();
     router.push({ pathname: '/(tabs)/home/food-entry-coffee', params: { date: selectedDate } });
+  };
+
+  const goToOcrScan = () => {
+    runDismiss();
+    router.push({ pathname: '/(tabs)/home/food-entry-ocr-capture', params: { date: selectedDate } });
   };
 
   const d = new Date();
@@ -87,16 +87,16 @@ export default function AddFoodPopup({
     transform: [{ translateY: interpolate(progress.value, [0, 1], [SCREEN_HEIGHT, 0]) }],
   }));
 
-  const barcodeCardStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: barcodeScale.value }],
-  }));
-
   const searchCardStyle = useAnimatedStyle(() => ({
     transform: [{ scale: searchScale.value }],
   }));
 
   const coffeeCardStyle = useAnimatedStyle(() => ({
     transform: [{ scale: coffeeScale.value }],
+  }));
+
+  const ocrCardStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: ocrScale.value }],
   }));
 
   return (
@@ -111,24 +111,6 @@ export default function AddFoodPopup({
               <Text style={styles.subtitle}>{subtitle}</Text>
 
               <View style={styles.buttonRow}>
-                <Pressable
-                  style={styles.optionButton}
-                  onPress={goToBarcodeScan}
-                  onPressIn={() => {
-                    barcodeScale.value = withTiming(0.97, { duration: 90 });
-                  }}
-                  onPressOut={() => {
-                    barcodeScale.value = withTiming(1, { duration: 90 });
-                  }}>
-                  <Animated.View style={barcodeCardStyle}>
-                    <View style={styles.optionIconWrap}>
-                      <BarcodeIcon width={31} height={32} color={authColors.pink} />
-                    </View>
-                    <Text style={styles.optionLabel}>바코드 스캔</Text>
-                    <Text style={styles.optionDesc}>마트·편의점 상품{'\n'}빠르게 기록</Text>
-                  </Animated.View>
-                </Pressable>
-
                 <Pressable
                   style={styles.optionButton}
                   onPress={goToSearch}
@@ -146,7 +128,9 @@ export default function AddFoodPopup({
                     <Text style={styles.optionDesc}>카페 음료·식사 메뉴{'\n'}검색/직접 기록</Text>
                   </Animated.View>
                 </Pressable>
+              </View>
 
+              <View style={styles.buttonRow}>
                 <Pressable
                   style={styles.optionButton}
                   onPress={goToCoffeeCalculator}
@@ -162,6 +146,24 @@ export default function AddFoodPopup({
                     </View>
                     <Text style={styles.optionLabel}>커피 계산</Text>
                     <Text style={styles.optionDesc}>브랜드 메뉴로{'\n'}카페인 확인</Text>
+                  </Animated.View>
+                </Pressable>
+
+                <Pressable
+                  style={styles.optionButton}
+                  onPress={goToOcrScan}
+                  onPressIn={() => {
+                    ocrScale.value = withTiming(0.97, { duration: 90 });
+                  }}
+                  onPressOut={() => {
+                    ocrScale.value = withTiming(1, { duration: 90 });
+                  }}>
+                  <Animated.View style={ocrCardStyle}>
+                    <View style={styles.optionIconWrap}>
+                      <OcrScanIcon width={31} height={31} color={authColors.pink} />
+                    </View>
+                    <Text style={styles.optionLabel}>영양성분표{'\n'}스캔</Text>
+                    <Text style={styles.optionDesc}>포장식품 라벨{'\n'}촬영으로 기록</Text>
                   </Animated.View>
                 </Pressable>
               </View>

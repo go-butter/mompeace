@@ -57,6 +57,5 @@ def login_user(user: LoginRequest, db: sqlite3.Connection):
         "login_id": found_user["login_id"],
         "pregnancy_week": found_user["pregnancy_week"],
         "due_date": found_user["due_date"],
-        "allergy_info": found_user["allergy_info"],
         "message": "로그인 성공"
     }
