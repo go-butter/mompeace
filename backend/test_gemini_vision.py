@@ -27,6 +27,7 @@ def test_parse_response_well_formed_json_all_fields():
       "basis_amount_value": 100.0,
       "total_content_value": 355.0,
       "servings_per_container": null,
+      "serving_size_g": 30.0,
       "sugar_g_per_basis": 12.0,
       "sodium_mg_per_basis": 50.0
     }
@@ -37,6 +38,7 @@ def test_parse_response_well_formed_json_all_fields():
     assert result["reference_amount_display_method"] == "per_basis_with_total"
     assert result["basis_amount_value"] == 100.0
     assert result["total_content_value"] == 355.0
+    assert result["serving_size_g"] == 30.0
     assert result["sugar_g_per_basis"] == 12.0
     assert result["sodium_mg_per_basis"] == 50.0
 
@@ -46,6 +48,7 @@ def test_parse_response_missing_optional_fields_default_to_none_or_unknown():
     result = _parse_response(raw)
     assert result["product_name"] is None
     assert result["reference_amount_display_method"] == "unknown"
+    assert result["serving_size_g"] is None
     assert result["sugar_g_per_basis"] is None
     assert result["sodium_mg_per_basis"] is None
 

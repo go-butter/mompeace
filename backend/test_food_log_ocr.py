@@ -1,5 +1,6 @@
 """
-backend/routers/food_log.py::create_food_log()의 needs_review 컬럼 저장 테스트.
+backend/routers/food_log.py::create_food_log()의 needs_review 컬럼 저장 및
+serving_multiplier 적용 테스트.
 
 create_food_log()는 이 변경 전까지 직접 테스트가 없었으므로, needs_review
 추가와 함께 두 INSERT 분기(eaten_at 있음/없음) 모두를 커버한다.
@@ -10,6 +11,11 @@ create_food_log()는 이 변경 전까지 직접 테스트가 없었으므로, n
 - needs_review를 생략하면 기본값 False(0)로 저장된다
 - OCR 입력(input_type="ocr")은 food_id가 없으므로 food_log.caffeine_mg가
   요청대로 None으로 저장된다 (카페인은 OCR 범위 밖 원칙)
+- serving_multiplier가 주어지면 sugar_g/sodium_mg/caffeine_mg에 곱해져 저장된다
+  (OCR 확인 화면이 보내는 1회 제공량 기준 값 × 인분수/그램 비율)
+- serving_multiplier를 곱해도 원본이 None이면 결과는 항상 None (정보 없음 ≠ 0)
+- food_id가 함께 전달되면 food_id 경로(_judge_food_log_from_food_item)가 우선
+  적용되고 serving_multiplier는 무시된다 (이중 곱셈 방지)
 """
 import sqlite3
 
@@ -17,6 +23,25 @@ from backend.models import FoodLogCreate
 from backend.routers.food_log import create_food_log
 
 from .conftest import make_user
+
+
+def _make_food_item(db, **overrides):
+    defaults = {
+        "food_name": "테스트 식품",
+        "sugar_g": 10.0,
+        "sodium_mg": 100.0,
+        "caffeine_mg": None,
+    }
+    defaults.update(overrides)
+    cols = ", ".join(defaults.keys())
+    placeholders = ", ".join("?" for _ in defaults)
+    cursor = db.cursor()
+    cursor.execute(
+        f"INSERT INTO food_items ({cols}) VALUES ({placeholders})",
+        list(defaults.values()),
+    )
+    db.commit()
+    return cursor.lastrowid
 
 
 def _fetch_log(db: sqlite3.Connection, log_id: int) -> dict:
@@ -71,3 +96,70 @@ class TestNeedsReviewPersistence:
         result = create_food_log(log=log, db=db)
         row = _fetch_log(db, result["log_id"])
         assert row["needs_review"] == 0
+
+
+class TestServingMultiplier:
+    def test_serving_multiplier_scales_nutrients(self, db):
+        user_id = make_user(db)
+        log = FoodLogCreate(
+            user_id=user_id,
+            food_name="감자깡",
+            input_type="ocr",
+            sugar_g=3.6,
+            sodium_mg=15.0,
+            serving_multiplier=2.0,
+        )
+        result = create_food_log(log=log, db=db)
+        row = _fetch_log(db, result["log_id"])
+        assert row["sugar_g"] == 7.2
+        assert row["sodium_mg"] == 30.0
+
+    def test_serving_multiplier_none_nutrient_stays_none(self, db):
+        user_id = make_user(db)
+        log = FoodLogCreate(
+            user_id=user_id,
+            food_name="감자깡",
+            input_type="ocr",
+            sugar_g=None,  # 라벨에서 읽지 못함
+            sodium_mg=15.0,
+            serving_multiplier=2.0,
+        )
+        result = create_food_log(log=log, db=db)
+        row = _fetch_log(db, result["log_id"])
+        assert row["sugar_g"] is None
+        assert row["sodium_mg"] == 30.0
+
+    def test_serving_multiplier_omitted_leaves_values_unchanged(self, db):
+        user_id = make_user(db)
+        log = FoodLogCreate(
+            user_id=user_id,
+            food_name="감자깡",
+            input_type="ocr",
+            sugar_g=3.6,
+            sodium_mg=15.0,
+        )
+        result = create_food_log(log=log, db=db)
+        row = _fetch_log(db, result["log_id"])
+        assert row["sugar_g"] == 3.6
+        assert row["sodium_mg"] == 15.0
+
+    def test_serving_multiplier_ignored_when_food_id_present(self, db):
+        # food_id 경로가 우선이므로, 혹시라도 serving_multiplier가 함께
+        # 전달돼도 food_id 기준 판정(_judge_food_log_from_food_item, amount 배율)
+        # 결과가 이중으로 곱해지지 않아야 한다.
+        user_id = make_user(db)
+        food_id = _make_food_item(db, sugar_g=10.0, sodium_mg=100.0)
+        log = FoodLogCreate(
+            user_id=user_id,
+            food_name="무시됨",
+            input_type="food_id",
+            food_id=food_id,
+            amount=2.0,
+            serving_multiplier=5.0,  # food_id 경로에서는 사용되지 않아야 함
+        )
+        result = create_food_log(log=log, db=db)
+        row = _fetch_log(db, result["log_id"])
+        # amount(2.0)만 적용됨 — serving_multiplier(5.0)가 추가로 곱해졌다면
+        # 100.0/1000.0이 아니라 20.0/200.0이어야 한다.
+        assert row["sugar_g"] == 20.0
+        assert row["sodium_mg"] == 200.0

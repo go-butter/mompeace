@@ -68,12 +68,15 @@ function toEatenAt(date: string, time: Date) {
 function scaleTransparencyText(scaleMethod: OcrScaleMethod, scaleFactor: number | null) {
   if (scaleFactor == null) return null;
   if (scaleMethod === 'per_basis_with_total') {
-    return `라벨 기준량 대비 총 내용량 비율을 적용해 환산했어요 (×${scaleFactor.toFixed(2)})`;
+    return `라벨 기준량 대비 1회 제공량 비율을 적용해 1인분 기준으로 환산했어요 (×${scaleFactor.toFixed(2)})`;
   }
-  if (scaleMethod === 'per_serving_with_count') {
-    return `1회 제공량에 총 제공 횟수를 곱해 환산했어요 (×${scaleFactor.toFixed(2)})`;
-  }
+  // total_content / per_serving_with_count: 값이 이미 1회 제공량 기준이라 실제
+  // 스케일링이 일어나지 않음 (factor는 항상 1.0) — 설명할 변환이 없으므로 표시 안 함.
   return null;
+}
+
+function sanitizeIntegerServings(text: string) {
+  return text.replace(/[^0-9]/g, '');
 }
 
 type DraftRowProps = {
@@ -140,6 +143,7 @@ export default function FoodEntryOcrConfirmScreen() {
     sodium_mg?: string;
     scale_method?: string;
     scale_factor_applied?: string;
+    basis_amount_value?: string;
     needs_review?: string;
   }>();
 
@@ -149,11 +153,28 @@ export default function FoodEntryOcrConfirmScreen() {
     params.scale_factor_applied && params.scale_factor_applied !== ''
       ? Number(params.scale_factor_applied)
       : null;
+  const basisAmountValue =
+    params.basis_amount_value && params.basis_amount_value !== ''
+      ? Number(params.basis_amount_value)
+      : null;
   const transparencyText = scaleTransparencyText(scaleMethod, scaleFactor);
 
+  // 3-way input mode:
+  // - servings: 스케일이 확정됨 → 값은 이미 1회 제공량 기준, 인분수만 곱하면 됨.
+  // - grams: 기준량(예: 100g)은 알지만 1회 제공량을 몰라 인분수를 가정할 수 없음
+  //   → 실제 섭취량(g)을 직접 입력받아 기준량 대비 비율로 계산.
+  // - manual: 기준량조차 모름 → 오늘까지의 기존 동작대로 완전 수동 입력, 스케일 없음.
+  const inputMode: 'servings' | 'grams' | 'manual' = !needsReview
+    ? 'servings'
+    : basisAmountValue != null
+      ? 'grams'
+      : 'manual';
+
   const [foodName, setFoodName] = useState(params.product_name ?? '');
-  const [amount, setAmount] = useState('1');
-  const [unit, setUnit] = useState(UNITS[0]);
+  const [amount, setAmount] = useState(inputMode === 'grams' ? '' : '1');
+  const [unit, setUnit] = useState(
+    inputMode === 'grams' ? 'g' : inputMode === 'servings' ? '인분' : UNITS[0]
+  );
   const [time, setTime] = useState(new Date());
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [caffeineMg, setCaffeineMg] = useState('');
@@ -167,8 +188,14 @@ export default function FoodEntryOcrConfirmScreen() {
   const timePickerOpacity = useSharedValue(0);
 
   const trimmedName = foodName.trim();
+  // 인분(servings) 단위는 부분 인분 로깅을 지원하지 않음 — 소수/0 이하는 그램
+  // 입력 모드를 쓰도록 유도한다 (앱 전체에서 "0.5인분" 같은 값은 저장하지 않음).
+  const isServingsUnit = unit === '인분';
   const parsedAmount = Number(amount);
-  const isAmountValid = amount.trim() !== '' && !Number.isNaN(parsedAmount) && parsedAmount > 0;
+  const isAmountValid =
+    amount.trim() !== '' &&
+    !Number.isNaN(parsedAmount) &&
+    (isServingsUnit ? Number.isInteger(parsedAmount) && parsedAmount >= 1 : parsedAmount > 0);
   const isFormValid = trimmedName.length > 0 && isAmountValid;
 
   const timeChevronAnimatedStyle = useAnimatedStyle(() => ({
@@ -233,6 +260,18 @@ export default function FoodEntryOcrConfirmScreen() {
     const sodium = sodiumMg.trim() === '' ? null : Number(sodiumMg);
     const eatenAt = toEatenAt(params.date, time);
 
+    // 서버가 sugar_g/sodium_mg(1회 제공량 기준 값)에 곱할 배율.
+    // - servings 모드: 인분수 그대로.
+    // - grams 모드: 실제 섭취 그램 ÷ 라벨 기준량(예: 100g) — 1회 제공량을 몰라도
+    //   기준량 대비 비율로 계산 가능.
+    // - manual 모드: 기준량조차 모르므로 배율 없음 (직접 입력한 값을 그대로 저장).
+    const servingMultiplier =
+      inputMode === 'servings'
+        ? parsedAmount
+        : inputMode === 'grams' && basisAmountValue != null
+          ? parsedAmount / basisAmountValue
+          : undefined;
+
     setSaving(true);
     setError(null);
 
@@ -240,13 +279,14 @@ export default function FoodEntryOcrConfirmScreen() {
       user_id: user.user_id,
       food_name: trimmedName,
       input_type: 'ocr',
-      amount: Number(amount) || 1,
+      amount: parsedAmount || 1,
       unit,
       caffeine_mg: caffeine,
       sugar_g: sugar,
       sodium_mg: sodium,
       calories_kcal: 0,
       needs_review: needsReview,
+      serving_multiplier: servingMultiplier,
       eaten_at: eatenAt,
       extra_nutrients: draftRows
         .filter((r) => r.name.trim() && r.value.trim())
@@ -285,8 +325,9 @@ export default function FoodEntryOcrConfirmScreen() {
           <View style={styles.warningBanner}>
             <CautionIcon width={16} height={16} />
             <Text style={styles.warningBannerText}>
-              라벨 환산 방식을 정확히 파악하지 못했어요. 당류·나트륨 수치를 직접 확인해
-              입력해주세요.
+              {inputMode === 'grams'
+                ? '1회 제공량 정보가 없어요. 실제로 드신 양을 그램(g)으로 입력해주세요.'
+                : '라벨 환산 방식을 정확히 파악하지 못했어요. 당류·나트륨 수치를 직접 확인해 입력해주세요.'}
             </Text>
           </View>
         )}
@@ -308,26 +349,44 @@ export default function FoodEntryOcrConfirmScreen() {
 
         {/* 섭취량 */}
         <View style={styles.card}>
-          <Text style={styles.fieldLabel}>섭취량</Text>
+          <Text style={styles.fieldLabel}>
+            {inputMode === 'grams' ? '실제 섭취량 (g)' : '섭취량'}
+          </Text>
           <View style={styles.amountRow}>
             <TextInput
               style={styles.amountInput}
               value={amount}
-              onChangeText={setAmount}
-              keyboardType="numeric"
+              onChangeText={(text) =>
+                setAmount(isServingsUnit ? sanitizeIntegerServings(text) : sanitizeNonNegativeDecimal(text))
+              }
+              placeholder={inputMode === 'grams' ? '예: 150' : undefined}
+              placeholderTextColor={authColors.gray}
+              keyboardType={isServingsUnit ? 'number-pad' : 'decimal-pad'}
             />
-            <View style={styles.unitPillRow}>
-              {UNITS.map((u) => (
-                <Pressable
-                  key={u}
-                  style={[styles.unitPill, unit === u && styles.unitPillSelected]}
-                  onPress={() => setUnit(u)}>
-                  <Text style={[styles.unitPillText, unit === u && styles.unitPillTextSelected]}>
-                    {u}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
+            {inputMode === 'manual' ? (
+              <View style={styles.unitPillRow}>
+                {UNITS.map((u) => (
+                  <Pressable
+                    key={u}
+                    style={[styles.unitPill, unit === u && styles.unitPillSelected]}
+                    onPress={() => {
+                      setUnit(u);
+                      if (u === '인분') {
+                        const current = Number(amount);
+                        setAmount(
+                          Number.isInteger(current) && current >= 1 ? String(current) : '1'
+                        );
+                      }
+                    }}>
+                    <Text style={[styles.unitPillText, unit === u && styles.unitPillTextSelected]}>
+                      {u}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            ) : (
+              <Text style={styles.fixedUnitText}>{unit}</Text>
+            )}
           </View>
         </View>
 
@@ -388,8 +447,12 @@ export default function FoodEntryOcrConfirmScreen() {
             />
           </View>
 
-          {transparencyText && (
+          {transparencyText ? (
             <Text style={styles.transparencyText}>※ {transparencyText}</Text>
+          ) : (
+            inputMode === 'servings' && (
+              <Text style={styles.transparencyText}>※ 1회 제공량(1인분) 기준 값이에요</Text>
+            )
           )}
 
           <View style={styles.nutrientInputRow}>
@@ -567,6 +630,11 @@ const styles = StyleSheet.create({
   },
   unitPillTextSelected: {
     color: authColors.pink,
+  },
+  fixedUnitText: {
+    fontFamily: nanumSquareRound.bold,
+    fontSize: 13,
+    color: authColors.gray,
   },
   timeInput: {
     backgroundColor: authColors.white,

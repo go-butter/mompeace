@@ -162,6 +162,7 @@ export interface FoodLogCreateRequest {
   eaten_at?: string;
   extra_nutrients?: { name: string; value: string; unit?: string }[];
   needs_review?: boolean;
+  serving_multiplier?: number;
 }
 
 export interface FoodLogCreateResponse {
@@ -339,6 +340,7 @@ export interface OcrScanResponse {
   sodium_mg: number | null;
   scale_method: OcrScaleMethod;
   scale_factor_applied: number | null;
+  basis_amount_value: number | null;
   needs_review: boolean;
 }
 

@@ -35,6 +35,8 @@ export default function FoodEntryOcrCaptureScreen() {
           scale_method: result.scale_method,
           scale_factor_applied:
             result.scale_factor_applied != null ? String(result.scale_factor_applied) : '',
+          basis_amount_value:
+            result.basis_amount_value != null ? String(result.basis_amount_value) : '',
           needs_review: String(result.needs_review),
         },
       });

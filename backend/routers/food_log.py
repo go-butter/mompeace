@@ -116,6 +116,13 @@ def create_food_log(
         protein_g = judged["nutrients"]["protein_g"]
         recommendation_status = judged["recommendation"]["status"]
         reason_nutrient = judged["recommendation"]["reason_nutrient"]
+    elif log.serving_multiplier is not None:
+        # OCR 스캔 결과(1회 제공량 기준 값)에 사용자가 확인 화면에서 입력한
+        # 인분수/그램 비율을 곱한다. food_id 경로의 _multiply()와 동일한
+        # None-preserving 곱셈 — food_id가 없으므로 추천 판정은 호출하지 않는다.
+        caffeine_mg = _multiply(caffeine_mg, log.serving_multiplier)
+        sugar_g = _multiply(sugar_g, log.serving_multiplier)
+        sodium_mg = _multiply(sodium_mg, log.serving_multiplier)
     # food_id가 없는 순수 직접 입력은 recommend_food()가 기대하는 food_items
     # 행 형태(data_source 등)를 갖추지 못하므로 추천 판정을 호출하지 않는다.
     # recommendation_status/reason_nutrient는 NULL로 남는다.

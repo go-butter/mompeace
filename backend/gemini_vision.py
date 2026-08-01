@@ -43,6 +43,9 @@ _PROMPT = """\
 - basis_amount_value: 기준량 숫자 (예: "100g" → 100). 없으면 null
 - total_content_value: 총 내용량 숫자 (예: "355g" → 355). 없으면 null
 - servings_per_container: 총 제공 횟수 (예: "총 3회 제공량" → 3). 없으면 null
+- serving_size_g: 1회 제공량이 그램(g)/밀리리터(ml)로 별도 표기되어 있으면 그 숫자
+  (영양성분표의 기준이 100g/100ml이더라도, 라벨 어딘가에 "1회 제공량: 30g"처럼
+  별도로 적혀 있으면 그 값). 없으면 null (0으로 추측하지 말 것)
 - sugar_g_per_basis: 기준량 당 당류(g). 읽을 수 없으면 null (0으로 추측하지 말 것)
 - sodium_mg_per_basis: 기준량 당 나트륨(mg). 읽을 수 없으면 null (0으로 추측하지 말 것)
 
@@ -59,6 +62,7 @@ class GeminiLabelExtraction(BaseModel):
     basis_amount_value: Optional[float] = None
     total_content_value: Optional[float] = None
     servings_per_container: Optional[float] = None
+    serving_size_g: Optional[float] = None
     sugar_g_per_basis: Optional[float] = None
     sodium_mg_per_basis: Optional[float] = None
 

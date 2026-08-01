@@ -33,7 +33,12 @@ def scan_nutrition_label(req: OcrScanRequest):
         # Mock path: skip the real Gemini Vision call entirely and build an
         # extraction dict in the exact shape call_gemini_vision() returns, so
         # resolve_ocr_nutrients() below runs unchanged.
-        # --- Tweak these to test the 3 scale-method cases / unknown ---
+        # --- Tweak these to test the scale-method cases ---
+        # Set serving_size_g to None (with reference_amount_display_method still
+        # "per_basis_with_total") to exercise the "basis known, serving size
+        # unknown" needs_review path — the label has "100g당" but no separate
+        # "1회 제공량" breakdown, so the confirm screen should fall back to
+        # asking for grams eaten directly instead of assuming a serving size.
         mock_extraction = {
             "product_name": "목 테스트 과자",
             "nutrition_table_found": True,
@@ -41,6 +46,7 @@ def scan_nutrition_label(req: OcrScanRequest):
             "basis_amount_value": 100.0,
             "total_content_value": 355.0,
             "servings_per_container": None,
+            "serving_size_g": 30.0,
             "sugar_g_per_basis": 12.0,
             "sodium_mg_per_basis": 178.0,
         }
