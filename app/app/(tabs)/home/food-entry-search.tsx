@@ -13,6 +13,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import PrevIcon from '@/assets/images/common/prev.svg';
+import DownIcon from '@/assets/images/common/down.svg';
+import UpIcon from '@/assets/images/common/up.svg';
 import { authColors } from '@/components/auth/colors';
 import { fonts, nanumSquareRound } from '@/constants/fonts';
 import { useAuth } from '@/context/auth-context';
@@ -34,33 +36,84 @@ function formatNow() {
   return { time: `${hh}:${min}:${ss}`, label: `${yyyy}.${mm}.${dd} ${hh}:${min}` };
 }
 
+function formatNumber(value: number) {
+  const rounded = Math.round(value * 10) / 10;
+  return Number.isInteger(rounded) ? `${rounded}` : `${rounded.toFixed(1)}`;
+}
+
+function formatNutrient(value: number | null | undefined, unit: string) {
+  if (value == null || typeof value !== 'number' || !Number.isFinite(value)) {
+    return '정보 없음';
+  }
+  return `${formatNumber(value)}${unit}`;
+}
+
 function SearchResultRow({
   item,
-  onPress,
+  expanded,
+  onToggleExpand,
+  onAdd,
 }: {
   item: FoodSearchResultItem;
-  onPress: () => void;
+  expanded: boolean;
+  onToggleExpand: () => void;
+  onAdd: () => void;
 }) {
   const data = item.data as Record<string, any>;
-  return (
-    <Pressable style={styles.row} onPress={onPress}>
-      <View style={styles.rowTextArea}>
-        <View style={styles.rowNameRow}>
-          <Text style={styles.rowName}>{data.food_name}</Text>
-          {item.source === 'personal' && (
-            <View style={styles.personalBadge}>
-              <Text style={styles.personalBadgeText}>개인 기록</Text>
-            </View>
-          )}
+
+  if (item.source !== 'dish_db_download') {
+    return (
+      <Pressable style={styles.row} onPress={onAdd}>
+        <View style={styles.rowTextArea}>
+          <View style={styles.rowNameRow}>
+            <Text style={styles.rowName}>{data.food_name}</Text>
+            {item.source === 'personal' && (
+              <View style={styles.personalBadge}>
+                <Text style={styles.personalBadgeText}>개인 기록</Text>
+              </View>
+            )}
+          </View>
+          <Text style={styles.rowMeta}>
+            칼로리 {data.calories_kcal ?? 0}kcal · 당류{' '}
+            {data.sugar_g != null ? `${data.sugar_g}g` : '정보 없음'} · 나트륨{' '}
+            {data.sodium_mg != null ? `${data.sodium_mg}mg` : '정보 없음'}
+          </Text>
         </View>
-        <Text style={styles.rowMeta}>
-          {item.source !== 'dish_db_download' && `칼로리 ${data.calories_kcal ?? 0}kcal · `}
-          당류{' '}
-          {data.sugar_g != null ? `${data.sugar_g}g` : '정보 없음'} · 나트륨{' '}
-          {data.sodium_mg != null ? `${data.sodium_mg}mg` : '정보 없음'}
-        </Text>
+      </Pressable>
+    );
+  }
+
+  return (
+    <View style={styles.dishRow}>
+      <View style={styles.dishRowHeader}>
+        <Pressable style={styles.rowMainArea} onPress={onToggleExpand}>
+          <View style={styles.rowTextArea}>
+            <Text style={styles.rowName}>{data.food_name}</Text>
+            <Text style={styles.rowMeta}>
+              당류{' '}
+              {data.sugar_g != null ? `${data.sugar_g}g` : '정보 없음'} · 나트륨{' '}
+              {data.sodium_mg != null ? `${data.sodium_mg}mg` : '정보 없음'}
+            </Text>
+          </View>
+          {expanded ? (
+            <UpIcon width={16} height={16} />
+          ) : (
+            <DownIcon width={16} height={16} />
+          )}
+        </Pressable>
+        <Pressable style={styles.addButton} onPress={onAdd} hitSlop={8}>
+          <Text style={styles.addButtonLabel}>+ 추가</Text>
+        </Pressable>
       </View>
-    </Pressable>
+      {expanded && (
+        <View style={styles.rowDetail}>
+          <Text style={styles.rowDetailText}>
+            칼로리 {formatNutrient(data.calories_kcal, 'kcal')} · 지방{' '}
+            {formatNutrient(data.fat_g, 'g')}
+          </Text>
+        </View>
+      )}
+    </View>
   );
 }
 
@@ -75,12 +128,26 @@ export default function FoodEntrySearchScreen() {
   const [loading, setLoading] = useState(false);
   const [logging, setLogging] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+
+  const toggleExpanded = (key: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  };
 
   const runSearch = () => {
     const trimmed = query.trim();
     if (!trimmed || !user?.user_id) return;
     setLoading(true);
     setError(null);
+    setExpandedIds(new Set());
     searchFoods(trimmed, user.user_id)
       .then((res) => {
         setResults(res.results);
@@ -165,9 +232,17 @@ export default function FoodEntrySearchScreen() {
             style={styles.list}
             data={results}
             keyExtractor={(item, index) => `${item.source}-${item.food_id}-${index}`}
-            renderItem={({ item }) => (
-              <SearchResultRow item={item} onPress={() => handleSelectResult(item)} />
-            )}
+            renderItem={({ item, index }) => {
+              const key = `${item.source}-${item.food_id}-${index}`;
+              return (
+                <SearchResultRow
+                  item={item}
+                  expanded={expandedIds.has(key)}
+                  onToggleExpand={() => toggleExpanded(key)}
+                  onAdd={() => handleSelectResult(item)}
+                />
+              );
+            }}
             ListEmptyComponent={
               searched ? <Text style={styles.emptyText}>검색 결과가 없어요.</Text> : null
             }
@@ -297,6 +372,49 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: authColors.gray,
     marginTop: 4,
+  },
+  dishRow: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: authColors.white,
+    borderWidth: 0.7,
+    borderColor: authColors.border,
+    borderRadius: 10,
+    marginBottom: 8,
+  },
+  dishRowHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  rowMainArea: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  addButton: {
+    marginLeft: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 100,
+    backgroundColor: authColors.pinkLight,
+  },
+  addButtonLabel: {
+    fontFamily: nanumSquareRound.bold,
+    fontSize: 12,
+    color: authColors.pink,
+  },
+  rowDetail: {
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: authColors.border,
+  },
+  rowDetailText: {
+    fontFamily: fonts.regular,
+    fontSize: 11,
+    color: authColors.grayDark,
+    lineHeight: 16,
   },
   emptyText: {
     fontFamily: fonts.regular,
