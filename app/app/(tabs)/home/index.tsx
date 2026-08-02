@@ -82,9 +82,6 @@ function FoodLogRow({ entry }: { entry: FoodLogEntry }) {
     <View style={styles.foodRow}>
       <Text style={styles.foodTime}>{entry.time}</Text>
       <Text style={styles.foodName}>{entry.food_name}</Text>
-      <Text style={styles.foodKcal}>
-        {entry.calories_kcal != null ? `${entry.calories_kcal}kcal` : ''}
-      </Text>
     </View>
   );
 }
@@ -596,10 +593,5 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: authColors.brown,
     flex: 1,
-  },
-  foodKcal: {
-    fontFamily: fonts.medium,
-    fontSize: 13,
-    color: authColors.pink,
   },
 });

@@ -16,7 +16,7 @@ router = APIRouter()
 def _multiply(value, factor):
     if value is None:
         return None
-    return round(value * factor, 4)
+    return round(value * factor, 2)
 
 
 def _judge_food_log_from_food_item(food: dict, amount: float, user: dict, db: sqlite3.Connection) -> dict:

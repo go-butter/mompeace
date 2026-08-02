@@ -547,11 +547,15 @@ export function getFoodCategories(): Promise<FoodCategoriesResponse> {
   return get('/categories');
 }
 
+const SEARCH_NUM_OF_ROWS = 30;
+
 export function searchFoods(
   query: string,
   userId: number
 ): Promise<FoodSearchResponse> {
-  return get(`/foods/search?query=${encodeURIComponent(query)}&user_id=${userId}`);
+  return get(
+    `/foods/search?query=${encodeURIComponent(query)}&user_id=${userId}&num_of_rows=${SEARCH_NUM_OF_ROWS}`
+  );
 }
 
 export interface CoffeeCaffeineEntry {

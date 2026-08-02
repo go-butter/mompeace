@@ -2,6 +2,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import {
   ActivityIndicator,
+  Dimensions,
   FlatList,
   Keyboard,
   Pressable,
@@ -10,14 +11,21 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { ScrollView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import PrevIcon from '@/assets/images/common/prev.svg';
 import DownIcon from '@/assets/images/common/down.svg';
 import UpIcon from '@/assets/images/common/up.svg';
+import CheckboxCheckedIcon from '@/assets/images/common/checkbox_checked.svg';
+import CheckboxUncheckedIcon from '@/assets/images/common/checkbox_unchecked.svg';
+import CartIcon from '@/assets/images/foodDiary/cart.svg';
+import XIcon from '@/assets/images/common/x.svg';
 import { authColors } from '@/components/auth/colors';
+import BottomSheet from '@/components/common/BottomSheet';
 import { fonts, nanumSquareRound } from '@/constants/fonts';
 import { useAuth } from '@/context/auth-context';
+import { formatNutrient } from '@/lib/format';
 import {
   ApiError,
   createFoodLog,
@@ -36,27 +44,25 @@ function formatNow() {
   return { time: `${hh}:${min}:${ss}`, label: `${yyyy}.${mm}.${dd} ${hh}:${min}` };
 }
 
-function formatNumber(value: number) {
-  const rounded = Math.round(value * 10) / 10;
-  return Number.isInteger(rounded) ? `${rounded}` : `${rounded.toFixed(1)}`;
+function getResultKey(item: FoodSearchResultItem, index: number) {
+  return `${item.source}-${item.food_id}-${index}`;
 }
 
-function formatNutrient(value: number | null | undefined, unit: string) {
-  if (value == null || typeof value !== 'number' || !Number.isFinite(value)) {
-    return '정보 없음';
-  }
-  return `${formatNumber(value)}${unit}`;
-}
+const CART_SHEET_MAX_HEIGHT_RATIO = 0.72;
 
 function SearchResultRow({
   item,
   expanded,
+  checked,
   onToggleExpand,
+  onToggleCart,
   onAdd,
 }: {
   item: FoodSearchResultItem;
   expanded: boolean;
+  checked: boolean;
   onToggleExpand: () => void;
+  onToggleCart: () => void;
   onAdd: () => void;
 }) {
   const data = item.data as Record<string, any>;
@@ -74,9 +80,9 @@ function SearchResultRow({
             )}
           </View>
           <Text style={styles.rowMeta}>
-            칼로리 {data.calories_kcal ?? 0}kcal · 당류{' '}
-            {data.sugar_g != null ? `${data.sugar_g}g` : '정보 없음'} · 나트륨{' '}
-            {data.sodium_mg != null ? `${data.sodium_mg}mg` : '정보 없음'}
+            칼로리 {formatNutrient(data.calories_kcal, 'kcal')} · 당류{' '}
+            {formatNutrient(data.sugar_g, 'g')} · 나트륨{' '}
+            {formatNutrient(data.sodium_mg, 'mg')}
           </Text>
         </View>
       </Pressable>
@@ -86,13 +92,19 @@ function SearchResultRow({
   return (
     <View style={styles.dishRow}>
       <View style={styles.dishRowHeader}>
+        <Pressable style={styles.checkboxButton} onPress={onToggleCart} hitSlop={8}>
+          {checked ? (
+            <CheckboxCheckedIcon width={19} height={19} />
+          ) : (
+            <CheckboxUncheckedIcon width={19} height={19} />
+          )}
+        </Pressable>
         <Pressable style={styles.rowMainArea} onPress={onToggleExpand}>
           <View style={styles.rowTextArea}>
-            <Text style={styles.rowName}>{data.food_name}</Text>
+            <Text style={[styles.rowName, styles.dishRowName]}>{data.food_name}</Text>
             <Text style={styles.rowMeta}>
-              당류{' '}
-              {data.sugar_g != null ? `${data.sugar_g}g` : '정보 없음'} · 나트륨{' '}
-              {data.sodium_mg != null ? `${data.sodium_mg}mg` : '정보 없음'}
+              당류 {formatNutrient(data.sugar_g, 'g')} · 나트륨{' '}
+              {formatNutrient(data.sodium_mg, 'mg')}
             </Text>
           </View>
           {expanded ? (
@@ -100,9 +112,6 @@ function SearchResultRow({
           ) : (
             <DownIcon width={16} height={16} />
           )}
-        </Pressable>
-        <Pressable style={styles.addButton} onPress={onAdd} hitSlop={8}>
-          <Text style={styles.addButtonLabel}>+ 추가</Text>
         </Pressable>
       </View>
       {expanded && (
@@ -129,6 +138,24 @@ export default function FoodEntrySearchScreen() {
   const [logging, setLogging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [cart, setCart] = useState<Map<string, FoodSearchResultItem>>(new Map());
+  const [sheetVisible, setSheetVisible] = useState(false);
+
+  // Numeric (not percentage) so it resolves reliably regardless of how the
+  // BottomSheet's own ancestor chain sizes itself — percentage heights need a
+  // definite-size ancestor to resolve against, which this one doesn't have.
+  const maxSheetHeight = Dimensions.get('window').height * CART_SHEET_MAX_HEIGHT_RATIO - insets.bottom;
+  // ScrollView needs its own explicit maxHeight to render at all — flexShrink alone
+  // gives it nothing to shrink from inside a maxHeight-bounded (not fixed-height)
+  // parent, and it collapses to 0. Budget = the sheet's own cap minus everything
+  // inside cartSheet that isn't the list (padding + title block), derived from the
+  // style object itself so it can't drift out of sync with the actual layout.
+  const cartSheetNonScrollHeight =
+    styles.cartSheet.paddingTop +
+    (styles.cartSheetTitle.lineHeight as number) +
+    (styles.cartSheetTitle.marginBottom as number) +
+    styles.cartSheet.paddingBottom;
+  const cartSheetListMaxHeight = maxSheetHeight - cartSheetNonScrollHeight - insets.bottom;
 
   const toggleExpanded = (key: string) => {
     setExpandedIds((prev) => {
@@ -138,6 +165,26 @@ export default function FoodEntrySearchScreen() {
       } else {
         next.add(key);
       }
+      return next;
+    });
+  };
+
+  const toggleCart = (key: string, item: FoodSearchResultItem) => {
+    setCart((prev) => {
+      const next = new Map(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.set(key, item);
+      }
+      return next;
+    });
+  };
+
+  const removeFromCart = (key: string) => {
+    setCart((prev) => {
+      const next = new Map(prev);
+      next.delete(key);
       return next;
     });
   };
@@ -189,11 +236,41 @@ export default function FoodEntrySearchScreen() {
       .finally(() => setLogging(false));
   };
 
-  const goToManualEntry = () => {
-    router.push({
-      pathname: '/(tabs)/home/food-entry-manual',
-      params: { date: date ?? '', name: query.trim() },
-    });
+  const handleAddCart = () => {
+    Keyboard.dismiss();
+    if (!user?.user_id || !date || logging || cart.size === 0) return;
+    const { time } = formatNow();
+    const eatenAt = `${date} ${time}`;
+
+    setLogging(true);
+    setError(null);
+    Promise.all(
+      [...cart.values()].map((item) => {
+        const data = item.data as Record<string, any>;
+        return createFoodLog({
+          user_id: user.user_id,
+          food_name: data.food_name,
+          input_type: 'search',
+          food_id: item.food_id,
+          amount: 1,
+          unit: '개',
+          caffeine_mg: data.caffeine_mg ?? null,
+          sugar_g: data.sugar_g ?? 0,
+          sodium_mg: data.sodium_mg ?? 0,
+          calories_kcal: data.calories_kcal ?? 0,
+          carbohydrate_g: data.carbohydrate_g ?? null,
+          protein_g: data.protein_g ?? null,
+          eaten_at: eatenAt,
+        });
+      })
+    )
+      .then(() => {
+        router.replace('/(tabs)/home/food-diary');
+      })
+      .catch((err) => {
+        setError(err instanceof ApiError ? err.message : (err as Error).message);
+      })
+      .finally(() => setLogging(false));
   };
 
   return (
@@ -231,14 +308,16 @@ export default function FoodEntrySearchScreen() {
           <FlatList
             style={styles.list}
             data={results}
-            keyExtractor={(item, index) => `${item.source}-${item.food_id}-${index}`}
+            keyExtractor={(item, index) => getResultKey(item, index)}
             renderItem={({ item, index }) => {
-              const key = `${item.source}-${item.food_id}-${index}`;
+              const key = getResultKey(item, index);
               return (
                 <SearchResultRow
                   item={item}
                   expanded={expandedIds.has(key)}
+                  checked={cart.has(key)}
                   onToggleExpand={() => toggleExpanded(key)}
+                  onToggleCart={() => toggleCart(key, item)}
                   onAdd={() => handleSelectResult(item)}
                 />
               );
@@ -250,9 +329,50 @@ export default function FoodEntrySearchScreen() {
         )}
       </View>
 
-      <Pressable style={styles.manualButton} onPress={goToManualEntry}>
-        <Text style={styles.manualButtonText}>직접 입력하기</Text>
-      </Pressable>
+      <View style={styles.footerRow}>
+        <Pressable
+          style={[styles.confirmButton, (cart.size === 0 || logging) && styles.confirmButtonDisabled]}
+          onPress={handleAddCart}
+          disabled={cart.size === 0 || logging}>
+          <Text style={styles.confirmButtonText}>{logging ? '추가 중...' : '추가하기'}</Text>
+        </Pressable>
+        <Pressable
+          style={[styles.cartButton, { opacity: cart.size > 0 ? 1 : 0 }]}
+          onPress={() => setSheetVisible(true)}
+          hitSlop={8}
+          pointerEvents={cart.size > 0 ? 'auto' : 'none'}>
+          <CartIcon width={18} height={18} />
+          <View style={styles.cartBadge}>
+            <Text style={styles.cartBadgeText}>{cart.size}</Text>
+          </View>
+        </Pressable>
+      </View>
+
+      <BottomSheet visible={sheetVisible} onClose={() => setSheetVisible(false)}>
+        <View
+          style={[
+            styles.cartSheet,
+            { maxHeight: maxSheetHeight, paddingBottom: styles.cartSheet.paddingBottom + insets.bottom },
+          ]}>
+          <Text style={styles.cartSheetTitle}>담은 음식</Text>
+          <ScrollView
+            style={[styles.cartSheetList, { maxHeight: cartSheetListMaxHeight }]}
+            showsVerticalScrollIndicator={true}>
+            {[...cart.entries()].map(([key, item]) => {
+              const data = item.data as Record<string, any>;
+              return (
+                <View key={key} style={styles.cartSheetRow}>
+                  <Text style={styles.cartSheetItemName}>{data.food_name}</Text>
+                  <Pressable onPress={() => removeFromCart(key)} hitSlop={8}>
+                    <XIcon width={16} height={16} color={authColors.gray} />
+                  </Pressable>
+                </View>
+              );
+            })}
+            {cart.size === 0 && <Text style={styles.cartSheetEmpty}>담은 음식이 없어요.</Text>}
+          </ScrollView>
+        </View>
+      </BottomSheet>
     </View>
   );
 }
@@ -280,6 +400,31 @@ const styles = StyleSheet.create({
     fontFamily: fonts.semiBold,
     fontSize: 20,
     color: authColors.brown,
+  },
+  cartButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: authColors.pinkLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cartBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    paddingHorizontal: 4,
+    backgroundColor: authColors.pink,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cartBadgeText: {
+    fontFamily: nanumSquareRound.bold,
+    fontSize: 10,
+    color: authColors.white,
   },
   searchRow: {
     flexDirection: 'row',
@@ -356,6 +501,9 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: authColors.brown,
   },
+  dishRowName: {
+    color: '#333333',
+  },
   personalBadge: {
     backgroundColor: '#F5F5F5',
     borderRadius: 100,
@@ -386,23 +534,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
+  checkboxButton: {
+    marginRight: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   rowMainArea: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-  },
-  addButton: {
-    marginLeft: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 100,
-    backgroundColor: authColors.pinkLight,
-  },
-  addButtonLabel: {
-    fontFamily: nanumSquareRound.bold,
-    fontSize: 12,
-    color: authColors.pink,
   },
   rowDetail: {
     marginTop: 8,
@@ -423,20 +564,67 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingVertical: 24,
   },
-  manualButton: {
+  footerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
     marginHorizontal: 19,
     marginBottom: 24,
     marginTop: 8,
-    borderWidth: 1,
-    borderColor: authColors.pink,
+  },
+  confirmButton: {
+    flex: 1,
+    backgroundColor: authColors.pink,
     borderRadius: 100,
     height: 48,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  manualButtonText: {
+  confirmButtonDisabled: {
+    opacity: 0.6,
+  },
+  confirmButtonText: {
     fontFamily: nanumSquareRound.bold,
     fontSize: 14,
-    color: authColors.pink,
+    color: authColors.white,
+  },
+  cartSheet: {
+    backgroundColor: authColors.white,
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    paddingTop: 24,
+    paddingHorizontal: 19,
+    paddingBottom: 24,
+    overflow: 'hidden',
+  },
+  cartSheetTitle: {
+    fontFamily: fonts.semiBold,
+    fontSize: 17,
+    lineHeight: 20,
+    color: authColors.brown,
+    marginBottom: 8,
+  },
+  cartSheetList: {
+    flexShrink: 1,
+  },
+  cartSheetRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: authColors.border,
+  },
+  cartSheetItemName: {
+    fontFamily: fonts.medium,
+    fontSize: 13,
+    color: '#333333',
+  },
+  cartSheetEmpty: {
+    fontFamily: fonts.regular,
+    fontSize: 13,
+    color: authColors.gray,
+    textAlign: 'center',
+    paddingVertical: 20,
   },
 });

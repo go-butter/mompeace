@@ -72,9 +72,9 @@ def _fetch_intake_summary_for_date(user_id: int, target_date: str, db: sqlite3.C
     unknown_sodium_count = intake["unknown_sodium_count"]
 
     # 5. 잔여 허용량 계산
-    remaining_caffeine = max(0, caffeine_limit - total_caffeine)
-    remaining_sugar = max(0, sugar_limit - total_sugar)
-    remaining_sodium = max(0, sodium_limit - total_sodium)
+    remaining_caffeine = round(max(0, caffeine_limit - total_caffeine), 2)
+    remaining_sugar = round(max(0, sugar_limit - total_sugar), 2)
+    remaining_sodium = round(max(0, sodium_limit - total_sodium), 2)
 
     # 6. 퍼센트 계산
     def get_percent(value, standard):

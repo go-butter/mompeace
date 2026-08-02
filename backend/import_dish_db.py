@@ -115,10 +115,11 @@ def _compute_scale(basis_amount: float | None, food_weight: float | None) -> flo
 
 
 def _scale(value: float | None, scale: float | None) -> float | None:
-    """None은 그대로 None 유지. scale이 없으면 raw 값 그대로 반환."""
+    """None은 그대로 None 유지. scale이 없으면 raw 값 그대로 반환.
+    스케일 곱셈 후 소수점 2자리로 반올림해 부동소수점 오차(예: 405.59999999999997)를 제거한다."""
     if value is None or scale is None:
         return value
-    return value * scale
+    return round(value * scale, 2)
 
 
 def _clean_text(value) -> str:
