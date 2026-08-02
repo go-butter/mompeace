@@ -188,6 +188,14 @@ def main():
             #  최대 ~30배까지 과소/과대 보고됨)
             basis_amount = _parse_weight_value(excel_row.get("영양성분함량기준량"))
             food_weight = _parse_weight_value(excel_row.get(FOOD_WEIGHT_COLUMN))
+
+            # 같은 food_name이라도 food_code가 다른 행(예: 다른 매장의 "아메리카노")을
+            # 구분할 수 있도록 실제 식품중량을 이름에 라벨로 붙인다. food_weight를
+            # 파싱할 수 없는 행은 라벨 없이 원래 이름을 그대로 둔다.
+            if food_weight is not None:
+                weight_label = _clean_text(excel_row.get(FOOD_WEIGHT_COLUMN))
+                food_name = f"{food_name} ({weight_label})"
+
             scale = _compute_scale(basis_amount, food_weight)
             if scale is None:
                 unscaled_count += 1
@@ -232,16 +240,6 @@ def main():
                     "SELECT food_id FROM food_items "
                     "WHERE food_code = ? AND data_source = ?",
                     (food_code_raw, DATA_SOURCE),
-                )
-                row = cursor.fetchone()
-                if row:
-                    existing_id = row["food_id"]
-
-            if existing_id is None:
-                cursor.execute(
-                    "SELECT food_id FROM food_items "
-                    "WHERE food_name = ? AND data_source = ?",
-                    (food_name, DATA_SOURCE),
                 )
                 row = cursor.fetchone()
                 if row:

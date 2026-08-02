@@ -9,6 +9,10 @@ backend/import_dish_db.py 테스트.
 - 재임포트 시 food_code가 매칭되는 행은 food_id가 보존된다 (UPDATE, not
   DROP+INSERT) — food_log.food_id 참조가 깨지지 않아야 하기 때문
 - xlsx에서 사라진 food_code는 같은 data_source 범위 내에서만 삭제된다
+- food_code만으로 매칭한다 (food_name 폴백 없음) — 같은 food_name이라도
+  food_code가 다르면 서로 다른 행으로 보존된다
+- food_name에는 실제 식품중량이 "(<중량><단위>)" 형식으로 라벨로 붙는다.
+  식품중량을 파싱할 수 없는 행은 라벨 없이 원래 이름 그대로 저장된다
 """
 import sqlite3
 
@@ -240,6 +244,36 @@ def test_import_zero_weight_row_left_unscaled_and_flagged(import_env, capsys):
     assert "스케일 미적용 (raw 값 유지): 1" in out
 
 
+def test_import_appends_weight_label_to_food_name(import_env):
+    db_path, write_xlsx = import_env
+    write_xlsx([_make_row("F012", "테스트음식", "100g", "355g", "10")])
+
+    import_dish_db.main()
+
+    rows = _query_food_items(db_path)
+    assert rows[0]["food_name"] == "테스트음식 (355g)"
+
+
+def test_import_weight_label_preserves_ml_unit(import_env):
+    db_path, write_xlsx = import_env
+    write_xlsx([_make_row("F013", "테스트음료", "100ml", "591ml", "10")])
+
+    import_dish_db.main()
+
+    rows = _query_food_items(db_path)
+    assert rows[0]["food_name"] == "테스트음료 (591ml)"
+
+
+def test_import_unparseable_weight_leaves_food_name_unlabeled(import_env):
+    db_path, write_xlsx = import_env
+    write_xlsx([_make_row("F014", "기준량만있음", "100g", "-", "10")])
+
+    import_dish_db.main()
+
+    rows = _query_food_items(db_path)
+    assert rows[0]["food_name"] == "기준량만있음"
+
+
 def test_import_null_caffeine_stays_null_even_when_scaled(import_env):
     db_path, write_xlsx = import_env
     write_xlsx([_make_row("F003", "카페인없음", "100g", "355g", "-")])
@@ -266,6 +300,48 @@ def test_reimport_preserves_food_id_for_matched_food_code(import_env):
     assert second_pass[0]["food_id"] == original_id
     # scale = 710/100 = 7.1
     assert second_pass[0]["caffeine_mg"] == pytest.approx(71.0)
+
+
+def test_distinct_food_codes_with_same_name_are_not_collapsed(import_env):
+    """food_name이 같아도 food_code가 다르면 서로 다른 행으로 보존된다
+    (food_name 폴백 매칭 제거 확인)."""
+    db_path, write_xlsx = import_env
+    write_xlsx([
+        _make_row("F010", "아메리카노", "100g", "355g", "40"),
+        _make_row("F011", "아메리카노", "100g", "591g", "30"),
+    ])
+
+    import_dish_db.main()
+
+    rows = _query_food_items(db_path)
+    assert len(rows) == 2
+    codes = {r["food_code"] for r in rows}
+    assert codes == {"F010", "F011"}
+
+
+def test_reimport_on_unchanged_xlsx_is_idempotent_with_duplicate_names(import_env):
+    """food_code로만 매칭하므로, 이름이 같은 두 행이 있어도 변경 없는 xlsx를
+    재실행하면 행 수·food_id·값이 완전히 동일하게 유지된다 (서로 덮어쓰지 않음)."""
+    db_path, write_xlsx = import_env
+    rows_in = [
+        _make_row("F020", "아메리카노", "100g", "355g", "40"),
+        _make_row("F021", "아메리카노", "100g", "591g", "30"),
+        _make_row("F022", "다른음식", "100g", "200g", "5"),
+    ]
+    write_xlsx(rows_in)
+    import_dish_db.main()
+    first_pass = {r["food_code"]: dict(r) for r in _query_food_items(db_path)}
+
+    write_xlsx(rows_in)  # 동일한 xlsx로 재실행
+    import_dish_db.main()
+    second_pass = {r["food_code"]: dict(r) for r in _query_food_items(db_path)}
+
+    assert len(first_pass) == 3
+    assert first_pass.keys() == second_pass.keys()
+    for code in first_pass:
+        assert first_pass[code]["food_id"] == second_pass[code]["food_id"]
+        assert first_pass[code]["caffeine_mg"] == second_pass[code]["caffeine_mg"]
+        assert first_pass[code]["food_name"] == second_pass[code]["food_name"]
 
 
 def test_stale_food_code_removed_on_reimport_scoped_to_data_source(import_env):
