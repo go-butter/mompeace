@@ -67,6 +67,35 @@ def test_compute_scale_zero_basis_returns_none():
     assert import_dish_db._compute_scale(0.0, 355.0) is None
 
 
+def test_compute_scale_zero_weight_returns_none():
+    assert import_dish_db._compute_scale(100.0, 0.0) is None
+
+
+def test_compute_scale_negative_weight_returns_none():
+    assert import_dish_db._compute_scale(100.0, -50.0) is None
+
+
+def test_compute_scale_ratio_one_is_noop():
+    scale = import_dish_db._compute_scale(100.0, 100.0)
+    assert scale == 1.0
+    assert import_dish_db._scale(42.25, scale) == 42.25
+
+
+def test_compute_scale_ignores_unit_label_mismatch_known_limitation():
+    """
+    _parse_weight_value는 g/ml 단위 라벨을 버리고 숫자만 취하므로, 기준량과
+    식품중량의 단위가 실제로 다르더라도(예: g vs ml) 검증 없이 비율을 계산한다.
+    현재 xlsx 19,495행 전수 확인 결과 기준량/식품중량 단위가 어긋나는 행은
+    0건이라 지금은 발생하지 않지만, 향후 데이터에 섞인 단위 행이 들어올 경우
+    이 동작이 그대로 적용된다는 것을 명시적으로 고정해두는 회귀 테스트
+    (단위 변환 로직은 의도적으로 추가하지 않음 — 알려진 한계).
+    """
+    basis = import_dish_db._parse_weight_value("100g")
+    weight = import_dish_db._parse_weight_value("355ml")
+    scale = import_dish_db._compute_scale(basis, weight)
+    assert scale == pytest.approx(3.55)
+
+
 def test_scale_applied_when_basis_and_weight_present():
     scale = import_dish_db._compute_scale(100.0, 355.0)
     assert import_dish_db._scale(10.0, scale) == pytest.approx(35.5)
@@ -196,6 +225,19 @@ def test_import_missing_weight_row_left_unscaled_and_flagged(import_env, capsys)
     out = capsys.readouterr().out
     assert "스케일 미적용 (raw 값 유지): 1" in out
     assert "스케일 계산 불가" in out
+
+
+def test_import_zero_weight_row_left_unscaled_and_flagged(import_env, capsys):
+    db_path, write_xlsx = import_env
+    write_xlsx([_make_row("F007", "식품중량0", "100g", "0g", "10")])
+
+    import_dish_db.main()
+
+    rows = _query_food_items(db_path)
+    assert rows[0]["caffeine_mg"] == 10.0  # raw 값 그대로, 0으로 덮이지 않음
+
+    out = capsys.readouterr().out
+    assert "스케일 미적용 (raw 값 유지): 1" in out
 
 
 def test_import_null_caffeine_stays_null_even_when_scaled(import_env):

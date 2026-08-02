@@ -102,9 +102,9 @@ def _parse_weight_value(value) -> float | None:
 def _compute_scale(basis_amount: float | None, food_weight: float | None) -> float | None:
     """
     영양성분함량기준량(basis_amount) 대비 실제 식품중량(food_weight)의 배율.
-    둘 중 하나라도 없거나 basis_amount가 0 이하면 스케일을 계산할 수 없음 (None).
+    둘 중 하나라도 없거나 basis_amount 또는 food_weight가 0 이하면 스케일을 계산할 수 없음 (None).
     """
-    if basis_amount is None or food_weight is None or basis_amount <= 0:
+    if basis_amount is None or food_weight is None or basis_amount <= 0 or food_weight <= 0:
         return None
     return food_weight / basis_amount
 
