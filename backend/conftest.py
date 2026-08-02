@@ -45,6 +45,7 @@ CREATE TABLE food_items (
     calories_kcal  REAL DEFAULT 0,
     carbohydrate_g REAL,
     protein_g      REAL,
+    fat_g          REAL,
     allergen_info  TEXT,
     additive_info  TEXT,
     data_source    TEXT,
@@ -208,6 +209,25 @@ def make_user_food_item(db, user_id, **overrides):
     cursor = db.cursor()
     cursor.execute(
         f"INSERT INTO user_food_items ({cols}) VALUES ({placeholders})",
+        list(defaults.values()),
+    )
+    db.commit()
+    return cursor.lastrowid
+
+
+def make_food_item(db, **overrides):
+    """테스트용 food_items 행 한 개를 생성하고 food_id를 반환한다.
+    기본 data_source는 dish_db_download (카탈로그 검색 테스트용)."""
+    defaults = {
+        "food_name": "테스트 카탈로그 음식",
+        "data_source": "dish_db_download",
+    }
+    defaults.update(overrides)
+    cols = ", ".join(defaults.keys())
+    placeholders = ", ".join("?" for _ in defaults)
+    cursor = db.cursor()
+    cursor.execute(
+        f"INSERT INTO food_items ({cols}) VALUES ({placeholders})",
         list(defaults.values()),
     )
     db.commit()

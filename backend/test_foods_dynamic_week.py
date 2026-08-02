@@ -12,23 +12,14 @@ from datetime import date, timedelta
 import pytest
 from fastapi import HTTPException
 
-import backend.routers.foods as foods_router
 from backend.routers.foods import search_food
 
-from .conftest import make_user
-
-MOCK_FOOD = {
-    "food_name": "테스트 음식",
-    "caffeine_mg": 0,
-    "sugar_g": 0,
-    "sodium_mg": 0,
-    "allergens": [],
-}
+from .conftest import make_food_item, make_user
 
 
 class TestDynamicPregnancyWeek:
-    def test_search_food_uses_recalculated_week_not_stale_anchor(self, db, monkeypatch):
-        monkeypatch.setattr(foods_router, "search_food_nutrition", lambda **kwargs: [MOCK_FOOD])
+    def test_search_food_uses_recalculated_week_not_stale_anchor(self, db):
+        make_food_item(db, food_name="테스트 음식", caffeine_mg=0, sugar_g=0, sodium_mg=0)
         entered_at = (date.today() - timedelta(days=30)).isoformat()
         user_id = make_user(db, pregnancy_week=10, pregnancy_day=0, pregnancy_entered_at=entered_at)
 
@@ -39,16 +30,14 @@ class TestDynamicPregnancyWeek:
         assert risk["pregnancy_week"] == 14
         assert risk["trimester"] == "middle"
 
-    def test_search_food_without_user_id_defaults_to_week_20(self, db, monkeypatch):
-        monkeypatch.setattr(foods_router, "search_food_nutrition", lambda **kwargs: [MOCK_FOOD])
+    def test_search_food_without_user_id_defaults_to_week_20(self, db):
+        make_food_item(db, food_name="테스트 음식", caffeine_mg=0, sugar_g=0, sodium_mg=0)
 
         result = search_food(query="테스트", page_no=1, num_of_rows=10, user_id=None, db=db)
 
         assert result["results"][0]["risk"]["pregnancy_week"] == 20
 
-    def test_search_food_with_nonexistent_user_id_raises_404(self, db, monkeypatch):
-        monkeypatch.setattr(foods_router, "search_food_nutrition", lambda **kwargs: [MOCK_FOOD])
-
+    def test_search_food_with_nonexistent_user_id_raises_404(self, db):
         with pytest.raises(HTTPException) as exc_info:
             search_food(query="테스트", page_no=1, num_of_rows=10, user_id=999999, db=db)
 

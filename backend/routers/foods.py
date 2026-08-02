@@ -4,8 +4,6 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends
 
 from backend.database import get_db
-from backend.food_repository import save_food_item
-from backend.food_search_api import search_food_nutrition
 from backend.models import UserFoodItemCreate
 from backend.risk import calculate_current_pregnancy_age, evaluate_food_risk
 
@@ -43,10 +41,8 @@ def search_food(
     음식명 검색
 
     1. (user_id가 주어진 경우) user_food_items에서 개인 기록 먼저 검색
-    2. 식품영양성분DB API에서 음식명으로 검색
-    3. 검색 결과를 앱용 데이터로 정리
-    4. food_items 테이블에 저장/업데이트
-    5. 임신 주차 기준 위험도 판단 결과 포함
+    2. food_items 테이블의 dish_db_download 카탈로그에서 음식명으로 검색
+    3. 임신 주차 기준 위험도 판단 결과 포함
     """
 
     if not query or query.strip() == "":
@@ -73,26 +69,34 @@ def search_food(
                 "risk": None,
             })
 
-    try:
-        foods = search_food_nutrition(
-            query=query,
-            page_no=page_no,
-            num_of_rows=num_of_rows
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"음식명 검색 API 호출 실패: {str(e)}"
-        )
+    _ALLOWED_SOURCE = "dish_db_download"
+    _SEARCH_LIMIT = min(num_of_rows, 50)
+    cursor = db.cursor()
+    cursor.execute(
+        "SELECT * FROM food_items WHERE food_name LIKE ? AND data_source = ? "
+        "ORDER BY food_name LIMIT ?",
+        (f"%{query}%", _ALLOWED_SOURCE, _SEARCH_LIMIT)
+    )
 
     results = []
 
-    for food_data in foods:
-        food_id = save_food_item(
-            food_data=food_data,
-            source="food_nutrition_api",
-            db=db
-        )
+    for row in cursor.fetchall():
+        row = dict(row)
+        food_data = {
+            "food_id": row["food_id"],
+            "food_code": row.get("food_code"),
+            "food_name": row["food_name"],
+            "category": row.get("category"),
+            "subcategory": row.get("subcategory"),
+            "serving_label": row.get("serving_label"),
+            "caffeine_mg": row.get("caffeine_mg"),
+            "sugar_g": row.get("sugar_g"),
+            "sodium_mg": row.get("sodium_mg"),
+            "carbohydrate_g": row.get("carbohydrate_g"),
+            "protein_g": row.get("protein_g"),
+            "fat_g": row.get("fat_g"),
+            "calories_kcal": row.get("calories_kcal"),
+        }
 
         risk_result = evaluate_food_risk(
             food_data=food_data,
@@ -100,8 +104,8 @@ def search_food(
         )
 
         results.append({
-            "source": "food_nutrition_api",
-            "food_id": food_id,
+            "source": "dish_db_download",
+            "food_id": row["food_id"],
             "data": food_data,
             "risk": risk_result
         })

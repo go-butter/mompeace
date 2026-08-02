@@ -54,7 +54,8 @@ function SearchResultRow({
           )}
         </View>
         <Text style={styles.rowMeta}>
-          칼로리 {data.calories_kcal ?? 0}kcal · 당류{' '}
+          {item.source !== 'dish_db_download' && `칼로리 ${data.calories_kcal ?? 0}kcal · `}
+          당류{' '}
           {data.sugar_g != null ? `${data.sugar_g}g` : '정보 없음'} · 나트륨{' '}
           {data.sodium_mg != null ? `${data.sodium_mg}mg` : '정보 없음'}
         </Text>

@@ -25,7 +25,9 @@ COLUMN_MAP = {
     "식품명": "food_name",
     "식품대분류명": "category",
     "영양성분함량기준량": "serving_label",
+    "에너지(kcal)": "calories_kcal",
     "단백질(g)": "protein_g",
+    "지방(g)": "fat_g",
     "탄수화물(g)": "carbohydrate_g",
     "당류(g)": "sugar_g",
     "나트륨(mg)": "sodium_mg",
@@ -42,7 +44,10 @@ NOTES_COLUMNS = ["데이터기준일자", "데이터생성일자", "제공처명
 REQUIRED_COLUMNS = {"식품명"}
 
 # 숫자로 변환할 컬럼
-NUMERIC_COLUMNS = {"단백질(g)", "탄수화물(g)", "당류(g)", "나트륨(mg)", "카페인(mg)"}
+NUMERIC_COLUMNS = {
+    "에너지(kcal)", "단백질(g)", "지방(g)", "탄수화물(g)", "당류(g)",
+    "나트륨(mg)", "카페인(mg)",
+}
 
 # 실제 식품 중량 (영양성분함량기준량과 다를 수 있음 — 스케일링용, COLUMN_MAP에는 없음)
 FOOD_WEIGHT_COLUMN = "식품중량"
@@ -206,7 +211,9 @@ def main():
                 )
 
             # 영양소 (None = 미기재, 스케일 적용 후에도 None 유지)
+            calories_kcal = _scale(_to_float_or_none(excel_row.get("에너지(kcal)")), scale)
             protein_g = _scale(_to_float_or_none(excel_row.get("단백질(g)")), scale)
+            fat_g = _scale(_to_float_or_none(excel_row.get("지방(g)")), scale)
             carbohydrate_g = _scale(_to_float_or_none(excel_row.get("탄수화물(g)")), scale)
             sugar_g = _scale(_to_float_or_none(excel_row.get("당류(g)")), scale)
             sodium_mg = _scale(_to_float_or_none(excel_row.get("나트륨(mg)")), scale)
@@ -253,7 +260,9 @@ def main():
                         category       = ?,
                         subcategory    = ?,
                         serving_label  = ?,
+                        calories_kcal  = ?,
                         protein_g      = ?,
+                        fat_g          = ?,
                         carbohydrate_g = ?,
                         sugar_g        = ?,
                         sodium_mg      = ?,
@@ -263,22 +272,23 @@ def main():
                     WHERE food_id = ?
                 """, (
                     food_code_raw, food_name, category, subcategory,
-                    serving_label, protein_g, carbohydrate_g, sugar_g,
-                    sodium_mg, caffeine_mg, notes, existing_id,
+                    serving_label, calories_kcal, protein_g, fat_g,
+                    carbohydrate_g, sugar_g, sodium_mg, caffeine_mg,
+                    notes, existing_id,
                 ))
                 update_count += 1
             else:
                 cursor.execute("""
                     INSERT INTO food_items (
                         food_code, food_name, category, subcategory,
-                        serving_label, protein_g, carbohydrate_g,
-                        sugar_g, sodium_mg, caffeine_mg,
+                        serving_label, calories_kcal, protein_g, fat_g,
+                        carbohydrate_g, sugar_g, sodium_mg, caffeine_mg,
                         data_source, notes, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
                 """, (
                     food_code_raw, food_name, category, subcategory,
-                    serving_label, protein_g, carbohydrate_g,
-                    sugar_g, sodium_mg, caffeine_mg,
+                    serving_label, calories_kcal, protein_g, fat_g,
+                    carbohydrate_g, sugar_g, sodium_mg, caffeine_mg,
                     DATA_SOURCE, notes,
                 ))
                 insert_count += 1

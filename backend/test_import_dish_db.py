@@ -143,6 +143,7 @@ CREATE TABLE food_items (
     calories_kcal  REAL,
     carbohydrate_g REAL,
     protein_g      REAL,
+    fat_g          REAL,
     allergen_info  TEXT,
     additive_info  TEXT,
     data_source    TEXT,
@@ -154,7 +155,8 @@ CREATE TABLE food_items (
 XLSX_COLUMNS = [
     "식품코드", "식품명", "식품대분류명", "대표식품명",
     "영양성분함량기준량", "식품중량",
-    "단백질(g)", "탄수화물(g)", "당류(g)", "나트륨(mg)", "카페인(mg)",
+    "에너지(kcal)", "단백질(g)", "지방(g)", "탄수화물(g)", "당류(g)",
+    "나트륨(mg)", "카페인(mg)",
 ]
 
 
@@ -166,7 +168,9 @@ def _make_row(food_code, food_name, basis, weight, caffeine):
         "대표식품명": "",
         "영양성분함량기준량": basis,
         "식품중량": weight,
+        "에너지(kcal)": "50",
         "단백질(g)": "1",
+        "지방(g)": "5",
         "탄수화물(g)": "2",
         "당류(g)": "3",
         "나트륨(mg)": "4",
@@ -215,6 +219,8 @@ def test_import_scales_nutrients_by_food_weight_ratio(import_env, capsys):
     # scale = 355/100 = 3.55, caffeine 10 * 3.55 = 35.5
     assert rows[0]["caffeine_mg"] == pytest.approx(35.5)
     assert rows[0]["sugar_g"] == pytest.approx(3 * 3.55)
+    assert rows[0]["calories_kcal"] == pytest.approx(50 * 3.55)
+    assert rows[0]["fat_g"] == pytest.approx(5 * 3.55)
 
 
 def test_import_missing_weight_row_left_unscaled_and_flagged(import_env, capsys):

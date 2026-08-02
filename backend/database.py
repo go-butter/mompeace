@@ -78,6 +78,7 @@ def init_db():
             calories_kcal  REAL DEFAULT 0,
             carbohydrate_g REAL,
             protein_g      REAL,
+            fat_g          REAL,
             allergen_info  TEXT,
             additive_info  TEXT,
             data_source    TEXT,
@@ -98,6 +99,7 @@ def init_db():
     add_column_if_not_exists(cursor, "food_items", "calories_kcal", "REAL DEFAULT 0")
     add_column_if_not_exists(cursor, "food_items", "carbohydrate_g", "REAL")
     add_column_if_not_exists(cursor, "food_items", "protein_g", "REAL")
+    add_column_if_not_exists(cursor, "food_items", "fat_g", "REAL")
     add_column_if_not_exists(cursor, "food_items", "allergen_info", "TEXT")
     add_column_if_not_exists(cursor, "food_items", "additive_info", "TEXT")
     add_column_if_not_exists(cursor, "food_items", "data_source", "TEXT")

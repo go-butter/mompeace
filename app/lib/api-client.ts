@@ -199,10 +199,26 @@ export interface PersonalFoodData {
   created_at: string;
 }
 
-export interface FoodSearchResultItem {
-  source: 'personal' | 'food_nutrition_api';
+export interface DishDbFoodData {
   food_id: number;
-  data: PersonalFoodData | Record<string, any>;
+  food_code: string | null;
+  food_name: string;
+  category: string | null;
+  subcategory: string | null;
+  serving_label: string | null;
+  caffeine_mg: number | null;
+  sugar_g: number | null;
+  sodium_mg: number | null;
+  carbohydrate_g: number | null;
+  protein_g: number | null;
+  fat_g: number | null;
+  calories_kcal: number | null;
+}
+
+export interface FoodSearchResultItem {
+  source: 'personal' | 'dish_db_download';
+  food_id: number;
+  data: PersonalFoodData | DishDbFoodData;
   risk: BarcodeRisk | null;
 }
 
