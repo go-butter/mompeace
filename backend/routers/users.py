@@ -4,7 +4,8 @@ from datetime import date
 from fastapi import APIRouter, HTTPException, Depends
 
 from backend.database import get_db
-from backend.models import PregnancyUpdate
+from backend.models import NutrientPreferenceUpdate, PregnancyUpdate
+from backend.nutrition_constants import parse_selected_nutrients, validate_selected_nutrients
 from backend.sensitivity import get_user_adj, recalculate_sensitivity
 
 router = APIRouter()
@@ -88,6 +89,44 @@ def update_pregnancy_info(
         "due_date": updated["due_date"],
         "pregnancy_entered_at": updated["pregnancy_entered_at"],
         "message": "임신 정보 수정 완료"
+    }
+
+
+@router.put("/users/{user_id}/nutrient-preferences")
+def update_nutrient_preferences(
+    user_id: int,
+    prefs: NutrientPreferenceUpdate,
+    db: sqlite3.Connection = Depends(get_db)
+):
+    """홈 화면 요약에 표시할 선택 영양소 수정 (최대 4개).
+    selected_nutrients가 None이면 값을 바꾸지 않고 현재 상태를 그대로 반환한다
+    (update_pregnancy_info의 부분 업데이트 방식과 동일)."""
+
+    cursor = db.cursor()
+
+    cursor.execute("SELECT user_id FROM users WHERE user_id = ?", (user_id,))
+    if not cursor.fetchone():
+        raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
+
+    try:
+        selected_nutrients_value = validate_selected_nutrients(prefs.selected_nutrients)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    if selected_nutrients_value is not None:
+        cursor.execute(
+            "UPDATE users SET selected_nutrients = ? WHERE user_id = ?",
+            (selected_nutrients_value, user_id),
+        )
+        db.commit()
+
+    cursor.execute("SELECT selected_nutrients FROM users WHERE user_id = ?", (user_id,))
+    updated = cursor.fetchone()
+
+    return {
+        "user_id": user_id,
+        "selected_nutrients": parse_selected_nutrients(updated["selected_nutrients"]),
+        "message": "선택 영양소 수정 완료"
     }
 
 

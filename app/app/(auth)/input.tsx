@@ -20,6 +20,7 @@ import CalIcon from '@/assets/images/onboarding/cal.svg';
 import InformationIcon from '@/assets/images/onboarding/information.svg';
 import { authColors } from '@/components/auth/colors';
 import { GradientBackground } from '@/components/auth/gradient-background';
+import { StepProgressDots } from '@/components/auth/step-progress-dots';
 import { fonts } from '@/constants/fonts';
 import { useAuth } from '@/context/auth-context';
 import { ApiError, updatePregnancyInfo } from '@/lib/api-client';
@@ -147,7 +148,7 @@ export default function PregnancyInputScreen() {
         due_date: response.due_date,
       });
       if (!isMountedRef.current) return;
-      router.push('/(tabs)/home');
+      router.push('/(auth)/nutrient-select');
     } catch (err) {
       if (!isMountedRef.current) return;
       if (err instanceof ApiError) {
@@ -295,6 +296,9 @@ export default function PregnancyInputScreen() {
       </ScrollView>
 
       <View style={styles.footer}>
+        <View style={styles.dotsRow}>
+          <StepProgressDots activeStep={1} />
+        </View>
         {error && <Text style={styles.errorText}>{error}</Text>}
         <Pressable
           style={[styles.nextButton, loading && styles.buttonDisabled]}
@@ -342,11 +346,13 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     padding: 20,
     marginTop: 28,
+    // nutrient-select.tsx의 카드와 동일한 옅은 그림자로 통일 (기존 neon 스타일보다
+    // opacity/blur를 크게 낮춘 은은한 톤).
     shadowColor: authColors.pink,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.25,
-    shadowRadius: 20,
-    elevation: 8,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 2,
   },
   row: {
     flexDirection: 'row',
@@ -437,6 +443,10 @@ const styles = StyleSheet.create({
   footer: {
     paddingHorizontal: 24,
     paddingBottom: 32,
+  },
+  dotsRow: {
+    alignItems: 'center',
+    marginBottom: 16,
   },
   nextButton: {
     backgroundColor: authColors.pink,

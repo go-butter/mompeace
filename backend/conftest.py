@@ -26,6 +26,7 @@ CREATE TABLE users (
     caffeine_sensitivity_adj REAL DEFAULT 0,
     sugar_sensitivity_adj REAL DEFAULT 0,
     sodium_sensitivity_adj REAL DEFAULT 0,
+    selected_nutrients TEXT,
     created_at  TEXT DEFAULT (datetime('now'))
 );
 
@@ -46,6 +47,9 @@ CREATE TABLE food_items (
     carbohydrate_g REAL,
     protein_g      REAL,
     fat_g          REAL,
+    saturated_fat_g REAL,
+    trans_fat_g    REAL,
+    cholesterol_mg REAL,
     allergen_info  TEXT,
     additive_info  TEXT,
     data_source    TEXT,
@@ -63,6 +67,10 @@ CREATE TABLE user_food_items (
     calories_kcal   REAL DEFAULT 0,
     carbohydrate_g  REAL,
     protein_g       REAL,
+    fat_g           REAL,
+    saturated_fat_g REAL,
+    trans_fat_g     REAL,
+    cholesterol_mg  REAL,
     created_at      TEXT DEFAULT (datetime('now', 'localtime')),
     FOREIGN KEY (user_id) REFERENCES users(user_id)
 );
@@ -82,6 +90,10 @@ CREATE TABLE food_log (
     calories_kcal  REAL DEFAULT 0,
     carbohydrate_g REAL DEFAULT 0,
     protein_g      REAL DEFAULT 0,
+    fat_g          REAL,
+    saturated_fat_g REAL,
+    trans_fat_g    REAL,
+    cholesterol_mg REAL,
     risk_level     TEXT DEFAULT 'safe',
     eaten_at      TEXT DEFAULT (datetime('now', 'localtime')),
     created_at    TEXT DEFAULT (datetime('now', 'localtime')),

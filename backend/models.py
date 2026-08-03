@@ -7,6 +7,7 @@ class RegisterRequest(BaseModel):
     login_id: str
     password: str
     password_confirm: str
+    selected_nutrients: Optional[list[str]] = None
 
 
 class LoginRequest(BaseModel):
@@ -18,6 +19,10 @@ class PregnancyUpdate(BaseModel):
     pregnancy_week: Optional[int] = None
     pregnancy_day: Optional[int] = None
     due_date: Optional[str] = None
+
+
+class NutrientPreferenceUpdate(BaseModel):
+    selected_nutrients: Optional[list[str]] = None
 
 
 class ExtraNutrientIn(BaseModel):

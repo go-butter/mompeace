@@ -6,6 +6,10 @@ export interface RegisterRequest {
   login_id: string;
   password: string;
   password_confirm: string;
+  // 실제 앱 플로우에서는 사용되지 않음 — 계정 생성 시점엔 아직 선택 화면을 거치지 않았고,
+  // 선택은 nutrient-select.tsx가 별도로 updateNutrientPreferences()를 호출해 저장한다.
+  // 백엔드 모델과 형태를 맞추기 위해 필드만 남겨둔다.
+  selected_nutrients?: string[];
 }
 
 export interface RegisterResponse {
@@ -373,6 +377,21 @@ export function updatePregnancyInfo(
   body: PregnancyUpdateRequest
 ): Promise<PregnancyUpdateResponse> {
   return put(`/users/${userId}/pregnancy`, body);
+}
+
+export interface NutrientPreferenceUpdateResponse {
+  user_id: number;
+  selected_nutrients: string[];
+  message: string;
+}
+
+// selectedNutrients=null이면 값을 바꾸지 않고 현재 선택을 그대로 조회한다 (부분 업데이트와
+// 동일한 방식) — 마이페이지 화면에서 현재 선택을 불러올 때도 이 함수를 그대로 재사용한다.
+export function updateNutrientPreferences(
+  userId: number,
+  selectedNutrients: string[] | null
+): Promise<NutrientPreferenceUpdateResponse> {
+  return put(`/users/${userId}/nutrient-preferences`, { selected_nutrients: selectedNutrients });
 }
 
 export function getIntakeToday(userId: number): Promise<IntakeTodayResponse> {

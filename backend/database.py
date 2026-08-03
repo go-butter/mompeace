@@ -59,6 +59,9 @@ def init_db():
     add_column_if_not_exists(cursor, "users", "caffeine_sensitivity_adj", "REAL DEFAULT 0")
     add_column_if_not_exists(cursor, "users", "sugar_sensitivity_adj", "REAL DEFAULT 0")
     add_column_if_not_exists(cursor, "users", "sodium_sensitivity_adj", "REAL DEFAULT 0")
+    # 홈 화면 요약에 표시할 선택 영양소 (최대 4개, comma-separated). 미설정(NULL)이면
+    # 앱에서 DEFAULT_SELECTED_NUTRIENTS로 취급한다.
+    add_column_if_not_exists(cursor, "users", "selected_nutrients", "TEXT")
 
     # 2. FoodItem 테이블 (음식 기본 정보)
     cursor.execute("""
@@ -100,6 +103,9 @@ def init_db():
     add_column_if_not_exists(cursor, "food_items", "carbohydrate_g", "REAL")
     add_column_if_not_exists(cursor, "food_items", "protein_g", "REAL")
     add_column_if_not_exists(cursor, "food_items", "fat_g", "REAL")
+    add_column_if_not_exists(cursor, "food_items", "saturated_fat_g", "REAL")
+    add_column_if_not_exists(cursor, "food_items", "trans_fat_g", "REAL")
+    add_column_if_not_exists(cursor, "food_items", "cholesterol_mg", "REAL")
     add_column_if_not_exists(cursor, "food_items", "allergen_info", "TEXT")
     add_column_if_not_exists(cursor, "food_items", "additive_info", "TEXT")
     add_column_if_not_exists(cursor, "food_items", "data_source", "TEXT")
@@ -117,10 +123,20 @@ def init_db():
             calories_kcal   REAL DEFAULT 0,
             carbohydrate_g  REAL,
             protein_g       REAL,
+            fat_g           REAL,
+            saturated_fat_g REAL,
+            trans_fat_g     REAL,
+            cholesterol_mg  REAL,
             created_at      TEXT DEFAULT (datetime('now', 'localtime')),
             FOREIGN KEY (user_id) REFERENCES users(user_id)
         )
     """)
+
+    # 기존 user_food_items 테이블에 컬럼이 없을 경우 자동 추가
+    add_column_if_not_exists(cursor, "user_food_items", "fat_g", "REAL")
+    add_column_if_not_exists(cursor, "user_food_items", "saturated_fat_g", "REAL")
+    add_column_if_not_exists(cursor, "user_food_items", "trans_fat_g", "REAL")
+    add_column_if_not_exists(cursor, "user_food_items", "cholesterol_mg", "REAL")
 
     # 3. FoodLog 테이블 (사용자 섭취 기록)
     cursor.execute("""
@@ -139,6 +155,10 @@ def init_db():
             calories_kcal  REAL DEFAULT 0,
             carbohydrate_g REAL DEFAULT 0,
             protein_g      REAL DEFAULT 0,
+            fat_g          REAL,
+            saturated_fat_g REAL,
+            trans_fat_g    REAL,
+            cholesterol_mg REAL,
             risk_level     TEXT DEFAULT 'safe',
             eaten_at      TEXT DEFAULT (datetime('now', 'localtime')),
             created_at    TEXT DEFAULT (datetime('now', 'localtime')),
@@ -179,6 +199,10 @@ def init_db():
     add_column_if_not_exists(cursor, "food_log", "calories_kcal", "REAL DEFAULT 0")
     add_column_if_not_exists(cursor, "food_log", "carbohydrate_g", "REAL DEFAULT 0")
     add_column_if_not_exists(cursor, "food_log", "protein_g", "REAL DEFAULT 0")
+    add_column_if_not_exists(cursor, "food_log", "fat_g", "REAL")
+    add_column_if_not_exists(cursor, "food_log", "saturated_fat_g", "REAL")
+    add_column_if_not_exists(cursor, "food_log", "trans_fat_g", "REAL")
+    add_column_if_not_exists(cursor, "food_log", "cholesterol_mg", "REAL")
     add_column_if_not_exists(cursor, "food_log", "risk_level", "TEXT DEFAULT 'safe'")
     add_column_if_not_exists(cursor, "food_log", "eaten_at", "TEXT DEFAULT (datetime('now', 'localtime'))")
     add_column_if_not_exists(cursor, "food_log", "created_at", "TEXT DEFAULT (datetime('now', 'localtime'))")

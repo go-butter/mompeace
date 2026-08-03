@@ -5,7 +5,14 @@ from fastapi import APIRouter, HTTPException, Depends
 
 from backend.database import get_db
 from backend.risk import calculate_current_pregnancy_age
-from backend.intake_totals import compute_overall_status, get_status, get_trimester_limits
+from backend.intake_totals import (
+    compute_overall_status,
+    get_fat_status,
+    get_floor_status,
+    get_informational_status,
+    get_status,
+    get_trimester_limits,
+)
 
 router = APIRouter()
 
@@ -68,6 +75,119 @@ def _get_percent(value: float, standard: float) -> float:
     if standard <= 0:
         return 0.0
     return round(value / standard * 100, 1)
+
+
+def _compute_extra_nutrient_totals(cursor, user_id: int, start_date: str, end_date: str) -> dict:
+    """탄수화물/단백질/지방류/콜레스테롤/에너지의 기간 합계 + unknown 카운트.
+
+    카페인/당류/나트륨과 달리 시간대별(daily)/요일별(weekly) 차트에는 포함하지 않고
+    리포트 상단 요약(totals/limits/percentages/status)에만 쓰인다.
+    """
+    cursor.execute("""
+        SELECT
+            COALESCE(SUM(calories_kcal), 0) AS total_energy,
+            COALESCE(SUM(CASE WHEN calories_kcal IS NULL THEN 1 ELSE 0 END), 0) AS unknown_energy_count,
+            COALESCE(SUM(carbohydrate_g), 0) AS total_carbohydrate,
+            COALESCE(SUM(CASE WHEN carbohydrate_g IS NULL THEN 1 ELSE 0 END), 0) AS unknown_carbohydrate_count,
+            COALESCE(SUM(protein_g), 0) AS total_protein,
+            COALESCE(SUM(CASE WHEN protein_g IS NULL THEN 1 ELSE 0 END), 0) AS unknown_protein_count,
+            COALESCE(SUM(fat_g), 0) AS total_fat,
+            COALESCE(SUM(CASE WHEN fat_g IS NULL THEN 1 ELSE 0 END), 0) AS unknown_fat_count,
+            COALESCE(SUM(saturated_fat_g), 0) AS total_saturated_fat,
+            COALESCE(SUM(CASE WHEN saturated_fat_g IS NULL THEN 1 ELSE 0 END), 0) AS unknown_saturated_fat_count,
+            COALESCE(SUM(trans_fat_g), 0) AS total_trans_fat,
+            COALESCE(SUM(CASE WHEN trans_fat_g IS NULL THEN 1 ELSE 0 END), 0) AS unknown_trans_fat_count,
+            COALESCE(SUM(cholesterol_mg), 0) AS total_cholesterol,
+            COALESCE(SUM(CASE WHEN cholesterol_mg IS NULL THEN 1 ELSE 0 END), 0) AS unknown_cholesterol_count
+        FROM food_log
+        WHERE user_id = ? AND DATE(eaten_at) BETWEEN ? AND ?
+    """, (user_id, start_date, end_date))
+    return dict(cursor.fetchone())
+
+
+def _build_extra_nutrient_report_block(totals: dict, limits: dict, divisor: int) -> dict:
+    """새로 추가된 영양소(에너지/탄수화물/단백질/지방류/콜레스테롤)의 totals/daily_average/
+    limits/percentages/status 블록.
+
+    divisor=1이면 daily 리포트(기간 합계 = 하루 값), weekly 리포트에서는 기록이 있는 날
+    수로 나눠 일평균을 낸다. 지방류 비율(총 에너지 대비)은 합계/합계와 평균/평균이
+    수학적으로 동일하므로 별도로 나누지 않고 기간 합계를 그대로 사용한다.
+    """
+    energy_target = limits["energy_kcal"]
+    carb_min = limits["carbohydrate_g"]
+    protein_target = limits["protein_g"]
+    fat_ratio_min = limits["fat_ratio_min"]
+    fat_ratio_max = limits["fat_ratio_max"]
+    saturated_fat_ratio_max = limits["saturated_fat_ratio_max"]
+    trans_fat_ratio_max = limits["trans_fat_ratio_max"]
+
+    total_energy = totals["total_energy"]
+    total_carb = totals["total_carbohydrate"]
+    total_protein = totals["total_protein"]
+    total_fat = totals["total_fat"]
+    total_saturated_fat = totals["total_saturated_fat"]
+    total_trans_fat = totals["total_trans_fat"]
+    total_cholesterol = totals["total_cholesterol"]
+
+    avg_energy = round(total_energy / divisor, 1)
+    avg_carb = round(total_carb / divisor, 1)
+    avg_protein = round(total_protein / divisor, 1)
+
+    energy_status = get_floor_status(avg_energy, energy_target, totals["unknown_energy_count"])
+    carb_status = get_floor_status(avg_carb, carb_min, totals["unknown_carbohydrate_count"])
+    protein_status = get_floor_status(avg_protein, protein_target, totals["unknown_protein_count"])
+    fat_status = get_fat_status(
+        total_fat, total_energy, fat_ratio_min, fat_ratio_max, totals["unknown_fat_count"]
+    )
+    saturated_fat_status = get_status(
+        total_saturated_fat, total_energy * saturated_fat_ratio_max, totals["unknown_saturated_fat_count"]
+    )
+    trans_fat_status = get_status(
+        total_trans_fat, total_energy * trans_fat_ratio_max, totals["unknown_trans_fat_count"]
+    )
+    cholesterol_status = get_informational_status(
+        None if totals["unknown_cholesterol_count"] > 0 else total_cholesterol
+    )
+
+    return {
+        "totals": {
+            "energy_kcal": round(total_energy, 2),
+            "carbohydrate_g": round(total_carb, 2),
+            "protein_g": round(total_protein, 2),
+            "fat_g": round(total_fat, 2),
+            "saturated_fat_g": round(total_saturated_fat, 2),
+            "trans_fat_g": round(total_trans_fat, 2),
+            "cholesterol_mg": round(total_cholesterol, 2),
+        },
+        "daily_average": {
+            "energy_kcal": avg_energy,
+            "carbohydrate_g": avg_carb,
+            "protein_g": avg_protein,
+        },
+        "limits": {
+            "energy_target_kcal": energy_target,
+            "carbohydrate_minimum_g": carb_min,
+            "protein_target_g": protein_target,
+            "fat_ratio_min": fat_ratio_min,
+            "fat_ratio_max": fat_ratio_max,
+            "saturated_fat_ratio_max": saturated_fat_ratio_max,
+            "trans_fat_ratio_max": trans_fat_ratio_max,
+        },
+        "percentages": {
+            "energy": _get_percent(avg_energy, energy_target),
+            "carbohydrate": _get_percent(avg_carb, carb_min),
+            "protein": _get_percent(avg_protein, protein_target),
+        },
+        "status": {
+            "energy_status": energy_status,
+            "carbohydrate_status": carb_status,
+            "protein_status": protein_status,
+            "fat_status": fat_status,
+            "saturated_fat_status": saturated_fat_status,
+            "trans_fat_status": trans_fat_status,
+            "cholesterol_status": cholesterol_status,
+        },
+    }
 
 
 def _build_daily_ai_summary(
@@ -269,6 +389,9 @@ def get_premium_report(
                 "sodium_status":   item_sodium_status,
             })
 
+        extra_totals = _compute_extra_nutrient_totals(cursor, user_id, date_str, date_str)
+        extra_block = _build_extra_nutrient_report_block(extra_totals, limits, divisor=1)
+
         formatted_date = target_date.strftime("%Y.%m.%d")
         return {
             "user_id":        user_id,
@@ -286,22 +409,26 @@ def get_premium_report(
                 "caffeine_mg": round(total_caffeine, 2),
                 "sugar_g":     round(total_sugar, 2),
                 "sodium_mg":   round(total_sodium, 2),
+                **extra_block["totals"],
             },
             "limits": {
                 "caffeine_mg": caffeine_limit,
                 "sugar_g":     sugar_limit,
                 "sodium_mg":   sodium_limit,
+                **extra_block["limits"],
             },
             "percentages": {
                 "caffeine": caffeine_pct,
                 "sugar":    sugar_pct,
                 "sodium":   sodium_pct,
+                **extra_block["percentages"],
             },
             "status": {
                 "overall_status":  overall_status,
                 "caffeine_status": caffeine_status,
                 "sugar_status":    sugar_status,
                 "sodium_status":   sodium_status,
+                **extra_block["status"],
             },
             "chart": {
                 "type":  "time_slot",
@@ -419,6 +546,9 @@ def get_premium_report(
         prev_avg_sodium_pct = _get_percent(round(prev_total_sodium / prev_divisor, 1), sodium_limit)
         sodium_vs_previous_pct = round(sodium_avg_pct - prev_avg_sodium_pct, 1)
 
+    extra_totals = _compute_extra_nutrient_totals(cursor, user_id, monday.isoformat(), sunday.isoformat())
+    extra_block = _build_extra_nutrient_report_block(extra_totals, limits, divisor=divisor)
+
     date_range_str = f"{monday.strftime('%Y.%m.%d.')} ~ {sunday.strftime('%m.%d.')}"
     return {
         "user_id":        user_id,
@@ -439,27 +569,32 @@ def get_premium_report(
             "caffeine_mg": round(total_caffeine, 2),
             "sugar_g":     round(total_sugar, 2),
             "sodium_mg":   round(total_sodium, 2),
+            **extra_block["totals"],
         },
         "daily_average": {
             "caffeine_mg": avg_caffeine,
             "sugar_g":     avg_sugar,
             "sodium_mg":   avg_sodium,
+            **extra_block["daily_average"],
         },
         "limits": {
             "daily_caffeine_mg": caffeine_limit,
             "daily_sugar_g":     sugar_limit,
             "daily_sodium_mg":   sodium_limit,
+            **extra_block["limits"],
         },
         "percentages": {
             "caffeine": caffeine_avg_pct,
             "sugar":    sugar_avg_pct,
             "sodium":   sodium_avg_pct,
+            **extra_block["percentages"],
         },
         "status": {
             "overall_status":  overall_status,
             "caffeine_status": caffeine_status,
             "sugar_status":    sugar_status,
             "sodium_status":   sodium_status,
+            **extra_block["status"],
         },
         "comparison": {
             "previous_period": {

@@ -91,6 +91,13 @@ export default function MyPageScreen() {
           subtitle="임신 주차 및 예정일 수정"
           onPress={() => router.push('/(tabs)/mypage/edit-profile')}
         />
+        <View style={styles.menuDivider} />
+        <MenuRow
+          icon={<Ionicons name="nutrition-outline" size={22} color={authColors.pink} />}
+          title="영양성분 선택하기"
+          subtitle="홈 화면에 표시할 영양소 수정"
+          onPress={() => router.push('/(tabs)/mypage/nutrient-preferences')}
+        />
       </View>
 
       <Text style={styles.sectionLabel}>기타</Text>

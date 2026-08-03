@@ -6,7 +6,14 @@ from fastapi import APIRouter, HTTPException, Depends
 
 from backend.database import get_db
 from backend.risk import calculate_current_pregnancy_age, calculate_days_until_due
-from backend.intake_totals import get_trimester_limits, get_status, compute_overall_status
+from backend.intake_totals import (
+    compute_overall_status,
+    get_fat_status,
+    get_floor_status,
+    get_informational_status,
+    get_status,
+    get_trimester_limits,
+)
 
 router = APIRouter()
 
@@ -33,6 +40,19 @@ def _fetch_intake_summary_for_date(user_id: int, target_date: str, db: sqlite3.C
             COALESCE(SUM(sodium_mg), 0) AS total_sodium,
             COALESCE(SUM(CASE WHEN sodium_mg IS NULL THEN 1 ELSE 0 END), 0) AS unknown_sodium_count,
             COALESCE(SUM(calories_kcal), 0) AS total_calories,
+            COALESCE(SUM(CASE WHEN calories_kcal IS NULL THEN 1 ELSE 0 END), 0) AS unknown_energy_count,
+            COALESCE(SUM(carbohydrate_g), 0) AS total_carbohydrate,
+            COALESCE(SUM(CASE WHEN carbohydrate_g IS NULL THEN 1 ELSE 0 END), 0) AS unknown_carbohydrate_count,
+            COALESCE(SUM(protein_g), 0) AS total_protein,
+            COALESCE(SUM(CASE WHEN protein_g IS NULL THEN 1 ELSE 0 END), 0) AS unknown_protein_count,
+            COALESCE(SUM(fat_g), 0) AS total_fat,
+            COALESCE(SUM(CASE WHEN fat_g IS NULL THEN 1 ELSE 0 END), 0) AS unknown_fat_count,
+            COALESCE(SUM(saturated_fat_g), 0) AS total_saturated_fat,
+            COALESCE(SUM(CASE WHEN saturated_fat_g IS NULL THEN 1 ELSE 0 END), 0) AS unknown_saturated_fat_count,
+            COALESCE(SUM(trans_fat_g), 0) AS total_trans_fat,
+            COALESCE(SUM(CASE WHEN trans_fat_g IS NULL THEN 1 ELSE 0 END), 0) AS unknown_trans_fat_count,
+            COALESCE(SUM(cholesterol_mg), 0) AS total_cholesterol,
+            COALESCE(SUM(CASE WHEN cholesterol_mg IS NULL THEN 1 ELSE 0 END), 0) AS unknown_cholesterol_count,
             COALESCE(SUM(CASE WHEN category = 'water' THEN 1 ELSE 0 END), 0) AS water_cups
         FROM food_log
         WHERE user_id = ? AND DATE(eaten_at) = ?
@@ -61,20 +81,43 @@ def _fetch_intake_summary_for_date(user_id: int, target_date: str, db: sqlite3.C
     caffeine_limit = limits["caffeine_mg"]
     sugar_limit = limits["sugar_g"]
     sodium_limit = limits["sodium_mg"]
+    carbohydrate_minimum = limits["carbohydrate_g"]
+    protein_target = limits["protein_g"]
+    energy_target = limits["energy_kcal"]
+    fat_ratio_min = limits["fat_ratio_min"]
+    fat_ratio_max = limits["fat_ratio_max"]
+    saturated_fat_ratio_max = limits["saturated_fat_ratio_max"]
+    trans_fat_ratio_max = limits["trans_fat_ratio_max"]
 
     total_caffeine = intake["total_caffeine"]
     total_sugar = intake["total_sugar"]
     total_sodium = intake["total_sodium"]
     total_calories = intake["total_calories"]
+    total_carbohydrate = intake["total_carbohydrate"]
+    total_protein = intake["total_protein"]
+    total_fat = intake["total_fat"]
+    total_saturated_fat = intake["total_saturated_fat"]
+    total_trans_fat = intake["total_trans_fat"]
+    total_cholesterol = intake["total_cholesterol"]
     water_cups = intake["water_cups"]
     unknown_caffeine_count = intake["unknown_caffeine_count"]
     unknown_sugar_count = intake["unknown_sugar_count"]
     unknown_sodium_count = intake["unknown_sodium_count"]
+    unknown_energy_count = intake["unknown_energy_count"]
+    unknown_carbohydrate_count = intake["unknown_carbohydrate_count"]
+    unknown_protein_count = intake["unknown_protein_count"]
+    unknown_fat_count = intake["unknown_fat_count"]
+    unknown_saturated_fat_count = intake["unknown_saturated_fat_count"]
+    unknown_trans_fat_count = intake["unknown_trans_fat_count"]
+    unknown_cholesterol_count = intake["unknown_cholesterol_count"]
 
-    # 5. 잔여 허용량 계산
+    # 5. 잔여 허용량 계산 (상한선 영양소) / 목표까지 남은 양 계산 (하한선 영양소)
     remaining_caffeine = round(max(0, caffeine_limit - total_caffeine), 2)
     remaining_sugar = round(max(0, sugar_limit - total_sugar), 2)
     remaining_sodium = round(max(0, sodium_limit - total_sodium), 2)
+    remaining_carbohydrate = round(max(0, carbohydrate_minimum - total_carbohydrate), 2)
+    remaining_protein = round(max(0, protein_target - total_protein), 2)
+    remaining_energy = round(max(0, energy_target - total_calories), 2)
 
     # 6. 퍼센트 계산
     def get_percent(value, standard):
@@ -85,23 +128,46 @@ def _fetch_intake_summary_for_date(user_id: int, target_date: str, db: sqlite3.C
     caffeine_percent = get_percent(total_caffeine, caffeine_limit)
     sugar_percent = get_percent(total_sugar, sugar_limit)
     sodium_percent = get_percent(total_sodium, sodium_limit)
+    carbohydrate_percent = get_percent(total_carbohydrate, carbohydrate_minimum)
+    protein_percent = get_percent(total_protein, protein_target)
+    energy_percent = get_percent(total_calories, energy_target)
 
     # 7. 상태 계산
     caffeine_status = get_status(total_caffeine, caffeine_limit, unknown_caffeine_count)
     sugar_status = get_status(total_sugar, sugar_limit, unknown_sugar_count)
     sodium_status = get_status(total_sodium, sodium_limit, unknown_sodium_count)
+    carbohydrate_status = get_floor_status(total_carbohydrate, carbohydrate_minimum, unknown_carbohydrate_count)
+    protein_status = get_floor_status(total_protein, protein_target, unknown_protein_count)
+    energy_status = get_floor_status(total_calories, energy_target, unknown_energy_count)
+    fat_status = get_fat_status(total_fat, total_calories, fat_ratio_min, fat_ratio_max, unknown_fat_count)
+    saturated_fat_status = get_status(
+        total_saturated_fat, total_calories * saturated_fat_ratio_max, unknown_saturated_fat_count
+    )
+    trans_fat_status = get_status(
+        total_trans_fat, total_calories * trans_fat_ratio_max, unknown_trans_fat_count
+    )
+    cholesterol_status = get_informational_status(
+        None if unknown_cholesterol_count > 0 else total_cholesterol
+    )
 
+    # overall_status는 기존과 동일하게 카페인/당류/나트륨만으로 계산한다.
+    # 새로 추가된 영양소(탄수화물/단백질/에너지/지방류)는 아직 대부분의 food_log 행에
+    # 값이 없어(NULL) 여기에 포함시키면 overall_status가 거의 항상 unknown으로
+    # 뒤덮여버린다 — 각 영양소별 status는 개별 필드로만 노출한다.
     overall_status = compute_overall_status(caffeine_status, sugar_status, sodium_status)
 
     # 8. 화면용 한글 라벨
     def status_label(status):
-        if status == "safe":
-            return "여유"
-        elif status == "caution":
-            return "주의"
-        elif status == "avoid":
-            return "초과"
-        return "정보없음"
+        labels = {
+            "safe": "여유",
+            "caution": "주의",
+            "avoid": "초과",
+            "sufficient": "충분",
+            "low": "부족 주의",
+            "insufficient": "부족",
+            "info": "참고",
+        }
+        return labels.get(status, "정보없음")
 
     # 9. Food Diary 하단 분석 메시지 생성
     messages = []
@@ -168,41 +234,81 @@ def _fetch_intake_summary_for_date(user_id: int, target_date: str, db: sqlite3.C
             "total_sugar": total_sugar,
             "total_sodium": total_sodium,
             "total_calories": total_calories,
+            "total_carbohydrate": total_carbohydrate,
+            "total_protein": total_protein,
+            "total_fat": total_fat,
+            "total_saturated_fat": total_saturated_fat,
+            "total_trans_fat": total_trans_fat,
+            "total_cholesterol": total_cholesterol,
             "unknown_caffeine_count": unknown_caffeine_count,
             "unknown_sugar_count": unknown_sugar_count,
-            "unknown_sodium_count": unknown_sodium_count
+            "unknown_sodium_count": unknown_sodium_count,
+            "unknown_energy_count": unknown_energy_count,
+            "unknown_carbohydrate_count": unknown_carbohydrate_count,
+            "unknown_protein_count": unknown_protein_count,
+            "unknown_fat_count": unknown_fat_count,
+            "unknown_saturated_fat_count": unknown_saturated_fat_count,
+            "unknown_trans_fat_count": unknown_trans_fat_count,
+            "unknown_cholesterol_count": unknown_cholesterol_count
         },
 
         "limits": {
             "caffeine_limit_mg": caffeine_limit,
             "sugar_limit_g": sugar_limit,
-            "sodium_limit_mg": sodium_limit
+            "sodium_limit_mg": sodium_limit,
+            "carbohydrate_minimum_g": carbohydrate_minimum,
+            "protein_target_g": protein_target,
+            "energy_target_kcal": energy_target,
+            "fat_ratio_min": fat_ratio_min,
+            "fat_ratio_max": fat_ratio_max,
+            "saturated_fat_ratio_max": saturated_fat_ratio_max,
+            "trans_fat_ratio_max": trans_fat_ratio_max
         },
 
         "remaining": {
             "remaining_caffeine": remaining_caffeine,
             "remaining_sugar": remaining_sugar,
-            "remaining_sodium": remaining_sodium
+            "remaining_sodium": remaining_sodium,
+            "remaining_carbohydrate": remaining_carbohydrate,
+            "remaining_protein": remaining_protein,
+            "remaining_energy": remaining_energy
         },
 
         "progress": {
             "caffeine_percent": caffeine_percent,
             "sugar_percent": sugar_percent,
-            "sodium_percent": sodium_percent
+            "sodium_percent": sodium_percent,
+            "carbohydrate_percent": carbohydrate_percent,
+            "protein_percent": protein_percent,
+            "energy_percent": energy_percent
         },
 
         "status": {
             "overall_status": overall_status,
             "caffeine_status": caffeine_status,
             "sugar_status": sugar_status,
-            "sodium_status": sodium_status
+            "sodium_status": sodium_status,
+            "carbohydrate_status": carbohydrate_status,
+            "protein_status": protein_status,
+            "energy_status": energy_status,
+            "fat_status": fat_status,
+            "saturated_fat_status": saturated_fat_status,
+            "trans_fat_status": trans_fat_status,
+            "cholesterol_status": cholesterol_status
         },
 
         "status_label": {
             "overall": status_label(overall_status),
             "caffeine": status_label(caffeine_status),
             "sugar": status_label(sugar_status),
-            "sodium": status_label(sodium_status)
+            "sodium": status_label(sodium_status),
+            "carbohydrate": status_label(carbohydrate_status),
+            "protein": status_label(protein_status),
+            "energy": status_label(energy_status),
+            "fat": status_label(fat_status),
+            "saturated_fat": status_label(saturated_fat_status),
+            "trans_fat": status_label(trans_fat_status),
+            "cholesterol": status_label(cholesterol_status)
         },
 
         "summary": {
