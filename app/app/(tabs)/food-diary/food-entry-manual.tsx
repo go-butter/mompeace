@@ -33,11 +33,19 @@ import CaffeineIcon from '@/assets/images/foodDiary/caffeine.svg';
 import SodiumIcon from '@/assets/images/foodDiary/sodium.svg';
 import SugarIcon from '@/assets/images/foodDiary/sugar.svg';
 import { authColors } from '@/components/auth/colors';
+import BottomSheet from '@/components/common/BottomSheet';
 import { fonts, nanumSquareRound } from '@/constants/fonts';
 import { useAuth } from '@/context/auth-context';
 import { ApiError, createFoodLog, createPersonalFoodItem } from '@/lib/api-client';
 
-const UNITS = ['개', 'g', 'ml', '인분'];
+const UNITS = ['개', '인분', '접시', '컵', 'g', 'ml'];
+const AMOUNT_PRESETS = [
+  { label: '1/4', value: '0.25' },
+  { label: '1/3', value: '0.33' },
+  { label: '1/2', value: '0.5' },
+  { label: '1', value: '1' },
+  { label: '2', value: '2' },
+];
 const EXPAND_SPRING_CONFIG = { damping: 16, stiffness: 100, mass: 1 };
 
 function sanitizeNonNegativeDecimal(text: string) {
@@ -131,12 +139,17 @@ export default function FoodEntryManualScreen() {
   const [foodName, setFoodName] = useState(name ?? '');
   const [amount, setAmount] = useState('1');
   const [unit, setUnit] = useState(UNITS[0]);
+  const [unitSheetVisible, setUnitSheetVisible] = useState(false);
   const [time, setTime] = useState(new Date());
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [caffeineMg, setCaffeineMg] = useState('');
   const [sugarG, setSugarG] = useState('');
   const [sodiumMg, setSodiumMg] = useState('');
   const [caloriesKcal, setCaloriesKcal] = useState('');
+  const [carbohydrateG, setCarbohydrateG] = useState('');
+  const [fatG, setFatG] = useState('');
+  const [ironMg, setIronMg] = useState('');
+  const [proteinG, setProteinG] = useState('');
   const [draftRows, setDraftRows] = useState<{ id: string; name: string; value: string }[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -213,6 +226,10 @@ export default function FoodEntryManualScreen() {
     const sugar = sugarG.trim() === '' ? 0 : Number(sugarG);
     const sodium = sodiumMg.trim() === '' ? 0 : Number(sodiumMg);
     const calories = caloriesKcal.trim() === '' ? 0 : Number(caloriesKcal);
+    const carbohydrate = carbohydrateG.trim() === '' ? null : Number(carbohydrateG);
+    const fat = fatG.trim() === '' ? null : Number(fatG);
+    const iron = ironMg.trim() === '' ? null : Number(ironMg);
+    const protein = proteinG.trim() === '' ? null : Number(proteinG);
     const eatenAt = toEatenAt(date, time);
 
     setSaving(true);
@@ -225,6 +242,13 @@ export default function FoodEntryManualScreen() {
       sugar_g: sugar,
       sodium_mg: sodium,
       calories_kcal: 0,
+      carbohydrate_g: carbohydrate,
+      protein_g: protein,
+      fat_g: fat,
+      saturated_fat_g: null,
+      trans_fat_g: null,
+      cholesterol_mg: null,
+      iron_mg: iron,
     })
       .catch((err) => {
         const message = err instanceof ApiError ? err.message : (err as Error).message;
@@ -241,6 +265,10 @@ export default function FoodEntryManualScreen() {
           sugar_g: sugar,
           sodium_mg: sodium,
           calories_kcal: calories,
+          carbohydrate_g: carbohydrate,
+          fat_g: fat,
+          iron_mg: iron,
+          protein_g: protein,
           eaten_at: eatenAt,
           extra_nutrients: draftRows
             .filter((r) => r.name.trim() && r.value.trim())
@@ -301,9 +329,25 @@ export default function FoodEntryManualScreen() {
         </View>
       </View>
 
-      {/* 섭취량 */}
+      {/* 섭취단위 */}
       <View style={styles.card}>
-        <Text style={styles.fieldLabel}>섭취량</Text>
+        <Text style={styles.fieldLabel}>섭취단위</Text>
+        <View style={styles.presetRow}>
+          {AMOUNT_PRESETS.map((p) => (
+            <Pressable
+              key={p.label}
+              style={[styles.presetChip, amount === p.value && styles.presetChipSelected]}
+              onPress={() => setAmount(p.value)}>
+              <Text
+                style={[
+                  styles.presetChipText,
+                  amount === p.value && styles.presetChipTextSelected,
+                ]}>
+                {p.label}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
         <View style={styles.amountRow}>
           <TextInput
             style={styles.amountInput}
@@ -311,18 +355,10 @@ export default function FoodEntryManualScreen() {
             onChangeText={setAmount}
             keyboardType="numeric"
           />
-          <View style={styles.unitPillRow}>
-            {UNITS.map((u) => (
-              <Pressable
-                key={u}
-                style={[styles.unitPill, unit === u && styles.unitPillSelected]}
-                onPress={() => setUnit(u)}>
-                <Text style={[styles.unitPillText, unit === u && styles.unitPillTextSelected]}>
-                  {u}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
+          <Pressable style={styles.unitTriggerPill} onPress={() => setUnitSheetVisible(true)}>
+            <Text style={styles.unitTriggerPillText}>{unit}</Text>
+            <ChevronDownIcon width={12} height={8} />
+          </Pressable>
         </View>
       </View>
 
@@ -369,7 +405,7 @@ export default function FoodEntryManualScreen() {
         </View>
 
         <Text style={styles.nutrientHintText}>
-          ※ 성분값은 섭취한 총량 기준으로 입력해주세요
+          ※ {(amount.trim() || '1')}{unit} 기준으로 영양성분을 작성해주세요
         </Text>
 
         <View style={styles.nutrientInputRow}>
@@ -429,6 +465,64 @@ export default function FoodEntryManualScreen() {
           />
         </View>
 
+        {/* TODO: placeholder — reuses existing icons until dedicated 탄수화물/지방/철분/단백질 icons are designed. */}
+        <View style={styles.nutrientInputRow}>
+          <View style={styles.nutrientLabelGroup}>
+            <SugarIcon width={17} height={17} />
+            <Text style={styles.nutrientLabel}>탄수화물(g)</Text>
+          </View>
+          <TextInput
+            style={styles.nutrientInput}
+            value={carbohydrateG}
+            onChangeText={(text) => setCarbohydrateG(sanitizeNonNegativeDecimal(text))}
+            placeholder="예: 30"
+            placeholderTextColor={authColors.gray}
+            keyboardType="decimal-pad"
+          />
+        </View>
+        <View style={styles.nutrientInputRow}>
+          <View style={styles.nutrientLabelGroup}>
+            <CaloriesIcon width={17} height={17} />
+            <Text style={styles.nutrientLabel}>지방(g)</Text>
+          </View>
+          <TextInput
+            style={styles.nutrientInput}
+            value={fatG}
+            onChangeText={(text) => setFatG(sanitizeNonNegativeDecimal(text))}
+            placeholder="예: 10"
+            placeholderTextColor={authColors.gray}
+            keyboardType="decimal-pad"
+          />
+        </View>
+        <View style={styles.nutrientInputRow}>
+          <View style={styles.nutrientLabelGroup}>
+            <SodiumIcon width={18} height={18} />
+            <Text style={styles.nutrientLabel}>철분(mg)</Text>
+          </View>
+          <TextInput
+            style={styles.nutrientInput}
+            value={ironMg}
+            onChangeText={(text) => setIronMg(sanitizeNonNegativeDecimal(text))}
+            placeholder="예: 2"
+            placeholderTextColor={authColors.gray}
+            keyboardType="decimal-pad"
+          />
+        </View>
+        <View style={styles.nutrientInputRow}>
+          <View style={styles.nutrientLabelGroup}>
+            <CaffeineIcon width={17} height={17} />
+            <Text style={styles.nutrientLabel}>단백질(g)</Text>
+          </View>
+          <TextInput
+            style={styles.nutrientInput}
+            value={proteinG}
+            onChangeText={(text) => setProteinG(sanitizeNonNegativeDecimal(text))}
+            placeholder="예: 5"
+            placeholderTextColor={authColors.gray}
+            keyboardType="decimal-pad"
+          />
+        </View>
+
         <View>
           {draftRows.map((row) => (
             <DraftRow
@@ -457,6 +551,28 @@ export default function FoodEntryManualScreen() {
         <Text style={styles.saveButtonText}>{saving ? '저장 중...' : '기록 저장'}</Text>
       </Pressable>
       </ScrollView>
+
+      <BottomSheet visible={unitSheetVisible} onClose={() => setUnitSheetVisible(false)}>
+        <View style={[styles.sheetContainer, { paddingBottom: styles.sheetContainer.paddingBottom + insets.bottom }]}>
+          <Text style={styles.sheetTitle}>섭취단위 선택</Text>
+          {UNITS.map((u) => (
+            <Pressable
+              key={u}
+              style={[styles.unitRow, unit === u && styles.unitRowSelected]}
+              onPress={() => {
+                setUnit(u);
+                setUnitSheetVisible(false);
+              }}>
+              <Text style={[styles.unitRowText, unit === u && styles.unitRowTextSelected]}>
+                {u}
+              </Text>
+            </Pressable>
+          ))}
+          <Pressable onPress={() => setUnitSheetVisible(false)}>
+            <Text style={styles.sheetCancelText}>닫기</Text>
+          </Pressable>
+        </View>
+      </BottomSheet>
     </KeyboardAvoidingView>
   );
 }
@@ -543,28 +659,85 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#000000',
   },
-  unitPillRow: {
+  presetRow: {
     flexDirection: 'row',
     gap: 6,
+    marginTop: 10,
   },
-  unitPill: {
+  presetChip: {
     borderWidth: 1,
     borderColor: authColors.border,
     borderRadius: 100,
-    paddingHorizontal: 5,
+    paddingHorizontal: 10,
     paddingVertical: 5,
   },
-  unitPillSelected: {
+  presetChipSelected: {
     borderColor: authColors.pink,
     backgroundColor: '#FFF5F3',
   },
-  unitPillText: {
+  presetChipText: {
     fontFamily: nanumSquareRound.bold,
     fontSize: 11,
     color: authColors.gray,
   },
-  unitPillTextSelected: {
+  presetChipTextSelected: {
     color: authColors.pink,
+  },
+  unitTriggerPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    borderWidth: 0.7,
+    borderColor: authColors.border,
+    borderRadius: 6,
+    height: 32,
+    paddingHorizontal: 12,
+  },
+  unitTriggerPillText: {
+    fontFamily: nanumSquareRound.bold,
+    fontSize: 12,
+    color: authColors.gray,
+  },
+  sheetContainer: {
+    backgroundColor: authColors.white,
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    paddingTop: 36,
+    paddingHorizontal: 19,
+    paddingBottom: 40,
+  },
+  sheetTitle: {
+    fontFamily: fonts.medium,
+    fontSize: 18,
+    color: '#000000',
+    marginBottom: 8,
+  },
+  unitRow: {
+    paddingVertical: 14,
+    borderBottomWidth: 0.7,
+    borderBottomColor: authColors.border,
+  },
+  unitRowSelected: {
+    backgroundColor: '#FFF5F3',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+  },
+  unitRowText: {
+    fontFamily: fonts.medium,
+    fontSize: 15,
+    color: authColors.grayDark,
+  },
+  unitRowTextSelected: {
+    color: authColors.pink,
+  },
+  sheetCancelText: {
+    fontFamily: nanumSquareRound.bold,
+    fontSize: 15,
+    color: authColors.gray,
+    textAlign: 'center',
+    marginTop: 16,
+    textDecorationLine: 'underline',
   },
   timeInput: {
     backgroundColor: authColors.white,
