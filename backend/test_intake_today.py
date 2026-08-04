@@ -5,10 +5,52 @@ backend/main.py 의 get_today_intake() 테스트.
 - 응답에 pregnancy_day, due_date, days_until_due 필드가 포함된다
 - due_date가 미래로 설정되어 있으면 days_until_due는 양의 정수다
 - due_date가 없으면 days_until_due는 None이다
+- fat/saturated_fat/trans_fat_status: energy_total(kcal) * ratio를 그램으로
+  환산(KCAL_PER_GRAM_FAT)하지 않고 그램 값과 직접 비교하면 상한 초과가 "avoid"가
+  아니라 "low"로 잘못 판정된다 — 이 회귀를 가드한다
 """
 from backend.routers.intake import get_today_intake
 
-from .conftest import make_user
+from .conftest import make_food_log, make_user
+
+
+class TestGetTodayIntakeStatusLabelVocabulary:
+    """Food Diary(get_today_intake)의 status_label은 홈 화면(/intake/summary)과 동일한
+    simplified_status_label() 어휘를 재사용해야 한다 — 같은 상태 코드가 화면마다 다른
+    단어로 보이면 안전 앱에서 사용자 혼란을 유발한다."""
+
+    def test_ceiling_caution_uses_shared_vocabulary_not_old_local_wording(self, db):
+        # 150/200 = 0.75 -> caution. 예전 로컬 status_label()은 "주의"를 반환했지만,
+        # simplified_status_label("ceiling", "caution")은 "안전"이다.
+        user_id = make_user(db)
+        make_food_log(db, user_id, caffeine_mg=150)
+
+        result = get_today_intake(user_id=user_id, db=db)
+
+        assert result["status"]["caffeine_status"] == "caution"
+        assert result["status_label"]["caffeine"] == "안전"
+
+    def test_band_caution_uses_ceiling_style_wording(self, db):
+        # fat_status는 get_fat_status()(band)의 결과이며, caution 구간은 ceiling과
+        # 동일한 어휘("안전")를 쓴다 (_BAND_LABELS 참고).
+        user_id = make_user(db)
+        make_food_log(db, user_id, calories_kcal=2000, fat_g=55)  # ceiling 쪽 caution 구간
+
+        result = get_today_intake(user_id=user_id, db=db)
+
+        assert result["status"]["fat_status"] == "caution"
+        assert result["status_label"]["fat"] == "안전"
+
+    def test_informational_known_value_has_no_status_label(self, db):
+        # 예전 로컬 status_label()은 info를 "참고"로 표시했지만, 홈 화면과 동일하게
+        # 판정 자체가 없는 값이므로 라벨 없이 None이어야 한다.
+        user_id = make_user(db)
+        make_food_log(db, user_id, cholesterol_mg=45)
+
+        result = get_today_intake(user_id=user_id, db=db)
+
+        assert result["status"]["cholesterol_status"] == "info"
+        assert result["status_label"]["cholesterol"] is None
 
 
 class TestGetTodayIntakeDueDate:
@@ -31,3 +73,33 @@ class TestGetTodayIntakeDueDate:
 
         assert result["due_date"] is None
         assert result["days_until_due"] is None
+
+
+class TestGetTodayIntakeFatStatus:
+    def test_fat_status_compares_grams_against_gram_limit(self, db):
+        # 90g 지방 / 2000kcal = 총 에너지의 40.5%, 상한(30%) 그램 환산 66.7g을 초과 -> avoid.
+        # 환산 없이 비교하면 90/(2000*0.30)=0.15로 "safe"가 되어버린다.
+        user_id = make_user(db)
+        make_food_log(db, user_id, calories_kcal=2000, fat_g=90)
+
+        result = get_today_intake(user_id=user_id, db=db)
+
+        assert result["status"]["fat_status"] == "avoid"
+
+    def test_saturated_fat_status_compares_grams_against_gram_limit(self, db):
+        # 20g 포화지방 / 2000kcal: 상한(7%) 그램 환산 15.56g을 초과 -> avoid.
+        user_id = make_user(db)
+        make_food_log(db, user_id, calories_kcal=2000, saturated_fat_g=20)
+
+        result = get_today_intake(user_id=user_id, db=db)
+
+        assert result["status"]["saturated_fat_status"] == "avoid"
+
+    def test_trans_fat_status_compares_grams_against_gram_limit(self, db):
+        # 5g 트랜스지방 / 2000kcal: 상한(1%) 그램 환산 2.22g을 초과 -> avoid.
+        user_id = make_user(db)
+        make_food_log(db, user_id, calories_kcal=2000, trans_fat_g=5)
+
+        result = get_today_intake(user_id=user_id, db=db)
+
+        assert result["status"]["trans_fat_status"] == "avoid"

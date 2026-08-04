@@ -6,9 +6,9 @@
 트라이메스터는 caution 민감도(early 카페인 60%, late 나트륨 80%, apply_safety_guard())에만
 영향을 주며, 아래 절대 기준값 자체는 트라이메스터와 무관하게 항상 동일하다.
 
-에너지/단백질 기준값은 19-29세 구간(2000kcal/55g)을 전 사용자 공통 baseline으로 고정 사용한다.
-가입 시 나이(생년월일)를 수집하지 않기로 확정했으므로, 30-49세 구간이나 나이 기반 분기는
-추가하지 않는다 — 분기할 나이 정보 자체가 없다.
+에너지/단백질 기준값은 나이대(19-29세 / 30-49세)에 따라 다른 baseline을 사용한다.
+가입 시 생년월일 대신 나이대(age_bracket)를 선택형으로 수집한다 — 표준 자체가 나이대로
+구간화되어 있고, 정확한 나이를 계속 계산할 필요도 없기 때문이다.
 """
 DAILY_CAFFEINE_LIMIT_MG = 200.0
 DAILY_SUGAR_LIMIT_G = 50.0
@@ -17,23 +17,58 @@ DAILY_SODIUM_LIMIT_MG = 1500.0
 # 탄수화물: 하한선(최소 섭취 권장량) — 다른 영양소와 달리 "초과"가 아니라 "미달"이 문제.
 DAILY_CARB_MINIMUM_G = 175.0
 
-# 에너지/단백질: 19-29세 baseline + 트라이메스터 가산량 (트라이메스터별로 값이 달라지는 유일한 절대 기준)
-BASE_ENERGY_KCAL = 2000.0
-BASE_PROTEIN_G = 55.0
+# 나이대: users.age_bracket 컬럼에 저장되는 값. 가입 시 미입력이거나 기존(마이그레이션 이전)
+# 사용자는 "19-29"로 취급한다 — 기존 고정 baseline과 동일해 회귀가 없다.
+AGE_BRACKETS = ("19-29", "30-49")
+DEFAULT_AGE_BRACKET = "19-29"
+
+# 에너지/단백질: 나이대별 baseline + 트라이메스터 가산량 (트라이메스터별로 값이 달라지는 유일한 절대 기준)
+BASE_ENERGY_KCAL = {"19-29": 2000.0, "30-49": 1900.0}
+BASE_PROTEIN_G = {"19-29": 55.0, "30-49": 50.0}
 TRIMESTER_ENERGY_ADD_KCAL = {"early": 0.0, "middle": 340.0, "late": 450.0}
 TRIMESTER_PROTEIN_ADD_G = {"early": 0.0, "middle": 15.0, "late": 30.0}
+
+
+def validate_age_bracket(age_bracket: str | None) -> str | None:
+    """age_bracket 입력값을 검증한다.
+
+    None(미지정)은 그대로 None을 반환한다 — PUT에서는 "값을 바꾸지 않음"으로,
+    회원가입에서는 컬럼을 NULL로 남겨 조회 시 DEFAULT_AGE_BRACKET으로 해석되게 한다.
+    """
+    if age_bracket is None:
+        return None
+    if age_bracket not in AGE_BRACKETS:
+        raise ValueError(f"나이대는 {', '.join(AGE_BRACKETS)} 중 하나여야 해요.")
+    return age_bracket
 
 # 지방: 고정 그램 기준이 아니라 총 에너지 섭취량 대비 비율 기준 (트라이메스터 불변)
 FAT_ENERGY_RATIO_MIN = 0.15
 FAT_ENERGY_RATIO_MAX = 0.30
 SATURATED_FAT_ENERGY_RATIO_MAX = 0.07
 TRANS_FAT_ENERGY_RATIO_MAX = 0.01
+# 지방 1g = 9kcal — 비율(energy_total * ratio)은 kcal 단위이므로, food_log에 그램 단위로
+# 저장된 실제 섭취량과 비교하려면 이 값으로 나눠 그램 기준으로 환산해야 한다.
+KCAL_PER_GRAM_FAT = 9.0
 # 콜레스테롤: 국내 공식 상한 기준 없음 — 임계값을 만들지 않고 참고용 수치만 표시한다.
 
 # 홈 화면 요약에 표시할 수 있는 선택형 영양소 (카페인/물은 항상 표시되므로 선택지에서 제외)
 SELECTABLE_NUTRIENT_KEYS = ("carbohydrate", "sugar", "energy", "fat", "cholesterol", "protein", "sodium")
 DEFAULT_SELECTED_NUTRIENTS = ("carbohydrate", "sugar", "sodium")
 MAX_SELECTED_NUTRIENTS = 3
+
+# app/constants/nutrients.ts의 NUTRIENT_LABELS_KO와 값을 맞춰서 유지한다
+# (두 언어 간 공유 코드젠이 없어 수동 동기화 — 파일 상단 주석 참고).
+NUTRIENT_LABELS_KO = {
+    "caffeine": "카페인",
+    "water": "물",
+    "carbohydrate": "탄수화물",
+    "sugar": "당류",
+    "energy": "에너지",
+    "fat": "지방",
+    "cholesterol": "콜레스테롤",
+    "protein": "단백질",
+    "sodium": "나트륨",
+}
 
 # 자유 텍스트로 입력된 추가 성분(food_log_extra_nutrients)의 name이 아래 라벨과
 # 정확히 일치하면, 추가 성분 저장과 별개로 food_log의 타입 컬럼에도 값을 반영한다.
@@ -73,9 +108,9 @@ def parse_selected_nutrients(raw: str | None) -> list[str]:
         return []
     return raw.split(",")
 
-# 수분 1일 권장 섭취량 2000mL(8잔 x 250mL): 일반 성인 권장 참고치.
-# 트라이메스터별 기준값은 별도 연구 예정 - 현재는 단일 고정값만 사용.
-DAILY_WATER_TARGET_ML = 2000.0
+# 수분 1일 충분섭취량 2300mL: 비임신 여성 기준 2,100mL + 임신부 가산량 200mL
+# (질병관리청 국가건강정보포털 「식이영양(임산부)」, 트라이메스터 무관 동일값).
+DAILY_WATER_TARGET_ML = 2300.0
 
 TRIMESTER_NOTES = {
     "early": "임신 초기에는 카페인 섭취량과 알레르기 유발 성분을 특히 꼼꼼히 확인해 주세요.",

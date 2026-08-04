@@ -4,7 +4,7 @@ from datetime import date as date_type, timedelta
 from fastapi import APIRouter, HTTPException, Depends
 
 from backend.database import get_db
-from backend.risk import calculate_current_pregnancy_age
+from backend.nutrition_constants import KCAL_PER_GRAM_FAT
 from backend.intake_totals import (
     compute_overall_status,
     get_fat_status,
@@ -12,6 +12,7 @@ from backend.intake_totals import (
     get_informational_status,
     get_status,
     get_trimester_limits,
+    resolve_user_nutrition_context,
 )
 
 router = APIRouter()
@@ -139,11 +140,18 @@ def _build_extra_nutrient_report_block(totals: dict, limits: dict, divisor: int)
     fat_status = get_fat_status(
         total_fat, total_energy, fat_ratio_min, fat_ratio_max, totals["unknown_fat_count"]
     )
+    # energy_total(kcal) * ratio는 kcal 단위이므로, 그램 단위인 total_saturated_fat/
+    # total_trans_fat과 비교하려면 KCAL_PER_GRAM_FAT(9kcal/g)로 나눠 환산해야 한다
+    # (get_fat_status()와 동일한 이유).
     saturated_fat_status = get_status(
-        total_saturated_fat, total_energy * saturated_fat_ratio_max, totals["unknown_saturated_fat_count"]
+        total_saturated_fat,
+        total_energy * saturated_fat_ratio_max / KCAL_PER_GRAM_FAT,
+        totals["unknown_saturated_fat_count"],
     )
     trans_fat_status = get_status(
-        total_trans_fat, total_energy * trans_fat_ratio_max, totals["unknown_trans_fat_count"]
+        total_trans_fat,
+        total_energy * trans_fat_ratio_max / KCAL_PER_GRAM_FAT,
+        totals["unknown_trans_fat_count"],
     )
     cholesterol_status = get_informational_status(
         None if totals["unknown_cholesterol_count"] > 0 else total_cholesterol
@@ -280,11 +288,8 @@ def get_premium_report(
     else:
         target_date = date_type.today()
 
-    computed_age = calculate_current_pregnancy_age(
-        user.get("pregnancy_week"), user.get("pregnancy_day"), user.get("pregnancy_entered_at")
-    )
-    week = computed_age["week"] or 20
-    trimester, limits = get_trimester_limits(week)
+    week, age_bracket = resolve_user_nutrition_context(user)
+    trimester, limits = get_trimester_limits(week, age_bracket)
     caffeine_limit = limits["caffeine_mg"]
     sugar_limit    = limits["sugar_g"]
     sodium_limit   = limits["sodium_mg"]

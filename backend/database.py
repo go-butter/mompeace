@@ -62,6 +62,9 @@ def init_db():
     # 홈 화면 요약에 표시할 선택 영양소 (최대 3개, comma-separated). 미설정(NULL)이면
     # 앱에서 DEFAULT_SELECTED_NUTRIENTS로 취급한다.
     add_column_if_not_exists(cursor, "users", "selected_nutrients", "TEXT")
+    # 나이대("19-29"/"30-49") — 에너지/단백질 baseline 분기용. 미설정(NULL)이면
+    # 앱에서 DEFAULT_AGE_BRACKET("19-29")으로 취급한다.
+    add_column_if_not_exists(cursor, "users", "age_bracket", "TEXT")
 
     # nickname/login_id 중복 방지 (로그인 시 둘 중 하나로 조회 가능해야 하므로 각각 유일해야 함)
     cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_nickname ON users(nickname)")

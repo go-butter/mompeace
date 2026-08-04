@@ -97,18 +97,56 @@ class TestGetPremiumReportDaily:
 class TestGetPremiumReportFatCholesterol:
     def test_fat_and_cholesterol_totals_and_status_from_real_values(self, db):
         user_id = make_user(db, pregnancy_week=20)
+        # 40g 지방 / 2000kcal = 총 에너지의 18% -> 15~30% 밴드 안쪽 (safe)
         make_food_log(db, user_id, caffeine_mg=0, sugar_g=0, sodium_mg=0,
-                       calories_kcal=2000, fat_g=400, cholesterol_mg=150,
+                       calories_kcal=2000, fat_g=40, cholesterol_mg=150,
                        eaten_at="2030-01-15 09:00:00")
 
         result = get_premium_report(user_id=user_id, period="daily", date="2030-01-15", db=db)
 
-        assert result["totals"]["fat_g"] == 400.0
+        assert result["totals"]["fat_g"] == 40.0
         assert result["totals"]["cholesterol_mg"] == 150.0
-        # 지방: 400g은 총 에너지(2000kcal) 대비 상한(30%=600)과 하한(15%=300) 사이 -> safe
         assert result["status"]["fat_status"] == "safe"
         # 콜레스테롤: 공식 상한 기준이 없어 값이 있으면 "info"로 표시된다 (unknown이 아님)
         assert result["status"]["cholesterol_status"] == "info"
+
+    def test_fat_status_compares_grams_against_gram_limit_not_raw_kcal_number(self, db):
+        # 회귀 가드: energy_total(kcal) * ratio는 kcal 단위이므로, 그램 단위인
+        # total_fat과 비교하려면 KCAL_PER_GRAM_FAT(9kcal/g)로 나눠야 한다. 이 환산이
+        # 없으면 90g(총 에너지의 40.5%, 상한 30%를 크게 초과)이 "avoid"가 아니라
+        # "low"로(=상한 초과를 부족으로) 잘못 판정된다.
+        user_id = make_user(db, pregnancy_week=20)
+        make_food_log(db, user_id, caffeine_mg=0, sugar_g=0, sodium_mg=0,
+                       calories_kcal=2000, fat_g=90,
+                       eaten_at="2030-01-16 09:00:00")
+
+        result = get_premium_report(user_id=user_id, period="daily", date="2030-01-16", db=db)
+
+        assert result["status"]["fat_status"] == "avoid"
+
+    def test_saturated_fat_status_compares_grams_against_gram_limit(self, db):
+        # 20g 포화지방 / 2000kcal: 상한(7%) 그램 환산 15.56g을 초과 -> avoid여야 한다.
+        # 환산 없이 비교하면 20/(2000*0.07)=0.14로 "safe"가 되어버린다.
+        user_id = make_user(db, pregnancy_week=20)
+        make_food_log(db, user_id, caffeine_mg=0, sugar_g=0, sodium_mg=0,
+                       calories_kcal=2000, saturated_fat_g=20,
+                       eaten_at="2030-01-17 09:00:00")
+
+        result = get_premium_report(user_id=user_id, period="daily", date="2030-01-17", db=db)
+
+        assert result["status"]["saturated_fat_status"] == "avoid"
+
+    def test_trans_fat_status_compares_grams_against_gram_limit(self, db):
+        # 5g 트랜스지방 / 2000kcal: 상한(1%) 그램 환산 2.22g을 초과 -> avoid여야 한다.
+        # 환산 없이 비교하면 5/(2000*0.01)=0.25로 "safe"가 되어버린다.
+        user_id = make_user(db, pregnancy_week=20)
+        make_food_log(db, user_id, caffeine_mg=0, sugar_g=0, sodium_mg=0,
+                       calories_kcal=2000, trans_fat_g=5,
+                       eaten_at="2030-01-18 09:00:00")
+
+        result = get_premium_report(user_id=user_id, period="daily", date="2030-01-18", db=db)
+
+        assert result["status"]["trans_fat_status"] == "avoid"
 
 
 class TestGetPremiumReportWeekly:

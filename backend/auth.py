@@ -2,7 +2,7 @@ import sqlite3
 import bcrypt
 from fastapi import HTTPException
 from backend.models import RegisterRequest, LoginRequest
-from backend.nutrition_constants import validate_selected_nutrients
+from backend.nutrition_constants import validate_age_bracket, validate_selected_nutrients
 
 
 def register_user(user: RegisterRequest, db: sqlite3.Connection):
@@ -31,6 +31,7 @@ def register_user(user: RegisterRequest, db: sqlite3.Connection):
 
     try:
         selected_nutrients_value = validate_selected_nutrients(user.selected_nutrients)
+        age_bracket_value = validate_age_bracket(user.age_bracket)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -38,9 +39,9 @@ def register_user(user: RegisterRequest, db: sqlite3.Connection):
 
     try:
         cursor.execute("""
-            INSERT INTO users (nickname, login_id, password, selected_nutrients)
-            VALUES (?, ?, ?, ?)
-        """, (user.nickname, normalized_login_id, password_hash, selected_nutrients_value))
+            INSERT INTO users (nickname, login_id, password, selected_nutrients, age_bracket)
+            VALUES (?, ?, ?, ?, ?)
+        """, (user.nickname, normalized_login_id, password_hash, selected_nutrients_value, age_bracket_value))
         db.commit()
     except sqlite3.IntegrityError:
         raise HTTPException(status_code=400, detail="이미 사용 중인 닉네임 또는 아이디입니다.")

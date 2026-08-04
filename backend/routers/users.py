@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException, Depends
 
 from backend.database import get_db
 from backend.models import NutrientPreferenceUpdate, PregnancyUpdate
-from backend.nutrition_constants import parse_selected_nutrients, validate_selected_nutrients
+from backend.nutrition_constants import parse_selected_nutrients, validate_age_bracket, validate_selected_nutrients
 from backend.sensitivity import get_user_adj, recalculate_sensitivity
 
 router = APIRouter()
@@ -49,8 +49,14 @@ def update_pregnancy_info(
     if not user:
         raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
 
-    # info.pregnancy_week / info.due_date가 None이면 COALESCE가 기존 값을 그대로 유지한다.
-    # 두 필드 모두 None인 요청(no-op PUT)도 에러 없이 200으로 현재 값을 반환한다.
+    try:
+        age_bracket_value = validate_age_bracket(info.age_bracket)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # info.pregnancy_week / info.due_date / info.age_bracket이 None이면 COALESCE가
+    # 기존 값을 그대로 유지한다. 모든 필드가 None인 요청(no-op PUT)도 에러 없이
+    # 200으로 현재 값을 반환한다.
     # pregnancy_week/pregnancy_day 중 하나라도 제공되면, 그 시점을 pregnancy_entered_at으로 기록해
     # 이후 실시간 주차 계산의 기준점으로 사용한다.
     entered_at = (
@@ -64,20 +70,22 @@ def update_pregnancy_info(
         SET pregnancy_week = COALESCE(?, pregnancy_week),
             pregnancy_day = COALESCE(?, pregnancy_day),
             due_date = COALESCE(?, due_date),
-            pregnancy_entered_at = COALESCE(?, pregnancy_entered_at)
+            pregnancy_entered_at = COALESCE(?, pregnancy_entered_at),
+            age_bracket = COALESCE(?, age_bracket)
         WHERE user_id = ?
     """, (
         info.pregnancy_week,
         info.pregnancy_day,
         info.due_date,
         entered_at,
+        age_bracket_value,
         user_id
     ))
 
     db.commit()
 
     cursor.execute(
-        "SELECT pregnancy_week, pregnancy_day, due_date, pregnancy_entered_at FROM users WHERE user_id = ?",
+        "SELECT pregnancy_week, pregnancy_day, due_date, pregnancy_entered_at, age_bracket FROM users WHERE user_id = ?",
         (user_id,)
     )
     updated = cursor.fetchone()
@@ -88,6 +96,7 @@ def update_pregnancy_info(
         "pregnancy_day": updated["pregnancy_day"],
         "due_date": updated["due_date"],
         "pregnancy_entered_at": updated["pregnancy_entered_at"],
+        "age_bracket": updated["age_bracket"],
         "message": "임신 정보 수정 완료"
     }
 

@@ -5,6 +5,7 @@ from datetime import date
 from fastapi import APIRouter, HTTPException, Depends
 
 from backend.database import get_db
+from backend.nutrition_constants import KCAL_PER_GRAM_FAT, NUTRIENT_LABELS_KO, parse_selected_nutrients
 from backend.risk import calculate_current_pregnancy_age, calculate_days_until_due
 from backend.intake_totals import (
     compute_overall_status,
@@ -13,9 +14,67 @@ from backend.intake_totals import (
     get_informational_status,
     get_status,
     get_trimester_limits,
+    resolve_user_nutrition_context,
+    simplified_status_label,
 )
+from backend.routers.water_log import _fetch_water_summary_for_date
 
 router = APIRouter()
+
+
+def _get_percent(value, standard):
+    if standard is None or standard <= 0:
+        return 0
+    return round(value / standard * 100, 1)
+
+
+# 홈 화면 요약(GET /intake/summary)에서 선택 가능한 7개 영양소를 각각 어떤 방식으로
+# 판정할지 정의한다. type은 simplified_status_label()의 nutrient_type과 대응된다.
+_SUMMARY_NUTRIENT_FIELDS = {
+    "carbohydrate": {"total_key": "total_carbohydrate", "unknown_key": "unknown_carbohydrate_count", "limit_key": "carbohydrate_g", "unit": "g", "type": "floor"},
+    "sugar":        {"total_key": "total_sugar", "unknown_key": "unknown_sugar_count", "limit_key": "sugar_g", "unit": "g", "type": "ceiling"},
+    "energy":       {"total_key": "total_calories", "unknown_key": "unknown_energy_count", "limit_key": "energy_kcal", "unit": "kcal", "type": "floor"},
+    "fat":          {"total_key": "total_fat", "unknown_key": "unknown_fat_count", "limit_key": None, "unit": "g", "type": "band"},
+    "cholesterol":  {"total_key": "total_cholesterol", "unknown_key": "unknown_cholesterol_count", "limit_key": None, "unit": "mg", "type": "informational"},
+    "protein":      {"total_key": "total_protein", "unknown_key": "unknown_protein_count", "limit_key": "protein_g", "unit": "g", "type": "floor"},
+    "sodium":       {"total_key": "total_sodium", "unknown_key": "unknown_sodium_count", "limit_key": "sodium_mg", "unit": "mg", "type": "ceiling"},
+}
+
+
+def _build_nutrient_summary_item(key: str, totals: dict, limits: dict) -> dict:
+    spec = _SUMMARY_NUTRIENT_FIELDS[key]
+    total = totals[spec["total_key"]]
+    unknown_count = totals[spec["unknown_key"]]
+
+    if spec["type"] == "ceiling":
+        limit = limits[spec["limit_key"]]
+        status = get_status(total, limit, unknown_count)
+        percent = _get_percent(total, limit)
+    elif spec["type"] == "floor":
+        limit = limits[spec["limit_key"]]
+        status = get_floor_status(total, limit, unknown_count)
+        percent = _get_percent(total, limit)
+    elif spec["type"] == "band":
+        status = get_fat_status(
+            total, totals["total_calories"], limits["fat_ratio_min"], limits["fat_ratio_max"], unknown_count
+        )
+        limit = None
+        percent = None
+    else:  # informational (cholesterol) — 판정 기준 자체가 없으므로 limit/percent 없이 숫자만 노출
+        status = get_informational_status(None if unknown_count > 0 else total)
+        limit = None
+        percent = None
+
+    return {
+        "key": key,
+        "label": NUTRIENT_LABELS_KO[key],
+        "total": round(total, 2),
+        "unit": spec["unit"],
+        "limit": limit,
+        "percent": percent,
+        "status": status,
+        "status_label": simplified_status_label(spec["type"], status),
+    }
 
 
 def _fetch_intake_summary_for_date(user_id: int, target_date: str, db: sqlite3.Connection) -> dict:
@@ -52,8 +111,7 @@ def _fetch_intake_summary_for_date(user_id: int, target_date: str, db: sqlite3.C
             COALESCE(SUM(trans_fat_g), 0) AS total_trans_fat,
             COALESCE(SUM(CASE WHEN trans_fat_g IS NULL THEN 1 ELSE 0 END), 0) AS unknown_trans_fat_count,
             COALESCE(SUM(cholesterol_mg), 0) AS total_cholesterol,
-            COALESCE(SUM(CASE WHEN cholesterol_mg IS NULL THEN 1 ELSE 0 END), 0) AS unknown_cholesterol_count,
-            COALESCE(SUM(CASE WHEN category = 'water' THEN 1 ELSE 0 END), 0) AS water_cups
+            COALESCE(SUM(CASE WHEN cholesterol_mg IS NULL THEN 1 ELSE 0 END), 0) AS unknown_cholesterol_count
         FROM food_log
         WHERE user_id = ? AND DATE(eaten_at) = ?
     """, (
@@ -64,14 +122,14 @@ def _fetch_intake_summary_for_date(user_id: int, target_date: str, db: sqlite3.C
     intake = dict(cursor.fetchone())
 
     user = dict(user)
-    computed_age = calculate_current_pregnancy_age(
+    week, age_bracket = resolve_user_nutrition_context(user)
+    computed_day = calculate_current_pregnancy_age(
         user.get("pregnancy_week"), user.get("pregnancy_day"), user.get("pregnancy_entered_at")
-    )
-    week = computed_age["week"] or 20
+    )["day"]
     days_until_due = calculate_days_until_due(user.get("due_date"))
 
     # 3. 임신 단계 판별 + 4. 주차별 기준값 조회
-    trimester, limits = get_trimester_limits(week)
+    trimester, limits = get_trimester_limits(week, age_bracket)
     trimester_label = {
         "early": "임신 초기",
         "middle": "임신 중기",
@@ -99,7 +157,6 @@ def _fetch_intake_summary_for_date(user_id: int, target_date: str, db: sqlite3.C
     total_saturated_fat = intake["total_saturated_fat"]
     total_trans_fat = intake["total_trans_fat"]
     total_cholesterol = intake["total_cholesterol"]
-    water_cups = intake["water_cups"]
     unknown_caffeine_count = intake["unknown_caffeine_count"]
     unknown_sugar_count = intake["unknown_sugar_count"]
     unknown_sodium_count = intake["unknown_sodium_count"]
@@ -140,11 +197,18 @@ def _fetch_intake_summary_for_date(user_id: int, target_date: str, db: sqlite3.C
     protein_status = get_floor_status(total_protein, protein_target, unknown_protein_count)
     energy_status = get_floor_status(total_calories, energy_target, unknown_energy_count)
     fat_status = get_fat_status(total_fat, total_calories, fat_ratio_min, fat_ratio_max, unknown_fat_count)
+    # energy_total(kcal) * ratio는 kcal 단위이므로, 그램 단위인 total_saturated_fat/
+    # total_trans_fat과 비교하려면 KCAL_PER_GRAM_FAT(9kcal/g)로 나눠 환산해야 한다
+    # (get_fat_status()와 동일한 이유 — 환산 없이 비교하면 기준이 사실상 무의미해진다).
     saturated_fat_status = get_status(
-        total_saturated_fat, total_calories * saturated_fat_ratio_max, unknown_saturated_fat_count
+        total_saturated_fat,
+        total_calories * saturated_fat_ratio_max / KCAL_PER_GRAM_FAT,
+        unknown_saturated_fat_count,
     )
     trans_fat_status = get_status(
-        total_trans_fat, total_calories * trans_fat_ratio_max, unknown_trans_fat_count
+        total_trans_fat,
+        total_calories * trans_fat_ratio_max / KCAL_PER_GRAM_FAT,
+        unknown_trans_fat_count,
     )
     cholesterol_status = get_informational_status(
         None if unknown_cholesterol_count > 0 else total_cholesterol
@@ -155,19 +219,6 @@ def _fetch_intake_summary_for_date(user_id: int, target_date: str, db: sqlite3.C
     # 값이 없어(NULL) 여기에 포함시키면 overall_status가 거의 항상 unknown으로
     # 뒤덮여버린다 — 각 영양소별 status는 개별 필드로만 노출한다.
     overall_status = compute_overall_status(caffeine_status, sugar_status, sodium_status)
-
-    # 8. 화면용 한글 라벨
-    def status_label(status):
-        labels = {
-            "safe": "여유",
-            "caution": "주의",
-            "avoid": "초과",
-            "sufficient": "충분",
-            "low": "부족 주의",
-            "insufficient": "부족",
-            "info": "참고",
-        }
-        return labels.get(status, "정보없음")
 
     # 9. Food Diary 하단 분석 메시지 생성
     messages = []
@@ -222,12 +273,11 @@ def _fetch_intake_summary_for_date(user_id: int, target_date: str, db: sqlite3.C
         "user_id": user_id,
         "date": target_date,
         "pregnancy_week": week,
-        "pregnancy_day": computed_age["day"],
+        "pregnancy_day": computed_day,
         "due_date": user.get("due_date"),
         "days_until_due": days_until_due,
         "trimester": trimester,
         "trimester_label": trimester_label,
-        "water_cups": water_cups,
 
         "intake": {
             "total_caffeine": total_caffeine,
@@ -297,18 +347,23 @@ def _fetch_intake_summary_for_date(user_id: int, target_date: str, db: sqlite3.C
             "cholesterol_status": cholesterol_status
         },
 
+        # 홈 화면(/intake/summary)과 동일한 어휘(simplified_status_label)를 재사용한다 —
+        # 같은 상태 코드가 화면마다 다른 단어로 보이면 사용자가 혼란스러워할 수 있다.
+        # overall/caffeine/sugar/sodium/saturated_fat/trans_fat은 get_status()(ceiling)
+        # 결과이고, carbohydrate/protein/energy는 get_floor_status()(floor), fat만
+        # get_fat_status()(band)다 — _SUMMARY_NUTRIENT_FIELDS의 type 매핑과 동일하다.
         "status_label": {
-            "overall": status_label(overall_status),
-            "caffeine": status_label(caffeine_status),
-            "sugar": status_label(sugar_status),
-            "sodium": status_label(sodium_status),
-            "carbohydrate": status_label(carbohydrate_status),
-            "protein": status_label(protein_status),
-            "energy": status_label(energy_status),
-            "fat": status_label(fat_status),
-            "saturated_fat": status_label(saturated_fat_status),
-            "trans_fat": status_label(trans_fat_status),
-            "cholesterol": status_label(cholesterol_status)
+            "overall": simplified_status_label("ceiling", overall_status),
+            "caffeine": simplified_status_label("ceiling", caffeine_status),
+            "sugar": simplified_status_label("ceiling", sugar_status),
+            "sodium": simplified_status_label("ceiling", sodium_status),
+            "carbohydrate": simplified_status_label("floor", carbohydrate_status),
+            "protein": simplified_status_label("floor", protein_status),
+            "energy": simplified_status_label("floor", energy_status),
+            "fat": simplified_status_label("band", fat_status),
+            "saturated_fat": simplified_status_label("ceiling", saturated_fat_status),
+            "trans_fat": simplified_status_label("ceiling", trans_fat_status),
+            "cholesterol": simplified_status_label("informational", cholesterol_status)
         },
 
         "summary": {
@@ -349,6 +404,94 @@ def get_intake_by_date(
     return _fetch_intake_summary_for_date(user_id, target_date.isoformat(), db)
 
 
+@router.get("/intake/summary/{user_id}")
+def get_intake_summary(
+    user_id: int,
+    db: sqlite3.Connection = Depends(get_db)
+):
+    """홈 화면 요약 카드용 응답: 카페인 + 물(항상 표시) + 사용자가 선택한 영양소, 오늘 하루 기준.
+
+    users.selected_nutrients를 서버에서 직접 조회한다 — 클라이언트가 어떤 영양소를
+    요청할지 지정하지 않고, DB에 저장된 선택을 그대로 신뢰한다(단일 소스 오브 트루스).
+    Food Diary/프리미엄 리포트용 전체 응답(_fetch_intake_summary_for_date, 프리미엄
+    리포트의 자체 집계)과는 완전히 별개이며 서로의 응답 형태에 영향을 주지 않는다.
+    """
+    cursor = db.cursor()
+
+    cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
+    user = cursor.fetchone()
+    if not user:
+        raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
+    user = dict(user)
+
+    today = date.today().isoformat()
+
+    cursor.execute("""
+        SELECT
+            COALESCE(SUM(caffeine_mg), 0) AS total_caffeine,
+            COALESCE(SUM(CASE WHEN caffeine_mg IS NULL THEN 1 ELSE 0 END), 0) AS unknown_caffeine_count,
+            COALESCE(SUM(sugar_g), 0) AS total_sugar,
+            COALESCE(SUM(CASE WHEN sugar_g IS NULL THEN 1 ELSE 0 END), 0) AS unknown_sugar_count,
+            COALESCE(SUM(sodium_mg), 0) AS total_sodium,
+            COALESCE(SUM(CASE WHEN sodium_mg IS NULL THEN 1 ELSE 0 END), 0) AS unknown_sodium_count,
+            COALESCE(SUM(calories_kcal), 0) AS total_calories,
+            COALESCE(SUM(CASE WHEN calories_kcal IS NULL THEN 1 ELSE 0 END), 0) AS unknown_energy_count,
+            COALESCE(SUM(carbohydrate_g), 0) AS total_carbohydrate,
+            COALESCE(SUM(CASE WHEN carbohydrate_g IS NULL THEN 1 ELSE 0 END), 0) AS unknown_carbohydrate_count,
+            COALESCE(SUM(protein_g), 0) AS total_protein,
+            COALESCE(SUM(CASE WHEN protein_g IS NULL THEN 1 ELSE 0 END), 0) AS unknown_protein_count,
+            COALESCE(SUM(fat_g), 0) AS total_fat,
+            COALESCE(SUM(CASE WHEN fat_g IS NULL THEN 1 ELSE 0 END), 0) AS unknown_fat_count,
+            COALESCE(SUM(cholesterol_mg), 0) AS total_cholesterol,
+            COALESCE(SUM(CASE WHEN cholesterol_mg IS NULL THEN 1 ELSE 0 END), 0) AS unknown_cholesterol_count
+        FROM food_log
+        WHERE user_id = ? AND DATE(eaten_at) = ?
+    """, (user_id, today))
+    totals = dict(cursor.fetchone())
+
+    week, age_bracket = resolve_user_nutrition_context(user)
+    _, limits = get_trimester_limits(week, age_bracket)
+
+    caffeine_status = get_status(
+        totals["total_caffeine"], limits["caffeine_mg"], totals["unknown_caffeine_count"]
+    )
+    caffeine_item = {
+        "key": "caffeine",
+        "label": NUTRIENT_LABELS_KO["caffeine"],
+        "total": round(totals["total_caffeine"], 2),
+        "unit": "mg",
+        "limit": limits["caffeine_mg"],
+        "percent": _get_percent(totals["total_caffeine"], limits["caffeine_mg"]),
+        "status": caffeine_status,
+        "status_label": simplified_status_label("ceiling", caffeine_status),
+    }
+
+    water = _fetch_water_summary_for_date(user_id, today, db)
+    # water_log.amount_ml은 NOT NULL이므로 unknown_count는 항상 0이다.
+    water_status = get_floor_status(water["total_ml"], water["target_ml"], 0)
+    water_item = {
+        "key": "water",
+        "label": NUTRIENT_LABELS_KO["water"],
+        "total": water["total_ml"],
+        "unit": "mL",
+        "limit": water["target_ml"],
+        "percent": water["percent"],
+        "status": water_status,
+        "status_label": simplified_status_label("floor", water_status),
+    }
+
+    selected_keys = parse_selected_nutrients(user.get("selected_nutrients"))
+    selected_items = [_build_nutrient_summary_item(key, totals, limits) for key in selected_keys]
+
+    return {
+        "user_id": user_id,
+        "date": today,
+        "caffeine": caffeine_item,
+        "water": water_item,
+        "selected_nutrients": selected_items,
+    }
+
+
 @router.get("/food-log/calendar/{user_id}")
 def get_food_log_calendar(
     user_id: int,
@@ -374,11 +517,8 @@ def get_food_log_calendar(
     first_day = date_type(year, month, 1)
     last_day = date_type(year, month, last_day_num)
 
-    computed_age = calculate_current_pregnancy_age(
-        user.get("pregnancy_week"), user.get("pregnancy_day"), user.get("pregnancy_entered_at")
-    )
-    week = computed_age["week"] or 20
-    _, limits = get_trimester_limits(week)
+    week, age_bracket = resolve_user_nutrition_context(user)
+    _, limits = get_trimester_limits(week, age_bracket)
     caffeine_limit = limits["caffeine_mg"]
     sugar_limit = limits["sugar_g"]
     sodium_limit = limits["sodium_mg"]

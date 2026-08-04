@@ -27,6 +27,7 @@ CREATE TABLE users (
     sugar_sensitivity_adj REAL DEFAULT 0,
     sodium_sensitivity_adj REAL DEFAULT 0,
     selected_nutrients TEXT,
+    age_bracket TEXT,
     created_at  TEXT DEFAULT (datetime('now'))
 );
 
