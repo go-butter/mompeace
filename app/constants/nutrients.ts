@@ -31,4 +31,4 @@ export const NUTRIENT_LABELS_KO: Record<SelectableNutrientKey, string> = {
 
 export const DEFAULT_SELECTED_NUTRIENTS: SelectableNutrientKey[] = ['carbohydrate', 'sugar', 'sodium'];
 
-export const MAX_SELECTED_NUTRIENTS = 4;
+export const MAX_SELECTED_NUTRIENTS = 3;

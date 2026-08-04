@@ -3,7 +3,7 @@
 
 핵심 검증 대상:
 - 회원가입 시 selected_nutrients 미지정 -> NULL 저장, 조회 시 DEFAULT_SELECTED_NUTRIENTS로 해석
-- 검증: 최대 4개, 허용 목록(SELECTABLE_NUTRIENT_KEYS)만 가능, 중복 불가
+- 검증: 최대 3개, 허용 목록(SELECTABLE_NUTRIENT_KEYS)만 가능, 중복 불가
 - 카페인/물은 애초에 SELECTABLE_NUTRIENT_KEYS에 없으므로 자동으로 거부됨
 - PUT: selected_nutrients가 None이면 부분 업데이트(변경 없음), 빈 리스트는 유효한 값
 - NULL(미설정)과 ""(명시적으로 전부 해제)은 서로 다른 상태로 유지됨
@@ -49,7 +49,7 @@ class TestRegisterDefaultSelection:
         cursor.execute("SELECT selected_nutrients FROM users WHERE user_id = ?", (result["user_id"],))
         assert cursor.fetchone()["selected_nutrients"] == "protein,fat"
 
-    def test_more_than_four_at_register_returns_400(self, db):
+    def test_more_than_three_at_register_returns_400(self, db):
         with pytest.raises(HTTPException) as exc_info:
             register_user(
                 RegisterRequest(
@@ -70,7 +70,7 @@ class TestUpdateNutrientPreferencesValidation:
             )
         assert exc_info.value.status_code == 404
 
-    def test_more_than_four_returns_400(self, db):
+    def test_more_than_three_returns_400(self, db):
         user_id = make_user(db)
         with pytest.raises(HTTPException) as exc_info:
             update_nutrient_preferences(
@@ -146,13 +146,25 @@ class TestUpdateNutrientPreferencesPartialUpdate:
         # ""(명시적으로 전부 해제)은 NULL(미설정)과 다른 값으로 저장되어야 한다
         assert cursor.fetchone()["selected_nutrients"] == ""
 
-    def test_valid_four_item_selection_is_stored_and_read_back(self, db):
+    def test_valid_three_item_selection_is_stored_and_read_back(self, db):
         user_id = make_user(db)
         result = update_nutrient_preferences(
             user_id=user_id,
             prefs=NutrientPreferenceUpdate(
-                selected_nutrients=["carbohydrate", "energy", "cholesterol", "sodium"]
+                selected_nutrients=["carbohydrate", "energy", "cholesterol"]
             ),
             db=db,
         )
-        assert result["selected_nutrients"] == ["carbohydrate", "energy", "cholesterol", "sodium"]
+        assert result["selected_nutrients"] == ["carbohydrate", "energy", "cholesterol"]
+
+    def test_four_items_now_exceeds_max_returns_400(self, db):
+        user_id = make_user(db)
+        with pytest.raises(HTTPException) as exc_info:
+            update_nutrient_preferences(
+                user_id=user_id,
+                prefs=NutrientPreferenceUpdate(
+                    selected_nutrients=["carbohydrate", "energy", "cholesterol", "sodium"]
+                ),
+                db=db,
+            )
+        assert exc_info.value.status_code == 400

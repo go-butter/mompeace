@@ -59,7 +59,7 @@ def init_db():
     add_column_if_not_exists(cursor, "users", "caffeine_sensitivity_adj", "REAL DEFAULT 0")
     add_column_if_not_exists(cursor, "users", "sugar_sensitivity_adj", "REAL DEFAULT 0")
     add_column_if_not_exists(cursor, "users", "sodium_sensitivity_adj", "REAL DEFAULT 0")
-    # 홈 화면 요약에 표시할 선택 영양소 (최대 4개, comma-separated). 미설정(NULL)이면
+    # 홈 화면 요약에 표시할 선택 영양소 (최대 3개, comma-separated). 미설정(NULL)이면
     # 앱에서 DEFAULT_SELECTED_NUTRIENTS로 취급한다.
     add_column_if_not_exists(cursor, "users", "selected_nutrients", "TEXT")
 
