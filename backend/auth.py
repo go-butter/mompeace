@@ -13,9 +13,21 @@ def register_user(user: RegisterRequest, db: sqlite3.Connection):
 
     cursor = db.cursor()
 
+    cursor.execute("SELECT user_id FROM users WHERE nickname = ?", (user.nickname,))
+    if cursor.fetchone():
+        raise HTTPException(status_code=400, detail="이미 사용 중인 닉네임입니다.")
+
     cursor.execute("SELECT user_id FROM users WHERE login_id = ?", (normalized_login_id,))
     if cursor.fetchone():
         raise HTTPException(status_code=400, detail="이미 사용 중인 아이디입니다.")
+
+    cursor.execute("SELECT user_id FROM users WHERE login_id = ?", (user.nickname.strip().lower(),))
+    if cursor.fetchone():
+        raise HTTPException(status_code=400, detail="이미 다른 사용자의 아이디로 사용 중인 닉네임입니다.")
+
+    cursor.execute("SELECT user_id FROM users WHERE nickname = ?", (normalized_login_id,))
+    if cursor.fetchone():
+        raise HTTPException(status_code=400, detail="이미 다른 사용자의 닉네임으로 사용 중인 아이디입니다.")
 
     try:
         selected_nutrients_value = validate_selected_nutrients(user.selected_nutrients)
@@ -24,12 +36,14 @@ def register_user(user: RegisterRequest, db: sqlite3.Connection):
 
     password_hash = bcrypt.hashpw(user.password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
-    cursor.execute("""
-        INSERT INTO users (nickname, login_id, password, selected_nutrients)
-        VALUES (?, ?, ?, ?)
-    """, (user.nickname, normalized_login_id, password_hash, selected_nutrients_value))
-
-    db.commit()
+    try:
+        cursor.execute("""
+            INSERT INTO users (nickname, login_id, password, selected_nutrients)
+            VALUES (?, ?, ?, ?)
+        """, (user.nickname, normalized_login_id, password_hash, selected_nutrients_value))
+        db.commit()
+    except sqlite3.IntegrityError:
+        raise HTTPException(status_code=400, detail="이미 사용 중인 닉네임 또는 아이디입니다.")
 
     return {
         "user_id": cursor.lastrowid,
@@ -46,8 +60,8 @@ def login_user(user: LoginRequest, db: sqlite3.Connection):
 
     cursor.execute("""
         SELECT * FROM users
-        WHERE login_id = ?
-    """, (normalized_login_id,))
+        WHERE login_id = ? OR nickname = ?
+    """, (normalized_login_id, user.login_id.strip()))
 
     found_user = cursor.fetchone()
 

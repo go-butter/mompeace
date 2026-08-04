@@ -195,7 +195,7 @@ class TestDeleteWaterLog:
 
     def test_delete_scoped_to_owning_user(self, db):
         owner_id = make_user(db)
-        other_user_id = make_user(db)
+        other_user_id = make_user(db, nickname="다른유저")
         log_id = make_water_log(db, owner_id)
 
         with pytest.raises(HTTPException) as exc_info:

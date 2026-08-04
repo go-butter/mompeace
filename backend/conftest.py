@@ -30,6 +30,9 @@ CREATE TABLE users (
     created_at  TEXT DEFAULT (datetime('now'))
 );
 
+CREATE UNIQUE INDEX idx_users_nickname ON users(nickname);
+CREATE UNIQUE INDEX idx_users_login_id ON users(login_id);
+
 CREATE TABLE food_items (
     food_id        INTEGER PRIMARY KEY AUTOINCREMENT,
     food_code      TEXT,

@@ -63,6 +63,10 @@ def init_db():
     # 앱에서 DEFAULT_SELECTED_NUTRIENTS로 취급한다.
     add_column_if_not_exists(cursor, "users", "selected_nutrients", "TEXT")
 
+    # nickname/login_id 중복 방지 (로그인 시 둘 중 하나로 조회 가능해야 하므로 각각 유일해야 함)
+    cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_nickname ON users(nickname)")
+    cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_login_id ON users(login_id)")
+
     # 2. FoodItem 테이블 (음식 기본 정보)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS food_items (
