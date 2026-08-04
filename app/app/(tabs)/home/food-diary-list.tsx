@@ -12,6 +12,7 @@ import { fonts } from '@/constants/fonts';
 import { useAuth } from '@/context/auth-context';
 import { useIntake } from '@/context/intake-context';
 import { ApiError, deleteFoodLog, FoodLogEntry } from '@/lib/api-client';
+import { formatNutrient } from '@/lib/format';
 
 function FoodDiaryRow({
   entry,
@@ -29,9 +30,6 @@ function FoodDiaryRow({
       <View style={styles.rowHeader}>
         <Text style={styles.rowTime}>{entry.time}</Text>
         <Text style={styles.rowFoodName}>{entry.food_name}</Text>
-        <Text style={styles.rowKcal}>
-          {entry.calories_kcal != null ? `${entry.calories_kcal}kcal` : ''}
-        </Text>
         <Pressable
           onPress={() => onDelete(entry)}
           hitSlop={8}
@@ -49,12 +47,9 @@ function FoodDiaryRow({
       {expanded && (
         <View style={styles.rowDetail}>
           <Text style={styles.rowDetailText}>
-            칼로리 {entry.calories_kcal ?? 0}kcal · 당류 {entry.sugar_g}g · 나트륨{' '}
-            {entry.sodium_mg}mg · 단백질 {entry.protein_g}g
+            당류 {formatNutrient(entry.sugar_g, 'g')} · 나트륨 {formatNutrient(entry.sodium_mg, 'mg')} ·{' '}
+            단백질 {formatNutrient(entry.protein_g, 'g')}
           </Text>
-          {entry.allergens.length > 0 && (
-            <Text style={styles.rowAllergyText}>알레르기: {entry.allergens.join(', ')}</Text>
-          )}
           {entry.extra_nutrients?.length > 0 && (
             <Text style={styles.rowDetailText}>
               추가 성분:{' '}
@@ -201,11 +196,6 @@ const styles = StyleSheet.create({
     color: '#000000',
     flex: 1,
   },
-  rowKcal: {
-    fontFamily: fonts.medium,
-    fontSize: 12,
-    color: authColors.gray,
-  },
   deleteButton: {
     width: 28,
     height: 28,
@@ -221,11 +211,5 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#4A4A4A',
     lineHeight: 16,
-  },
-  rowAllergyText: {
-    fontFamily: fonts.regular,
-    fontSize: 11,
-    color: authColors.pink,
-    marginTop: 4,
   },
 });

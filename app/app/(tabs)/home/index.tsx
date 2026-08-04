@@ -16,7 +16,6 @@ import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
 
 const HEART_ASPECT_RATIO = 696 / 588;
 
-import BarcodeIcon from '@/assets/images/home/barcode.svg';
 import FoodIcon from '@/assets/images/home/food.svg';
 import CalendarIcon from '@/assets/images/home/calendar.svg';
 import ReportIcon from '@/assets/images/home/report.svg';
@@ -24,6 +23,7 @@ import RemainCoffeeIcon from '@/assets/images/home/home_remain_coffee.svg';
 import ProfileIcon from '@/assets/images/common/profile_circle.svg';
 import { authColors } from '@/components/auth/colors';
 import { homeColors } from '@/components/home/colors';
+import { waterColors } from '@/components/water/colors';
 import { fonts, nanumSquareRound } from '@/constants/fonts';
 import { useAuth } from '@/context/auth-context';
 import { useIntake } from '@/context/intake-context';
@@ -82,9 +82,6 @@ function FoodLogRow({ entry }: { entry: FoodLogEntry }) {
     <View style={styles.foodRow}>
       <Text style={styles.foodTime}>{entry.time}</Text>
       <Text style={styles.foodName}>{entry.food_name}</Text>
-      <Text style={styles.foodKcal}>
-        {entry.calories_kcal != null ? `${entry.calories_kcal}kcal` : ''}
-      </Text>
     </View>
   );
 }
@@ -92,7 +89,7 @@ function FoodLogRow({ entry }: { entry: FoodLogEntry }) {
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
-  const { intake, foodLog, hasEntries, loading, error, refresh } = useIntake();
+  const { intake, water, foodLog, hasEntries, loading, error, refresh } = useIntake();
   const [bannerSize, setBannerSize] = useState({ width: 0, height: 0 });
 
   useFocusEffect(
@@ -205,7 +202,7 @@ export default function HomeScreen() {
 
         {!hasEntries ? (
           <Text style={styles.emptyMessage}>
-            오늘 섭취한 음식이 추가되지 않았습니다!{'\n'}Food Diary 혹은 바코드 스캔을 통해{'\n'}
+            오늘 섭취한 음식이 추가되지 않았습니다!{'\n'}Food Diary 혹은 영양성분표 스캔을 통해{'\n'}
             음식을 추가해 주세요 :)
           </Text>
         ) : (
@@ -256,20 +253,19 @@ export default function HomeScreen() {
                 value={intake.status_label.sodium}
                 colors={homeColors.sodium}
               />
-              <StatusChip label="알레르기" value="안전" colors={homeColors.allergy} />
-              <StatusChip label="물" value={`${intake.water_cups ?? 0}잔`} colors={homeColors.water} />
+              <Pressable style={styles.chipPressable} onPress={() => router.push('/(tabs)/home/water-diary')}>
+                <StatusChip
+                  label="물"
+                  value={`${Math.round(water?.total_ml ?? 0)}ml`}
+                  colors={waterColors.chip}
+                />
+              </Pressable>
             </View>
           </>
         )}
       </View>
 
       <View style={styles.shortcutCard}>
-        <ShortcutButton
-          icon={<BarcodeIcon width={24} height={24} />}
-          title="바코드 스캔"
-          subtitle="식품 안전 확인"
-          onPress={() => router.push('/(tabs)/scan')}
-        />
         <ShortcutButton
           icon={<FoodIcon width={24} height={24} />}
           title="오늘의 추천"
@@ -522,6 +518,9 @@ const styles = StyleSheet.create({
     gap: 8,
     marginTop: 14,
   },
+  chipPressable: {
+    flex: 1,
+  },
   chip: {
     flex: 1,
     borderRadius: 12,
@@ -594,10 +593,5 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: authColors.brown,
     flex: 1,
-  },
-  foodKcal: {
-    fontFamily: fonts.medium,
-    fontSize: 13,
-    color: authColors.pink,
   },
 });

@@ -23,6 +23,7 @@ import {
   RecommendationItem,
   RecommendationResponse,
 } from '@/lib/api-client';
+import { formatNutrient } from '@/lib/format';
 
 type NutrientFilter = 'all' | 'caffeine' | 'sugar' | 'sodium';
 type RecommendationStatus = RecommendationItem['status'];
@@ -69,23 +70,8 @@ function getReason(item: RecommendationItem) {
   return reason || FALLBACK_REASON[item.status];
 }
 
-function formatNumber(value: number) {
-  const rounded = Math.round(value * 10) / 10;
-  return Number.isInteger(rounded) ? `${rounded}` : `${rounded.toFixed(1)}`;
-}
-
 function formatCaffeine(value: number | null | undefined) {
-  if (value == null || typeof value !== 'number' || !Number.isFinite(value)) {
-    return '정보 없음';
-  }
-  return `${formatNumber(value)}mg`;
-}
-
-function formatNutrient(value: number | null | undefined, unit: string) {
-  if (value == null || typeof value !== 'number' || !Number.isFinite(value)) {
-    return '정보 없음';
-  }
-  return `${formatNumber(value)}${unit}`;
+  return formatNutrient(value, 'mg');
 }
 
 function getItemNutrients(item: RecommendationItem): Partial<RecommendationItem['nutrients']> {
@@ -282,15 +268,21 @@ export default function RecommendScreen() {
           <View style={styles.remainingRow}>
             <View style={styles.remainingItem}>
               <Text style={styles.remainingLabel}>카페인</Text>
-              <Text style={styles.remainingValue}>{intake.remaining.remaining_caffeine}mg</Text>
+              <Text style={styles.remainingValue}>
+                {formatNutrient(intake.remaining.remaining_caffeine, 'mg')}
+              </Text>
             </View>
             <View style={styles.remainingItem}>
               <Text style={styles.remainingLabel}>당류</Text>
-              <Text style={styles.remainingValue}>{intake.remaining.remaining_sugar}g</Text>
+              <Text style={styles.remainingValue}>
+                {formatNutrient(intake.remaining.remaining_sugar, 'g')}
+              </Text>
             </View>
             <View style={styles.remainingItem}>
               <Text style={styles.remainingLabel}>나트륨</Text>
-              <Text style={styles.remainingValue}>{intake.remaining.remaining_sodium}mg</Text>
+              <Text style={styles.remainingValue}>
+                {formatNutrient(intake.remaining.remaining_sodium, 'mg')}
+              </Text>
             </View>
           </View>
         )}

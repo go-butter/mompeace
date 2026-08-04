@@ -224,7 +224,6 @@ def evaluate_food_risk(food_data: dict, pregnancy_week: int):
     caffeine_keywords = food_data.get("caffeine_keywords") or []
     sugar = food_data.get("sugar_g")                  # None 유지 (unknown 처리)
     sodium = food_data.get("sodium_mg")               # None 유지 (unknown 처리)
-    allergens = food_data.get("allergens", []) or []
 
     # 카페인: None이면 키워드 유무로 unknown / check_required 분기
     if caffeine is None:
@@ -264,17 +263,12 @@ def evaluate_food_risk(food_data: dict, pregnancy_week: int):
     elif caffeine_status == "avoid":
         messages.append("카페인 함량이 높은 편이에요. 임신 중에는 섭취 전 확인이 필요해요.")
 
-    if allergens:
-        messages.append("알레르기 유발 성분이 포함되어 있어요. 본인 알레르기 정보와 꼭 비교해 주세요.")
-
     # 임신 단계별 강조 메시지
     if trimester == "early":
         if caffeine or caffeine_status in ("caution", "avoid", "check_required"):
             messages.append("임신 초기에는 카페인 섭취량을 특히 확인하는 것이 좋아요.")
         if sugar_status in ["caution", "avoid"]:
             messages.append("임신 초기에는 당류가 많은 간식이 누적되지 않도록 주의해 주세요.")
-        if allergens:
-            messages.append("임신 초기에는 음식 성분과 알레르기 정보를 더 꼼꼼히 확인해 주세요.")
 
     elif trimester == "middle":
         if sugar_status in ["caution", "avoid"]:
@@ -320,11 +314,6 @@ def evaluate_food_risk(food_data: dict, pregnancy_week: int):
                 "status": sodium_status,
                 "label": make_status_label(sodium_status),
                 "standard": get_product_standard_text("sodium", trimester)
-            },
-            "allergy": {
-                "allergens": allergens,
-                "status": "check_required" if allergens else "safe",
-                "label": "확인 필요" if allergens else "안전"
             }
         },
         "messages": messages

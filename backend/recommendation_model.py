@@ -64,7 +64,7 @@ def _is_caffeine_missing(food: dict) -> bool:
 
     카페인 미제공 소스(food_nutrition_api, processed_food_db_download)는
     caffeine_mg 값에 관계없이 항상 missing 처리.
-    dish_db_download, food_qr_api 는 caffeine_mg is None 인 경우에만 missing.
+    dish_db_download 는 caffeine_mg is None 인 경우에만 missing.
     """
     data_source = food.get("data_source") or ""
     if data_source in ("food_nutrition_api", "processed_food_db_download"):
@@ -76,7 +76,6 @@ def _is_caffeine_missing(food: dict) -> bool:
 def apply_safety_guard(
     status: str,
     food: dict,
-    allergy_match: int,
     today_intake: dict,
     trimester: str,
     user_adj: Optional[dict] = None,
@@ -102,11 +101,7 @@ def apply_safety_guard(
             return target
         return current
 
-    # 1. 알레르기 → avoid (무조건)
-    if allergy_match:
-        return "avoid"
-
-    # 2. 알려진 영양소 기준 초과 → avoid
+    # 1. 알려진 영양소 기준 초과 → avoid
     caffeine_for_ratio = food_caffeine if not caffeine_missing else 0.0
     after_caffeine_ratio = (today_caffeine + caffeine_for_ratio) / limits["caffeine"]
     after_sugar_ratio = (today_sugar + food_sugar) / limits["sugar"]
@@ -144,7 +139,6 @@ def make_reason(
     food: dict,
     today_intake: dict,
     trimester: str,
-    allergy_match: int,
     user_adj: Optional[dict] = None,
 ) -> tuple:
     """반환값: (한국어 이유 메시지, reason_nutrient 태그)"""
@@ -159,9 +153,6 @@ def make_reason(
     food_sugar = food.get("sugar_g") or 0.0
     food_sodium = food.get("sodium_mg") or 0.0
     caffeine_keywords = detect_caffeine_keywords(food.get("food_name") or "")
-
-    if allergy_match:
-        return "알레르기 정보와 관련될 수 있어 섭취 전 확인이 필요해요.", "allergy"
 
     if status == "avoid":
         caffeine_for_ratio = food_caffeine if not caffeine_missing else 0.0
@@ -197,7 +188,6 @@ def judge_food_rules(
     food: dict,
     trimester: str,
     today_intake: dict,
-    allergy_match: int,
     user_adj: Optional[dict] = None,
 ) -> str:
     limits = get_effective_limits(user_adj)
@@ -234,7 +224,6 @@ def recommend_food(
     food: dict,
     pregnancy_week: int,
     today_intake: dict,
-    allergy_match: int,
     user_adj: Optional[dict] = None,
 ) -> dict:
     """
@@ -244,15 +233,15 @@ def recommend_food(
         status: possible / caution / avoid
         label: 추천 / 주의 / 비추천 (한국어)
         reason: 한국어 이유
-        reason_nutrient: caffeine / sugar / sodium / allergy / None
+        reason_nutrient: caffeine / sugar / sodium / None
     """
     trimester = get_trimester(pregnancy_week)
 
-    status = judge_food_rules(food, trimester, today_intake, allergy_match, user_adj)
+    status = judge_food_rules(food, trimester, today_intake, user_adj)
 
     # 안전장치: 판정 결과를 안전 방향으로만 보정
-    status = apply_safety_guard(status, food, allergy_match, today_intake, trimester, user_adj)
-    reason, reason_nutrient = make_reason(status, food, today_intake, trimester, allergy_match, user_adj)
+    status = apply_safety_guard(status, food, today_intake, trimester, user_adj)
+    reason, reason_nutrient = make_reason(status, food, today_intake, trimester, user_adj)
 
     return {
         "status": status,

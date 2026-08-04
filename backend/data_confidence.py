@@ -1,4 +1,4 @@
-_TRUSTED_SOURCES = {"dish_db_download", "food_qr_api"}
+_TRUSTED_SOURCES = {"dish_db_download"}
 
 
 def calculate_data_confidence(food: dict) -> dict:
@@ -28,11 +28,6 @@ def calculate_data_confidence(food: dict) -> dict:
         reasons.append("나트륨 수치가 제공되어 있어요.")
     else:
         reasons.append("나트륨 수치가 확인되지 않았어요.")
-
-    allergen = food.get("allergen_info") or ""
-    if allergen.strip():
-        score += 0.1
-        reasons.append("알레르기 정보가 제공되어 있어요.")
 
     score = min(score, 1.0)
 

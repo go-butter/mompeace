@@ -2,6 +2,7 @@ import sqlite3
 import bcrypt
 from fastapi import HTTPException
 from backend.models import RegisterRequest, LoginRequest
+from backend.nutrition_constants import validate_selected_nutrients
 
 
 def register_user(user: RegisterRequest, db: sqlite3.Connection):
@@ -16,12 +17,17 @@ def register_user(user: RegisterRequest, db: sqlite3.Connection):
     if cursor.fetchone():
         raise HTTPException(status_code=400, detail="이미 사용 중인 아이디입니다.")
 
+    try:
+        selected_nutrients_value = validate_selected_nutrients(user.selected_nutrients)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
     password_hash = bcrypt.hashpw(user.password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
     cursor.execute("""
-        INSERT INTO users (nickname, login_id, password)
-        VALUES (?, ?, ?)
-    """, (user.nickname, normalized_login_id, password_hash))
+        INSERT INTO users (nickname, login_id, password, selected_nutrients)
+        VALUES (?, ?, ?, ?)
+    """, (user.nickname, normalized_login_id, password_hash, selected_nutrients_value))
 
     db.commit()
 
@@ -57,6 +63,5 @@ def login_user(user: LoginRequest, db: sqlite3.Connection):
         "login_id": found_user["login_id"],
         "pregnancy_week": found_user["pregnancy_week"],
         "due_date": found_user["due_date"],
-        "allergy_info": found_user["allergy_info"],
         "message": "로그인 성공"
     }

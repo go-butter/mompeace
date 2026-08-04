@@ -6,7 +6,6 @@ import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import NextIcon from '@/assets/images/common/next.svg';
-import MilkIcon from '@/assets/images/mypage/milk.svg';
 import CalendarIcon from '@/assets/images/mypage/mypage_calendar.svg';
 import { authColors } from '@/components/auth/colors';
 import { fonts, nanumSquareRound } from '@/constants/fonts';
@@ -59,13 +58,6 @@ export default function MyPageScreen() {
     router.replace('/(auth)/intro');
   };
 
-  const allergyList = user?.allergy_info
-    ? user.allergy_info
-        .split(',')
-        .map((item) => item.trim())
-        .filter(Boolean)
-    : [];
-
   return (
     <ScrollView
       style={styles.container}
@@ -101,10 +93,10 @@ export default function MyPageScreen() {
         />
         <View style={styles.menuDivider} />
         <MenuRow
-          icon={<MilkIcon width={24} height={24} />}
-          title="알레르기 정보"
-          subtitle={allergyList.length > 0 ? allergyList.join(', ') : '설정된 알레르기 없음'}
-          onPress={() => router.push('/(tabs)/mypage/edit-allergy')}
+          icon={<Ionicons name="nutrition-outline" size={22} color={authColors.pink} />}
+          title="영양성분 선택하기"
+          subtitle="홈 화면에 표시할 영양소 수정"
+          onPress={() => router.push('/(tabs)/mypage/nutrient-preferences')}
         />
       </View>
 

@@ -1,60 +1,14 @@
 import sqlite3
-from datetime import date, datetime
+from datetime import date
 
 from fastapi import APIRouter, HTTPException, Depends
 
 from backend.database import get_db
-from backend.models import UserCreate, PregnancyUpdate, AllergyUpdate
+from backend.models import NutrientPreferenceUpdate, PregnancyUpdate
+from backend.nutrition_constants import parse_selected_nutrients, validate_selected_nutrients
 from backend.sensitivity import get_user_adj, recalculate_sensitivity
 
 router = APIRouter()
-
-
-@router.post("/users")
-def create_user(
-    user: UserCreate,
-    db: sqlite3.Connection = Depends(get_db)
-):
-    """사용자 임신 정보 저장"""
-
-    cursor = db.cursor()
-
-    pregnancy_week = user.pregnancy_week
-
-    # 예정일 기반 임신 주차 자동 계산
-    if user.due_date and not pregnancy_week:
-        due = datetime.strptime(user.due_date, "%Y-%m-%d").date()
-        today = date.today()
-        days_remaining = (due - today).days
-        days_pregnant = 280 - days_remaining
-        pregnancy_week = max(1, days_pregnant // 7)
-
-    cursor.execute("""
-        INSERT INTO users (
-            nickname,
-            pregnancy_week,
-            due_date,
-            allergy_info,
-            interest_ingredients
-        )
-        VALUES (?, ?, ?, ?, ?)
-    """, (
-        user.nickname,
-        pregnancy_week,
-        user.due_date,
-        user.allergy_info,
-        user.interest_ingredients
-    ))
-
-    db.commit()
-
-    return {
-        "user_id": cursor.lastrowid,
-        "nickname": user.nickname,
-        "pregnancy_week": pregnancy_week,
-        "due_date": user.due_date,
-        "message": "사용자 등록 완료"
-    }
 
 
 @router.get("/users/{user_id}")
@@ -138,37 +92,41 @@ def update_pregnancy_info(
     }
 
 
-@router.put("/users/{user_id}/allergy")
-def update_allergy_info(
+@router.put("/users/{user_id}/nutrient-preferences")
+def update_nutrient_preferences(
     user_id: int,
-    info: AllergyUpdate,
+    prefs: NutrientPreferenceUpdate,
     db: sqlite3.Connection = Depends(get_db)
 ):
-    """알레르기 정보 수정"""
+    """홈 화면 요약에 표시할 선택 영양소 수정 (최대 4개).
+    selected_nutrients가 None이면 값을 바꾸지 않고 현재 상태를 그대로 반환한다
+    (update_pregnancy_info의 부분 업데이트 방식과 동일)."""
 
     cursor = db.cursor()
 
-    cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
-    user = cursor.fetchone()
-
-    if not user:
+    cursor.execute("SELECT user_id FROM users WHERE user_id = ?", (user_id,))
+    if not cursor.fetchone():
         raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
 
-    cursor.execute("""
-        UPDATE users
-        SET allergy_info = ?
-        WHERE user_id = ?
-    """, (
-        info.allergy_info,
-        user_id
-    ))
+    try:
+        selected_nutrients_value = validate_selected_nutrients(prefs.selected_nutrients)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
-    db.commit()
+    if selected_nutrients_value is not None:
+        cursor.execute(
+            "UPDATE users SET selected_nutrients = ? WHERE user_id = ?",
+            (selected_nutrients_value, user_id),
+        )
+        db.commit()
+
+    cursor.execute("SELECT selected_nutrients FROM users WHERE user_id = ?", (user_id,))
+    updated = cursor.fetchone()
 
     return {
         "user_id": user_id,
-        "allergy_info": info.allergy_info,
-        "message": "알레르기 정보 수정 완료"
+        "selected_nutrients": parse_selected_nutrients(updated["selected_nutrients"]),
+        "message": "선택 영양소 수정 완료"
     }
 
 

@@ -25,11 +25,16 @@ COLUMN_MAP = {
     "식품명": "food_name",
     "식품대분류명": "category",
     "영양성분함량기준량": "serving_label",
+    "에너지(kcal)": "calories_kcal",
     "단백질(g)": "protein_g",
+    "지방(g)": "fat_g",
     "탄수화물(g)": "carbohydrate_g",
     "당류(g)": "sugar_g",
     "나트륨(mg)": "sodium_mg",
     "카페인(mg)": "caffeine_mg",
+    "포화지방산(g)": "saturated_fat_g",
+    "트랜스지방산(g)": "trans_fat_g",
+    "콜레스테롤(mg)": "cholesterol_mg",
 }
 
 # 대표식품명 or 식품소분류명 → subcategory (순서대로 시도)
@@ -42,7 +47,11 @@ NOTES_COLUMNS = ["데이터기준일자", "데이터생성일자", "제공처명
 REQUIRED_COLUMNS = {"식품명"}
 
 # 숫자로 변환할 컬럼
-NUMERIC_COLUMNS = {"단백질(g)", "탄수화물(g)", "당류(g)", "나트륨(mg)", "카페인(mg)"}
+NUMERIC_COLUMNS = {
+    "에너지(kcal)", "단백질(g)", "지방(g)", "탄수화물(g)", "당류(g)",
+    "나트륨(mg)", "카페인(mg)",
+    "포화지방산(g)", "트랜스지방산(g)", "콜레스테롤(mg)",
+}
 
 # 실제 식품 중량 (영양성분함량기준량과 다를 수 있음 — 스케일링용, COLUMN_MAP에는 없음)
 FOOD_WEIGHT_COLUMN = "식품중량"
@@ -102,18 +111,19 @@ def _parse_weight_value(value) -> float | None:
 def _compute_scale(basis_amount: float | None, food_weight: float | None) -> float | None:
     """
     영양성분함량기준량(basis_amount) 대비 실제 식품중량(food_weight)의 배율.
-    둘 중 하나라도 없거나 basis_amount가 0 이하면 스케일을 계산할 수 없음 (None).
+    둘 중 하나라도 없거나 basis_amount 또는 food_weight가 0 이하면 스케일을 계산할 수 없음 (None).
     """
-    if basis_amount is None or food_weight is None or basis_amount <= 0:
+    if basis_amount is None or food_weight is None or basis_amount <= 0 or food_weight <= 0:
         return None
     return food_weight / basis_amount
 
 
 def _scale(value: float | None, scale: float | None) -> float | None:
-    """None은 그대로 None 유지. scale이 없으면 raw 값 그대로 반환."""
+    """None은 그대로 None 유지. scale이 없으면 raw 값 그대로 반환.
+    스케일 곱셈 후 소수점 2자리로 반올림해 부동소수점 오차(예: 405.59999999999997)를 제거한다."""
     if value is None or scale is None:
         return value
-    return value * scale
+    return round(value * scale, 2)
 
 
 def _clean_text(value) -> str:
@@ -188,6 +198,14 @@ def main():
             #  최대 ~30배까지 과소/과대 보고됨)
             basis_amount = _parse_weight_value(excel_row.get("영양성분함량기준량"))
             food_weight = _parse_weight_value(excel_row.get(FOOD_WEIGHT_COLUMN))
+
+            # 같은 food_name이라도 food_code가 다른 행(예: 다른 매장의 "아메리카노")을
+            # 구분할 수 있도록 실제 식품중량을 이름에 라벨로 붙인다. food_weight를
+            # 파싱할 수 없는 행은 라벨 없이 원래 이름을 그대로 둔다.
+            if food_weight is not None:
+                weight_label = _clean_text(excel_row.get(FOOD_WEIGHT_COLUMN))
+                food_name = f"{food_name} ({weight_label})"
+
             scale = _compute_scale(basis_amount, food_weight)
             if scale is None:
                 unscaled_count += 1
@@ -198,11 +216,16 @@ def main():
                 )
 
             # 영양소 (None = 미기재, 스케일 적용 후에도 None 유지)
+            calories_kcal = _scale(_to_float_or_none(excel_row.get("에너지(kcal)")), scale)
             protein_g = _scale(_to_float_or_none(excel_row.get("단백질(g)")), scale)
+            fat_g = _scale(_to_float_or_none(excel_row.get("지방(g)")), scale)
             carbohydrate_g = _scale(_to_float_or_none(excel_row.get("탄수화물(g)")), scale)
             sugar_g = _scale(_to_float_or_none(excel_row.get("당류(g)")), scale)
             sodium_mg = _scale(_to_float_or_none(excel_row.get("나트륨(mg)")), scale)
             caffeine_mg = _scale(_to_float_or_none(excel_row.get("카페인(mg)")), scale)
+            saturated_fat_g = _scale(_to_float_or_none(excel_row.get("포화지방산(g)")), scale)
+            trans_fat_g = _scale(_to_float_or_none(excel_row.get("트랜스지방산(g)")), scale)
+            cholesterol_mg = _scale(_to_float_or_none(excel_row.get("콜레스테롤(mg)")), scale)
 
             if caffeine_mg is not None:
                 caffeine_has += 1
@@ -237,16 +260,6 @@ def main():
                 if row:
                     existing_id = row["food_id"]
 
-            if existing_id is None:
-                cursor.execute(
-                    "SELECT food_id FROM food_items "
-                    "WHERE food_name = ? AND data_source = ?",
-                    (food_name, DATA_SOURCE),
-                )
-                row = cursor.fetchone()
-                if row:
-                    existing_id = row["food_id"]
-
             if existing_id is not None:
                 cursor.execute("""
                     UPDATE food_items SET
@@ -255,32 +268,41 @@ def main():
                         category       = ?,
                         subcategory    = ?,
                         serving_label  = ?,
+                        calories_kcal  = ?,
                         protein_g      = ?,
+                        fat_g          = ?,
                         carbohydrate_g = ?,
                         sugar_g        = ?,
                         sodium_mg      = ?,
                         caffeine_mg    = ?,
+                        saturated_fat_g = ?,
+                        trans_fat_g    = ?,
+                        cholesterol_mg = ?,
                         notes          = ?,
                         updated_at     = datetime('now')
                     WHERE food_id = ?
                 """, (
                     food_code_raw, food_name, category, subcategory,
-                    serving_label, protein_g, carbohydrate_g, sugar_g,
-                    sodium_mg, caffeine_mg, notes, existing_id,
+                    serving_label, calories_kcal, protein_g, fat_g,
+                    carbohydrate_g, sugar_g, sodium_mg, caffeine_mg,
+                    saturated_fat_g, trans_fat_g, cholesterol_mg,
+                    notes, existing_id,
                 ))
                 update_count += 1
             else:
                 cursor.execute("""
                     INSERT INTO food_items (
                         food_code, food_name, category, subcategory,
-                        serving_label, protein_g, carbohydrate_g,
-                        sugar_g, sodium_mg, caffeine_mg,
+                        serving_label, calories_kcal, protein_g, fat_g,
+                        carbohydrate_g, sugar_g, sodium_mg, caffeine_mg,
+                        saturated_fat_g, trans_fat_g, cholesterol_mg,
                         data_source, notes, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
                 """, (
                     food_code_raw, food_name, category, subcategory,
-                    serving_label, protein_g, carbohydrate_g,
-                    sugar_g, sodium_mg, caffeine_mg,
+                    serving_label, calories_kcal, protein_g, fat_g,
+                    carbohydrate_g, sugar_g, sodium_mg, caffeine_mg,
+                    saturated_fat_g, trans_fat_g, cholesterol_mg,
                     DATA_SOURCE, notes,
                 ))
                 insert_count += 1

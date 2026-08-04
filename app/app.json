@@ -43,9 +43,10 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "바코드를 스캔하기 위해 카메라 접근 권한이 필요해요."
+          "cameraPermission": "영양성분표를 스캔하기 위해 카메라 접근 권한이 필요해요."
         }
-      ]
+      ],
+      "expo-font"
     ],
     "experiments": {
       "typedRoutes": true,

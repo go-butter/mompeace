@@ -20,7 +20,7 @@ const FEATURES = [
     key: 'scan',
     iconBg: '#FFF0F0',
     Icon: BulbIcon,
-    title: '바코드 스캔',
+    title: '영양성분표 스캔',
     subtitle: '식품 안전을 간편하게 확인',
   },
   {

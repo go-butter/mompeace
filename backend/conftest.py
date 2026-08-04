@@ -26,6 +26,7 @@ CREATE TABLE users (
     caffeine_sensitivity_adj REAL DEFAULT 0,
     sugar_sensitivity_adj REAL DEFAULT 0,
     sodium_sensitivity_adj REAL DEFAULT 0,
+    selected_nutrients TEXT,
     created_at  TEXT DEFAULT (datetime('now'))
 );
 
@@ -45,6 +46,10 @@ CREATE TABLE food_items (
     calories_kcal  REAL DEFAULT 0,
     carbohydrate_g REAL,
     protein_g      REAL,
+    fat_g          REAL,
+    saturated_fat_g REAL,
+    trans_fat_g    REAL,
+    cholesterol_mg REAL,
     allergen_info  TEXT,
     additive_info  TEXT,
     data_source    TEXT,
@@ -62,6 +67,10 @@ CREATE TABLE user_food_items (
     calories_kcal   REAL DEFAULT 0,
     carbohydrate_g  REAL,
     protein_g       REAL,
+    fat_g           REAL,
+    saturated_fat_g REAL,
+    trans_fat_g     REAL,
+    cholesterol_mg  REAL,
     created_at      TEXT DEFAULT (datetime('now', 'localtime')),
     FOREIGN KEY (user_id) REFERENCES users(user_id)
 );
@@ -81,12 +90,17 @@ CREATE TABLE food_log (
     calories_kcal  REAL DEFAULT 0,
     carbohydrate_g REAL DEFAULT 0,
     protein_g      REAL DEFAULT 0,
+    fat_g          REAL,
+    saturated_fat_g REAL,
+    trans_fat_g    REAL,
+    cholesterol_mg REAL,
     risk_level     TEXT DEFAULT 'safe',
     eaten_at      TEXT DEFAULT (datetime('now', 'localtime')),
     created_at    TEXT DEFAULT (datetime('now', 'localtime')),
     feedback      INTEGER DEFAULT 0,
     recommendation_status TEXT,
     reason_nutrient TEXT,
+    needs_review  INTEGER DEFAULT 0,
     FOREIGN KEY (user_id) REFERENCES users(user_id)
 );
 
@@ -97,6 +111,15 @@ CREATE TABLE food_log_extra_nutrients (
     value TEXT NOT NULL,
     unit TEXT,
     FOREIGN KEY (food_log_id) REFERENCES food_log(log_id)
+);
+
+CREATE TABLE water_log (
+    log_id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL,
+    amount_ml   REAL NOT NULL,
+    logged_at   TEXT DEFAULT (datetime('now', 'localtime')),
+    created_at  TEXT DEFAULT (datetime('now', 'localtime')),
+    FOREIGN KEY (user_id) REFERENCES users(user_id)
 );
 
 CREATE TABLE user_sensitivity_log (
@@ -168,6 +191,24 @@ def make_food_log(db, user_id, **overrides):
     return cursor.lastrowid
 
 
+def make_water_log(db, user_id, **overrides):
+    """테스트용 water_log 행 한 개를 생성하고 log_id를 반환한다."""
+    defaults = {
+        "user_id": user_id,
+        "amount_ml": 250,
+    }
+    defaults.update(overrides)
+    cols = ", ".join(defaults.keys())
+    placeholders = ", ".join("?" for _ in defaults)
+    cursor = db.cursor()
+    cursor.execute(
+        f"INSERT INTO water_log ({cols}) VALUES ({placeholders})",
+        list(defaults.values()),
+    )
+    db.commit()
+    return cursor.lastrowid
+
+
 def make_user_food_item(db, user_id, **overrides):
     """테스트용 user_food_items 행 한 개를 생성하고 user_food_item_id를 반환한다."""
     defaults = {
@@ -180,6 +221,25 @@ def make_user_food_item(db, user_id, **overrides):
     cursor = db.cursor()
     cursor.execute(
         f"INSERT INTO user_food_items ({cols}) VALUES ({placeholders})",
+        list(defaults.values()),
+    )
+    db.commit()
+    return cursor.lastrowid
+
+
+def make_food_item(db, **overrides):
+    """테스트용 food_items 행 한 개를 생성하고 food_id를 반환한다.
+    기본 data_source는 dish_db_download (카탈로그 검색 테스트용)."""
+    defaults = {
+        "food_name": "테스트 카탈로그 음식",
+        "data_source": "dish_db_download",
+    }
+    defaults.update(overrides)
+    cols = ", ".join(defaults.keys())
+    placeholders = ", ".join("?" for _ in defaults)
+    cursor = db.cursor()
+    cursor.execute(
+        f"INSERT INTO food_items ({cols}) VALUES ({placeholders})",
         list(defaults.values()),
     )
     db.commit()

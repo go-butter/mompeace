@@ -4,7 +4,6 @@ import { Text } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import HomeIcon from '@/assets/images/common/tab_clarity_home-line.svg';
-import BarcodeIcon from '@/assets/images/common/tab_barcode.svg';
 import PlantIcon from '@/assets/images/common/tab_tabler_plant.svg';
 import PersonIcon from '@/assets/images/common/tab_charm_person.svg';
 import { HapticTab } from '@/components/haptic-tab';
@@ -64,15 +63,6 @@ export default function TabLayout() {
           tabBarLabel: ({ focused }) => <TabLabel focused={focused} label="홈" />,
           tabBarIcon: ({ focused }) => (
             <HomeIcon width={28} height={28} color={focused ? ACTIVE_COLOR : INACTIVE_COLOR} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="scan"
-        options={{
-          tabBarLabel: ({ focused }) => <TabLabel focused={focused} label="스캔" />,
-          tabBarIcon: ({ focused }) => (
-            <BarcodeIcon width={26} height={26} color={focused ? ACTIVE_COLOR : INACTIVE_COLOR} />
           ),
         }}
       />

@@ -8,7 +8,6 @@ user_food_items 테이블, eaten_at 지정 가능 여부, /foods/search 개인 �
 """
 from datetime import date
 
-import backend.routers.foods as foods_router
 from backend.models import FoodLogCreate, UserFoodItemCreate
 from backend.routers.food_log import create_food_log
 from backend.routers.foods import create_personal_food_item, search_food
@@ -91,8 +90,7 @@ class TestCreateFoodLogEatenAt:
 
 
 class TestSearchFoodPersonalResults:
-    def test_personal_item_appears_first_when_user_id_given(self, db, monkeypatch):
-        monkeypatch.setattr(foods_router, "search_food_nutrition", lambda **kwargs: [])
+    def test_personal_item_appears_first_when_user_id_given(self, db):
         user_id = make_user(db)
         make_user_food_item(db, user_id, food_name="아메리카노 개인", caffeine_mg=150)
 
@@ -101,8 +99,7 @@ class TestSearchFoodPersonalResults:
         assert result["results"][0]["source"] == "personal"
         assert result["results"][0]["data"]["food_name"] == "아메리카노 개인"
 
-    def test_no_user_id_returns_only_catalog_results(self, db, monkeypatch):
-        monkeypatch.setattr(foods_router, "search_food_nutrition", lambda **kwargs: [])
+    def test_no_user_id_returns_only_catalog_results(self, db):
         other_user_id = make_user(db)
         make_user_food_item(db, other_user_id, food_name="아메리카노 개인", caffeine_mg=150)
 

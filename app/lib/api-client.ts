@@ -6,6 +6,10 @@ export interface RegisterRequest {
   login_id: string;
   password: string;
   password_confirm: string;
+  // 실제 앱 플로우에서는 사용되지 않음 — 계정 생성 시점엔 아직 선택 화면을 거치지 않았고,
+  // 선택은 nutrient-select.tsx가 별도로 updateNutrientPreferences()를 호출해 저장한다.
+  // 백엔드 모델과 형태를 맞추기 위해 필드만 남겨둔다.
+  selected_nutrients?: string[];
 }
 
 export interface RegisterResponse {
@@ -26,7 +30,6 @@ export interface LoginResponse {
   login_id: string;
   pregnancy_week: number | null;
   due_date: string | null;
-  allergy_info: string | null;
   message: string;
 }
 
@@ -42,16 +45,6 @@ export interface PregnancyUpdateResponse {
   pregnancy_day: number | null;
   due_date: string | null;
   pregnancy_entered_at: string | null;
-  message: string;
-}
-
-export interface AllergyUpdateRequest {
-  allergy_info: string;
-}
-
-export interface AllergyUpdateResponse {
-  user_id: number;
-  allergy_info: string;
   message: string;
 }
 
@@ -122,7 +115,6 @@ export interface FoodLogEntry {
   sodium_mg: number;
   caffeine_mg: number | null;
   protein_g: number;
-  allergens: string[];
   extra_nutrients: { name: string; value: string; unit?: string | null }[];
 }
 
@@ -142,27 +134,6 @@ export interface RiskDetailEntry {
   keywords?: string[];
 }
 
-export interface RiskAllergyEntry {
-  allergens: string[];
-  status: 'check_required' | 'safe';
-  label: string;
-}
-
-export interface BarcodeFoodData {
-  barcode: string;
-  food_name: string;
-  food_category: string | null;
-  food_type: string | null;
-  serving_size: string | null;
-  calories_kcal: number;
-  sodium_mg: number;
-  sugar_g: number;
-  carbohydrate_g: number;
-  protein_g: number;
-  allergens: string[];
-  warnings: string[];
-}
-
 export interface BarcodeRisk {
   pregnancy_week: number;
   trimester: 'early' | 'middle' | 'late';
@@ -174,16 +145,8 @@ export interface BarcodeRisk {
     caffeine: RiskDetailEntry;
     sugar: RiskDetailEntry;
     sodium: RiskDetailEntry;
-    allergy: RiskAllergyEntry;
   };
   messages: string[];
-}
-
-export interface BarcodeFoodResponse {
-  source: string;
-  food_id: number;
-  data: BarcodeFoodData;
-  risk: BarcodeRisk;
 }
 
 export interface FoodLogCreateRequest {
@@ -202,6 +165,8 @@ export interface FoodLogCreateRequest {
   food_id?: number | null;
   eaten_at?: string;
   extra_nutrients?: { name: string; value: string; unit?: string }[];
+  needs_review?: boolean;
+  serving_multiplier?: number;
 }
 
 export interface FoodLogCreateResponse {
@@ -238,10 +203,26 @@ export interface PersonalFoodData {
   created_at: string;
 }
 
-export interface FoodSearchResultItem {
-  source: 'personal' | 'food_nutrition_api';
+export interface DishDbFoodData {
   food_id: number;
-  data: PersonalFoodData | Record<string, any>;
+  food_code: string | null;
+  food_name: string;
+  category: string | null;
+  subcategory: string | null;
+  serving_label: string | null;
+  caffeine_mg: number | null;
+  sugar_g: number | null;
+  sodium_mg: number | null;
+  carbohydrate_g: number | null;
+  protein_g: number | null;
+  fat_g: number | null;
+  calories_kcal: number | null;
+}
+
+export interface FoodSearchResultItem {
+  source: 'personal' | 'dish_db_download';
+  food_id: number;
+  data: PersonalFoodData | DishDbFoodData;
   risk: BarcodeRisk | null;
 }
 
@@ -263,6 +244,53 @@ export interface FoodLogCalendarResponse {
   year: number;
   month: number;
   days: FoodLogCalendarDay[];
+}
+
+export interface WaterLogEntry {
+  log_id: number;
+  amount_ml: number;
+  logged_at: string;
+  time: string | null;
+}
+
+export interface WaterTodayResponse {
+  user_id: number;
+  date: string;
+  target_ml: number;
+  total_ml: number;
+  percent: number;
+  logs: WaterLogEntry[];
+}
+
+export interface WaterWeekDay {
+  label: string;
+  date: string;
+  amount_ml: number;
+  hit_target: boolean;
+  is_today: boolean;
+}
+
+export interface WaterWeekResponse {
+  user_id: number;
+  date_range: { start: string; end: string };
+  target_ml: number;
+  days: WaterWeekDay[];
+}
+
+export interface WaterLogCreateRequest {
+  user_id: number;
+  amount_ml: number;
+  logged_at?: string;
+}
+
+export interface WaterLogCreateResponse {
+  log_id: number;
+  message: string;
+}
+
+export interface WaterLogDeleteResponse {
+  log_id: number;
+  message: string;
 }
 
 export class ApiError extends Error {}
@@ -351,11 +379,19 @@ export function updatePregnancyInfo(
   return put(`/users/${userId}/pregnancy`, body);
 }
 
-export function updateAllergyInfo(
+export interface NutrientPreferenceUpdateResponse {
+  user_id: number;
+  selected_nutrients: string[];
+  message: string;
+}
+
+// selectedNutrients=null이면 값을 바꾸지 않고 현재 선택을 그대로 조회한다 (부분 업데이트와
+// 동일한 방식) — 마이페이지 화면에서 현재 선택을 불러올 때도 이 함수를 그대로 재사용한다.
+export function updateNutrientPreferences(
   userId: number,
-  body: AllergyUpdateRequest
-): Promise<AllergyUpdateResponse> {
-  return put(`/users/${userId}/allergy`, body);
+  selectedNutrients: string[] | null
+): Promise<NutrientPreferenceUpdateResponse> {
+  return put(`/users/${userId}/nutrient-preferences`, { selected_nutrients: selectedNutrients });
 }
 
 export function getIntakeToday(userId: number): Promise<IntakeTodayResponse> {
@@ -366,16 +402,32 @@ export function getFoodLogToday(userId: number): Promise<FoodLogTodayResponse> {
   return get(`/food-log/today/${userId}`);
 }
 
-export function getFoodByBarcode(
-  barcode: string,
-  userId?: number
-): Promise<BarcodeFoodResponse> {
-  const userParam = userId != null ? `?user_id=${userId}` : '';
-  return get(`/foods/barcode/${encodeURIComponent(barcode)}${userParam}`);
-}
-
 export function createFoodLog(body: FoodLogCreateRequest): Promise<FoodLogCreateResponse> {
   return post('/food-log', body);
+}
+
+export interface OcrScanRequest {
+  image: string; // base64, no data URI prefix
+}
+
+export type OcrScaleMethod =
+  | 'total_content'
+  | 'per_basis_with_total'
+  | 'per_serving_with_count'
+  | 'unknown';
+
+export interface OcrScanResponse {
+  product_name: string | null;
+  sugar_g: number | null;
+  sodium_mg: number | null;
+  scale_method: OcrScaleMethod;
+  scale_factor_applied: number | null;
+  basis_amount_value: number | null;
+  needs_review: boolean;
+}
+
+export function scanNutritionLabel(body: OcrScanRequest): Promise<OcrScanResponse> {
+  return post('/ocr/scan', body);
 }
 
 export interface FoodLogDeleteResponse {
@@ -401,6 +453,26 @@ export function getFoodLogCalendar(
   month: number
 ): Promise<FoodLogCalendarResponse> {
   return get(`/food-log/calendar/${userId}?year=${year}&month=${month}`);
+}
+
+export function getWaterToday(userId: number): Promise<WaterTodayResponse> {
+  return get(`/water-log/today/${userId}`);
+}
+
+export function getWaterByDate(userId: number, date: string): Promise<WaterTodayResponse> {
+  return get(`/water-log/by-date/${userId}?date=${date}`);
+}
+
+export function getWaterWeek(userId: number, date?: string): Promise<WaterWeekResponse> {
+  return get(`/water-log/week/${userId}${date ? `?date=${date}` : ''}`);
+}
+
+export function createWaterLog(body: WaterLogCreateRequest): Promise<WaterLogCreateResponse> {
+  return post('/water-log', body);
+}
+
+export function deleteWaterLog(logId: number, userId: number): Promise<WaterLogDeleteResponse> {
+  return del(`/water-log/${logId}?user_id=${userId}`);
 }
 
 // TODO: getPremiumReport() — added in a separate task, wires premium-report.tsx to live data.
@@ -446,7 +518,7 @@ export interface RecommendationItem {
   status: 'possible' | 'caution' | 'avoid';
   label: string;
   reason: string;
-  reason_nutrient: 'caffeine' | 'sugar' | 'sodium' | 'allergy' | null;
+  reason_nutrient: 'caffeine' | 'sugar' | 'sodium' | null;
   nutrients: RecommendationNutrients;
   data_confidence: RecommendationDataConfidence;
   alternative: RecommendationAlternative | null;
@@ -494,11 +566,15 @@ export function getFoodCategories(): Promise<FoodCategoriesResponse> {
   return get('/categories');
 }
 
+const SEARCH_NUM_OF_ROWS = 30;
+
 export function searchFoods(
   query: string,
   userId: number
 ): Promise<FoodSearchResponse> {
-  return get(`/foods/search?query=${encodeURIComponent(query)}&user_id=${userId}`);
+  return get(
+    `/foods/search?query=${encodeURIComponent(query)}&user_id=${userId}&num_of_rows=${SEARCH_NUM_OF_ROWS}`
+  );
 }
 
 export interface CoffeeCaffeineEntry {

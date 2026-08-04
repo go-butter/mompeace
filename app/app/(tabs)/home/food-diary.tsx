@@ -13,6 +13,7 @@ import { authColors } from '@/components/auth/colors';
 import { homeColors } from '@/components/home/colors';
 import AddFoodPopup from '@/components/home/AddFoodPopup';
 import Calendar from '@/components/home/Calendar';
+import { waterColors } from '@/components/water/colors';
 import { fonts } from '@/constants/fonts';
 import { useAuth } from '@/context/auth-context';
 import { useFoodDiary } from '@/context/food-diary-context';
@@ -42,9 +43,6 @@ function FoodLogRow({ entry, onDelete }: { entry: FoodLogEntry; onDelete: (entry
     <View style={styles.foodRow}>
       <Text style={styles.foodTime}>{entry.time}</Text>
       <Text style={styles.foodName}>{entry.food_name}</Text>
-      <Text style={styles.foodKcal}>
-        {entry.calories_kcal != null ? `${entry.calories_kcal}kcal` : ''}
-      </Text>
       <Pressable
         onPress={() => {
           console.log('[DELETE] X pressed for log_id', entry.log_id);
@@ -69,6 +67,7 @@ export default function FoodDiaryScreen() {
     changeMonth,
     statusByDate,
     intake,
+    water,
     foodLog,
     loading,
     error,
@@ -145,7 +144,7 @@ export default function FoodDiaryScreen() {
       return (
         <Text style={styles.emptyMessage}>
           {isToday
-            ? '오늘 섭취한 음식이 추가되지 않았습니다!\nFood Diary 혹은 바코드 스캔을 통해\n음식을 추가해 주세요 :)'
+            ? '오늘 섭취한 음식이 추가되지 않았습니다!\nFood Diary 혹은 영양성분표 스캔을 통해\n음식을 추가해 주세요 :)'
             : '이 날에는 기록된 음식이 없어요.'}
         </Text>
       );
@@ -200,12 +199,13 @@ export default function FoodDiaryScreen() {
             value={intake.status_label.sodium}
             colors={homeColors.sodium}
           />
-          <StatusChip label="알레르기" value="안전" colors={homeColors.allergy} />
-          <StatusChip
-            label="물"
-            value={`${intake.water_cups ?? 0}잔`}
-            colors={homeColors.water}
-          />
+          <Pressable style={styles.chipPressable} onPress={() => router.push('/(tabs)/home/water-diary')}>
+            <StatusChip
+              label="물"
+              value={`${Math.round(water?.total_ml ?? 0)}ml`}
+              colors={waterColors.chip}
+            />
+          </Pressable>
         </View>
       </>
     );
@@ -471,6 +471,9 @@ const styles = StyleSheet.create({
     gap: 8,
     marginTop: 14,
   },
+  chipPressable: {
+    flex: 1,
+  },
   chip: {
     flex: 1,
     borderRadius: 12,
@@ -537,11 +540,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: authColors.brown,
     flex: 1,
-  },
-  foodKcal: {
-    fontFamily: fonts.medium,
-    fontSize: 13,
-    color: authColors.gray,
   },
   deleteButton: {
     width: 28,

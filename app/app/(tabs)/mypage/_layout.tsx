@@ -24,6 +24,7 @@ const HIDDEN_TAB_BAR_ROUTES = new Set([
   'edit-profile',
   'edit-allergy',
   'contact',
+  'nutrient-preferences',
 ]);
 
 export default function MyPageLayout() {
@@ -48,6 +49,7 @@ export default function MyPageLayout() {
       <Stack.Screen name="edit-profile" />
       <Stack.Screen name="edit-allergy" />
       <Stack.Screen name="contact" />
+      <Stack.Screen name="nutrient-preferences" />
     </Stack>
   );
 }

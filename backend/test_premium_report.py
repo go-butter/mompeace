@@ -141,7 +141,10 @@ class TestGetPremiumReportWeekly:
 
         result = get_premium_report(user_id=user_id, period="weekly", date="2030-01-07", db=db)
 
-        assert result["daily_average"] == {"caffeine_mg": 0.0, "sugar_g": 0.0, "sodium_mg": 0.0}
+        assert result["daily_average"] == {
+            "caffeine_mg": 0.0, "sugar_g": 0.0, "sodium_mg": 0.0,
+            "energy_kcal": 0.0, "carbohydrate_g": 0.0, "protein_g": 0.0,
+        }
 
     def test_comparison_uses_days_with_data_on_previous_week_too(self, db):
         user_id = make_user(db, pregnancy_week=20)
@@ -211,4 +214,4 @@ class TestGetPremiumReportWeekly:
         assert result["comparison"]["caffeine_vs_previous_pct"] is not None
         assert result["comparison"]["sodium_vs_previous_pct"] is not None
         assert result["comparison"]["caffeine_vs_previous_pct"] == 25.0  # 50% - 25%
-        assert result["comparison"]["sodium_vs_previous_pct"] == 2.1     # 4.3% - 2.2%
+        assert result["comparison"]["sodium_vs_previous_pct"] == 3.4     # 6.7% - 3.3% (limit 1500mg)

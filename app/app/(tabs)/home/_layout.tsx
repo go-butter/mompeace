@@ -20,7 +20,15 @@ const VISIBLE_TAB_BAR_STYLE = {
 } as const;
 
 const CONTENT_HEIGHT = 80; // mirrors (tabs)/_layout.tsx's CONTENT_HEIGHT
-const HIDDEN_TAB_BAR_ROUTES = new Set(['food-entry-search', 'food-entry-manual', 'premium-report']);
+const HIDDEN_TAB_BAR_ROUTES = new Set([
+  'food-entry-search',
+  'food-entry-manual',
+  'premium-report',
+  'food-entry-ocr-capture',
+  'food-entry-ocr-confirm',
+  'food-entry-ocr-failure',
+  'water-diary',
+]);
 
 export default function HomeLayout() {
   const insets = useSafeAreaInsets();
@@ -41,12 +49,15 @@ export default function HomeLayout() {
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="index" />
-      <Stack.Screen name="scan-result" />
       <Stack.Screen name="food-diary-list" />
       <Stack.Screen name="food-diary" />
       <Stack.Screen name="food-entry-search" />
       <Stack.Screen name="food-entry-manual" />
       <Stack.Screen name="premium-report" />
+      <Stack.Screen name="food-entry-ocr-capture" />
+      <Stack.Screen name="food-entry-ocr-confirm" />
+      <Stack.Screen name="food-entry-ocr-failure" />
+      <Stack.Screen name="water-diary" />
     </Stack>
   );
 }

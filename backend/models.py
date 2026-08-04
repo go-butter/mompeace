@@ -7,19 +7,12 @@ class RegisterRequest(BaseModel):
     login_id: str
     password: str
     password_confirm: str
+    selected_nutrients: Optional[list[str]] = None
 
 
 class LoginRequest(BaseModel):
     login_id: str
     password: str
-
-
-class UserCreate(BaseModel):
-    nickname: str
-    pregnancy_week: Optional[int] = None
-    due_date: Optional[str] = None
-    allergy_info: Optional[str] = None
-    interest_ingredients: Optional[str] = None
 
 
 class PregnancyUpdate(BaseModel):
@@ -28,8 +21,8 @@ class PregnancyUpdate(BaseModel):
     due_date: Optional[str] = None
 
 
-class AllergyUpdate(BaseModel):
-    allergy_info: str
+class NutrientPreferenceUpdate(BaseModel):
+    selected_nutrients: Optional[list[str]] = None
 
 
 class ExtraNutrientIn(BaseModel):
@@ -54,6 +47,8 @@ class FoodLogCreate(BaseModel):
     food_id: Optional[int] = None
     eaten_at: Optional[str] = None
     extra_nutrients: Optional[list[ExtraNutrientIn]] = None
+    needs_review: Optional[bool] = False
+    serving_multiplier: Optional[float] = None
 
 
 class FoodLogFromFood(BaseModel):
@@ -61,6 +56,12 @@ class FoodLogFromFood(BaseModel):
     food_id: int
     amount: float = 1.0
     unit: str = "개"
+
+
+class WaterLogCreate(BaseModel):
+    user_id: int
+    amount_ml: float
+    logged_at: Optional[str] = None
 
 
 class UserFoodItemCreate(BaseModel):

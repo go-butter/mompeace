@@ -11,6 +11,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import {
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -205,6 +206,7 @@ export default function FoodEntryManualScreen() {
   };
 
   const handleSave = () => {
+    Keyboard.dismiss();
     if (!isFormValid || !user?.user_id || !date || saving) return;
 
     const caffeine = caffeineMg.trim() === '' ? null : Number(caffeineMg);
@@ -462,6 +464,7 @@ export default function FoodEntryManualScreen() {
 const styles = StyleSheet.create({
   keyboardAvoidingView: {
     flex: 1,
+    backgroundColor: authColors.white,
   },
   container: {
     flex: 1,
