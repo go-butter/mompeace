@@ -293,7 +293,19 @@ export interface WaterLogDeleteResponse {
   message: string;
 }
 
-export class ApiError extends Error {}
+export class ApiError extends Error {
+  field?: string;
+}
+
+function throwApiError(detail: unknown): never {
+  if (detail && typeof detail === 'object' && 'message' in detail) {
+    const err = new ApiError((detail as { message: string }).message);
+    const field = (detail as { field?: string }).field;
+    if (field) err.field = field;
+    throw err;
+  }
+  throw new ApiError(detail as string);
+}
 
 async function request<TReq, TRes>(method: 'POST' | 'PUT', path: string, body: TReq): Promise<TRes> {
   let res: Response;
@@ -310,7 +322,7 @@ async function request<TReq, TRes>(method: 'POST' | 'PUT', path: string, body: T
   const data = await res.json();
 
   if (!res.ok) {
-    throw new ApiError(data.detail);
+    throwApiError(data.detail);
   }
 
   return data as TRes;

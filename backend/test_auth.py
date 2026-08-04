@@ -35,6 +35,7 @@ class TestRegisterUniqueness:
         with pytest.raises(HTTPException) as exc_info:
             _register(db, nickname="중복닉네임", login_id="userB")
         assert exc_info.value.status_code == 400
+        assert exc_info.value.detail["field"] == "nickname"
 
     def test_duplicate_login_id_rejected(self, db):
         _register(db, nickname="유저에이", login_id="dupid")
@@ -42,6 +43,7 @@ class TestRegisterUniqueness:
         with pytest.raises(HTTPException) as exc_info:
             _register(db, nickname="유저비", login_id="dupid")
         assert exc_info.value.status_code == 400
+        assert exc_info.value.detail["field"] == "login_id"
 
     def test_new_nickname_colliding_with_existing_login_id_rejected(self, db):
         _register(db, nickname="유저에이", login_id="crossid")
@@ -49,6 +51,7 @@ class TestRegisterUniqueness:
         with pytest.raises(HTTPException) as exc_info:
             _register(db, nickname="crossid", login_id="userb")
         assert exc_info.value.status_code == 400
+        assert exc_info.value.detail["field"] == "nickname"
 
     def test_new_login_id_colliding_with_existing_nickname_rejected(self, db):
         _register(db, nickname="크로스닉", login_id="usera")
@@ -56,6 +59,7 @@ class TestRegisterUniqueness:
         with pytest.raises(HTTPException) as exc_info:
             _register(db, nickname="유저비", login_id="크로스닉")
         assert exc_info.value.status_code == 400
+        assert exc_info.value.detail["field"] == "login_id"
 
 
 class TestLoginMatchesEitherField:

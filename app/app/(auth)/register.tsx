@@ -61,6 +61,7 @@ export default function RegisterScreen() {
   const [id, setId] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [nicknameError, setNicknameError] = useState<string | null>(null);
   const [idError, setIdError] = useState<string | null>(null);
   const [confirmPasswordError, setConfirmPasswordError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -85,6 +86,7 @@ export default function RegisterScreen() {
   };
 
   const handleRegister = async () => {
+    setNicknameError(null);
     setIdError(null);
     setConfirmPasswordError(null);
 
@@ -118,7 +120,13 @@ export default function RegisterScreen() {
     } catch (err) {
       if (!isMountedRef.current) return;
       if (err instanceof ApiError) {
-        setIdError(err.message);
+        if (err.field === 'nickname') {
+          setNicknameError(err.message);
+        } else if (err.field === 'login_id') {
+          setIdError(err.message);
+        } else {
+          setIdError(err.message);
+        }
       } else {
         setIdError((err as Error).message);
       }
@@ -144,6 +152,7 @@ export default function RegisterScreen() {
           placeholder="Enter your nickname"
           value={nickname}
           onChangeText={setNickname}
+          error={nicknameError}
         />
         <LabeledInput
           label="아이디*"
