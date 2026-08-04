@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, Depends
 
 from backend.database import get_db
 from backend.models import FoodLogCreate, FoodLogFromFood, FeedbackRequest
+from backend.nutrition_constants import EXTRA_NUTRIENT_NAME_TO_COLUMN
 from backend.recommendation_model import recommend_food
 from backend.risk import calculate_current_pregnancy_age
 from backend.sensitivity import get_user_adj, recalculate_sensitivity
@@ -32,6 +33,8 @@ def _judge_food_log_from_food_item(food: dict, amount: float, user: dict, db: sq
     sodium_mg = _multiply(food.get("sodium_mg"), amount)
     carbohydrate_g = _multiply(food.get("carbohydrate_g"), amount)
     protein_g = _multiply(food.get("protein_g"), amount)
+    fat_g = _multiply(food.get("fat_g"), amount)
+    cholesterol_mg = _multiply(food.get("cholesterol_mg"), amount)
 
     # today_intake는 이번에 기록할 항목을 제외한, 지금까지 누적된 양이어야 한다 (INSERT 이전 호출)
     today_intake = compute_today_intake_totals(user["user_id"], db)
@@ -64,6 +67,8 @@ def _judge_food_log_from_food_item(food: dict, amount: float, user: dict, db: sq
             "sodium_mg": sodium_mg,
             "carbohydrate_g": carbohydrate_g,
             "protein_g": protein_g,
+            "fat_g": fat_g,
+            "cholesterol_mg": cholesterol_mg,
         },
         "recommendation": recommendation,
     }
@@ -94,6 +99,8 @@ def create_food_log(
     calories_kcal = log.calories_kcal
     carbohydrate_g = log.carbohydrate_g
     protein_g = log.protein_g
+    fat_g = log.fat_g
+    cholesterol_mg = log.cholesterol_mg
     recommendation_status = None
     reason_nutrient = None
 
@@ -114,6 +121,8 @@ def create_food_log(
         sodium_mg = judged["nutrients"]["sodium_mg"]
         carbohydrate_g = judged["nutrients"]["carbohydrate_g"]
         protein_g = judged["nutrients"]["protein_g"]
+        fat_g = judged["nutrients"]["fat_g"]
+        cholesterol_mg = judged["nutrients"]["cholesterol_mg"]
         recommendation_status = judged["recommendation"]["status"]
         reason_nutrient = judged["recommendation"]["reason_nutrient"]
     elif log.serving_multiplier is not None:
@@ -127,13 +136,31 @@ def create_food_log(
     # 행 형태(data_source 등)를 갖추지 못하므로 추천 판정을 호출하지 않는다.
     # recommendation_status/reason_nutrient는 NULL로 남는다.
 
+    # 자유 텍스트 추가 성분(extra_nutrients) 중 이름이 알려진 라벨과 일치하면,
+    # 아직 fat_g/cholesterol_mg가 채워지지 않은 경우에 한해 타입 컬럼에도 반영한다
+    # (food_id 경로에서 이미 구해진 값은 자유 텍스트로 덮어쓰지 않는다).
+    if log.extra_nutrients:
+        for en in log.extra_nutrients:
+            column = EXTRA_NUTRIENT_NAME_TO_COLUMN.get(en.name.strip())
+            if column is None:
+                continue
+            try:
+                parsed_value = float(en.value)
+            except (TypeError, ValueError):
+                continue
+            if column == "fat_g" and fat_g is None:
+                fat_g = parsed_value
+            elif column == "cholesterol_mg" and cholesterol_mg is None:
+                cholesterol_mg = parsed_value
+
     if log.eaten_at is not None:
         cursor.execute("""
             INSERT INTO food_log
             (user_id, food_id, food_name, category, input_type, amount, unit,
              caffeine_mg, sugar_g, sodium_mg, calories_kcal, carbohydrate_g, protein_g,
+             fat_g, cholesterol_mg,
              recommendation_status, reason_nutrient, needs_review, eaten_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             log.user_id,
             log.food_id,
@@ -148,6 +175,8 @@ def create_food_log(
             calories_kcal,
             carbohydrate_g,
             protein_g,
+            fat_g,
+            cholesterol_mg,
             recommendation_status,
             reason_nutrient,
             log.needs_review,
@@ -158,8 +187,9 @@ def create_food_log(
             INSERT INTO food_log
             (user_id, food_id, food_name, category, input_type, amount, unit,
              caffeine_mg, sugar_g, sodium_mg, calories_kcal, carbohydrate_g, protein_g,
+             fat_g, cholesterol_mg,
              recommendation_status, reason_nutrient, needs_review)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             log.user_id,
             log.food_id,
@@ -174,6 +204,8 @@ def create_food_log(
             calories_kcal,
             carbohydrate_g,
             protein_g,
+            fat_g,
+            cholesterol_mg,
             recommendation_status,
             reason_nutrient,
             log.needs_review,
@@ -236,8 +268,9 @@ def create_food_log_from_food(
         INSERT INTO food_log
         (user_id, food_id, food_name, category, input_type, amount, unit,
          caffeine_mg, sugar_g, sodium_mg, carbohydrate_g, protein_g,
+         fat_g, cholesterol_mg,
          recommendation_status, reason_nutrient)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         log.user_id,
         log.food_id,
@@ -251,6 +284,8 @@ def create_food_log_from_food(
         nutrients["sodium_mg"],
         nutrients["carbohydrate_g"],
         nutrients["protein_g"],
+        nutrients["fat_g"],
+        nutrients["cholesterol_mg"],
         recommendation["status"],
         recommendation["reason_nutrient"],
     ))

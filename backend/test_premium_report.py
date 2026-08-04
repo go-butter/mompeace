@@ -8,6 +8,9 @@ backend/routers/premium.py 의 get_premium_report() 테스트 (기존 커버리�
 - weekly: 요일별 버킷팅, 항목별/전체 status, daily_average는 항상 7일 기준
 - weekly comparison(지난주 대비): 퍼센트포인트 차이로 계산되고, 지난주 기록이 전혀 없으면 null
 - "기록 자체가 없음"과 "기록은 있지만 값이 NULL(unknown)"을 구분하는 회귀 가드
+- food_log.fat_g/cholesterol_mg에 실제 값이 있으면 fat_status/cholesterol_status가
+  더 이상 항상 "unknown"이 아니라 실제 값 기반으로 계산된다 (기존에는 두 컬럼이
+  한 번도 채워진 적이 없어 이 경로가 커버되지 않았음)
 """
 import pytest
 from fastapi import HTTPException
@@ -89,6 +92,23 @@ class TestGetPremiumReportDaily:
         assert evening["sugar_status"] == "safe"
         assert evening["sodium_status"] == "safe"
         assert evening["status"] == "safe"
+
+
+class TestGetPremiumReportFatCholesterol:
+    def test_fat_and_cholesterol_totals_and_status_from_real_values(self, db):
+        user_id = make_user(db, pregnancy_week=20)
+        make_food_log(db, user_id, caffeine_mg=0, sugar_g=0, sodium_mg=0,
+                       calories_kcal=2000, fat_g=400, cholesterol_mg=150,
+                       eaten_at="2030-01-15 09:00:00")
+
+        result = get_premium_report(user_id=user_id, period="daily", date="2030-01-15", db=db)
+
+        assert result["totals"]["fat_g"] == 400.0
+        assert result["totals"]["cholesterol_mg"] == 150.0
+        # 지방: 400g은 총 에너지(2000kcal) 대비 상한(30%=600)과 하한(15%=300) 사이 -> safe
+        assert result["status"]["fat_status"] == "safe"
+        # 콜레스테롤: 공식 상한 기준이 없어 값이 있으면 "info"로 표시된다 (unknown이 아님)
+        assert result["status"]["cholesterol_status"] == "info"
 
 
 class TestGetPremiumReportWeekly:

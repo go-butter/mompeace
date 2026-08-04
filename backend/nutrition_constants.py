@@ -33,7 +33,14 @@ TRANS_FAT_ENERGY_RATIO_MAX = 0.01
 # 홈 화면 요약에 표시할 수 있는 선택형 영양소 (카페인/물은 항상 표시되므로 선택지에서 제외)
 SELECTABLE_NUTRIENT_KEYS = ("carbohydrate", "sugar", "energy", "fat", "cholesterol", "protein", "sodium")
 DEFAULT_SELECTED_NUTRIENTS = ("carbohydrate", "sugar", "sodium")
-MAX_SELECTED_NUTRIENTS = 4
+MAX_SELECTED_NUTRIENTS = 3
+
+# 자유 텍스트로 입력된 추가 성분(food_log_extra_nutrients)의 name이 아래 라벨과
+# 정확히 일치하면, 추가 성분 저장과 별개로 food_log의 타입 컬럼에도 값을 반영한다.
+EXTRA_NUTRIENT_NAME_TO_COLUMN = {
+    "지방": "fat_g",
+    "콜레스테롤": "cholesterol_mg",
+}
 
 
 def validate_selected_nutrients(selected: list[str] | None) -> str | None:
@@ -41,7 +48,7 @@ def validate_selected_nutrients(selected: list[str] | None) -> str | None:
 
     None(미지정)은 그대로 None을 반환한다 — PUT에서는 "값을 바꾸지 않음"으로,
     회원가입에서는 컬럼을 NULL로 남겨 조회 시 DEFAULT_SELECTED_NUTRIENTS로 해석되게 한다.
-    빈 리스트는 유효한 입력(사용자가 4자리를 모두 명시적으로 비움)이며 ""로 저장된다.
+    빈 리스트는 유효한 입력(사용자가 3자리를 모두 명시적으로 비움)이며 ""로 저장된다.
     """
     if selected is None:
         return None
