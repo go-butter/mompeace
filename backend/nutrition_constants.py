@@ -49,10 +49,17 @@ TRANS_FAT_ENERGY_RATIO_MAX = 0.01
 # 지방 1g = 9kcal — 비율(energy_total * ratio)은 kcal 단위이므로, food_log에 그램 단위로
 # 저장된 실제 섭취량과 비교하려면 이 값으로 나눠 그램 기준으로 환산해야 한다.
 KCAL_PER_GRAM_FAT = 9.0
-# 콜레스테롤: 국내 공식 상한 기준 없음 — 임계값을 만들지 않고 참고용 수치만 표시한다.
+
+# 철분: 임신부 1일 권장섭취량(24mg)과 상한섭취량(45mg), KDRI. 트라이메스터 무관 고정값
+# (카페인/당류/나트륨과 동일한 취급 — 지방처럼 에너지 대비 비율이 아니라 절대 mg 기준).
+IRON_RECOMMENDED_MG = 24.0
+IRON_UPPER_LIMIT_MG = 45.0
+
+# 콜레스테롤: 국내 공식 상한 기준 없어 판정/선택형 트래킹 대상에서는 제외했지만,
+# food_log.cholesterol_mg 등 데이터 수집 자체는 그대로 유지한다 (음식 상세 화면 등에서 계속 표시됨).
 
 # 홈 화면 요약에 표시할 수 있는 선택형 영양소 (카페인/물은 항상 표시되므로 선택지에서 제외)
-SELECTABLE_NUTRIENT_KEYS = ("carbohydrate", "sugar", "energy", "fat", "cholesterol", "protein", "sodium")
+SELECTABLE_NUTRIENT_KEYS = ("carbohydrate", "sugar", "energy", "fat", "iron", "protein", "sodium")
 DEFAULT_SELECTED_NUTRIENTS = ("carbohydrate", "sugar", "sodium")
 MAX_SELECTED_NUTRIENTS = 3
 
@@ -65,7 +72,7 @@ NUTRIENT_LABELS_KO = {
     "sugar": "당류",
     "energy": "에너지",
     "fat": "지방",
-    "cholesterol": "콜레스테롤",
+    "iron": "철분",
     "protein": "단백질",
     "sodium": "나트륨",
 }
@@ -75,6 +82,7 @@ NUTRIENT_LABELS_KO = {
 EXTRA_NUTRIENT_NAME_TO_COLUMN = {
     "지방": "fat_g",
     "콜레스테롤": "cholesterol_mg",
+    "철분": "iron_mg",
 }
 
 

@@ -41,16 +41,48 @@ class TestGetTodayIntakeStatusLabelVocabulary:
         assert result["status"]["fat_status"] == "caution"
         assert result["status_label"]["fat"] == "안전"
 
-    def test_informational_known_value_has_no_status_label(self, db):
-        # 예전 로컬 status_label()은 info를 "참고"로 표시했지만, 홈 화면과 동일하게
-        # 판정 자체가 없는 값이므로 라벨 없이 None이어야 한다.
+    def test_iron_band_uses_same_vocabulary_as_fat(self, db):
+        # 철분은 콜레스테롤을 대체한 판정형 영양소로, fat과 동일한 band 어휘를 쓴다.
+        # 40mg: 권장량(24mg) 이상이지만 상한(45mg)의 70%(31.5mg)를 넘어 caution 구간.
         user_id = make_user(db)
-        make_food_log(db, user_id, cholesterol_mg=45)
+        make_food_log(db, user_id, iron_mg=40)
 
         result = get_today_intake(user_id=user_id, db=db)
 
-        assert result["status"]["cholesterol_status"] == "info"
-        assert result["status_label"]["cholesterol"] is None
+        assert result["status"]["iron_status"] == "caution"
+        assert result["status_label"]["iron"] == "안전"
+
+
+class TestGetTodayIntakeIronStatus:
+    def test_iron_below_recommended_is_low(self, db):
+        # 10mg < 권장량(24mg) -> low(부족)
+        user_id = make_user(db)
+        make_food_log(db, user_id, iron_mg=10)
+
+        result = get_today_intake(user_id=user_id, db=db)
+
+        assert result["status"]["iron_status"] == "low"
+        assert result["status_label"]["iron"] == "부족"
+
+    def test_iron_between_recommended_and_caution_threshold_is_safe(self, db):
+        # 30mg: 권장량(24mg) 이상이면서 상한(45mg)의 70%(31.5mg) 미만 -> safe(여유)
+        user_id = make_user(db)
+        make_food_log(db, user_id, iron_mg=30)
+
+        result = get_today_intake(user_id=user_id, db=db)
+
+        assert result["status"]["iron_status"] == "safe"
+        assert result["status_label"]["iron"] == "여유"
+
+    def test_iron_above_upper_limit_is_avoid(self, db):
+        # 50mg > 상한(45mg) -> avoid(위험)
+        user_id = make_user(db)
+        make_food_log(db, user_id, iron_mg=50)
+
+        result = get_today_intake(user_id=user_id, db=db)
+
+        assert result["status"]["iron_status"] == "avoid"
+        assert result["status_label"]["iron"] == "위험"
 
 
 class TestGetTodayIntakeDueDate:

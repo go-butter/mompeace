@@ -113,6 +113,7 @@ def init_db():
     add_column_if_not_exists(cursor, "food_items", "saturated_fat_g", "REAL")
     add_column_if_not_exists(cursor, "food_items", "trans_fat_g", "REAL")
     add_column_if_not_exists(cursor, "food_items", "cholesterol_mg", "REAL")
+    add_column_if_not_exists(cursor, "food_items", "iron_mg", "REAL")
     add_column_if_not_exists(cursor, "food_items", "allergen_info", "TEXT")
     add_column_if_not_exists(cursor, "food_items", "additive_info", "TEXT")
     add_column_if_not_exists(cursor, "food_items", "data_source", "TEXT")
@@ -144,6 +145,7 @@ def init_db():
     add_column_if_not_exists(cursor, "user_food_items", "saturated_fat_g", "REAL")
     add_column_if_not_exists(cursor, "user_food_items", "trans_fat_g", "REAL")
     add_column_if_not_exists(cursor, "user_food_items", "cholesterol_mg", "REAL")
+    add_column_if_not_exists(cursor, "user_food_items", "iron_mg", "REAL")
 
     # 3. FoodLog 테이블 (사용자 섭취 기록)
     cursor.execute("""
@@ -210,6 +212,7 @@ def init_db():
     add_column_if_not_exists(cursor, "food_log", "saturated_fat_g", "REAL")
     add_column_if_not_exists(cursor, "food_log", "trans_fat_g", "REAL")
     add_column_if_not_exists(cursor, "food_log", "cholesterol_mg", "REAL")
+    add_column_if_not_exists(cursor, "food_log", "iron_mg", "REAL")
     add_column_if_not_exists(cursor, "food_log", "risk_level", "TEXT DEFAULT 'safe'")
     add_column_if_not_exists(cursor, "food_log", "eaten_at", "TEXT DEFAULT (datetime('now', 'localtime'))")
     add_column_if_not_exists(cursor, "food_log", "created_at", "TEXT DEFAULT (datetime('now', 'localtime'))")

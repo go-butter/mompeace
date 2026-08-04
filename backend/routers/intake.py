@@ -5,13 +5,19 @@ from datetime import date
 from fastapi import APIRouter, HTTPException, Depends
 
 from backend.database import get_db
-from backend.nutrition_constants import KCAL_PER_GRAM_FAT, NUTRIENT_LABELS_KO, parse_selected_nutrients
+from backend.nutrition_constants import (
+    IRON_RECOMMENDED_MG,
+    IRON_UPPER_LIMIT_MG,
+    KCAL_PER_GRAM_FAT,
+    NUTRIENT_LABELS_KO,
+    parse_selected_nutrients,
+)
 from backend.risk import calculate_current_pregnancy_age, calculate_days_until_due
 from backend.intake_totals import (
     compute_overall_status,
     get_fat_status,
     get_floor_status,
-    get_informational_status,
+    get_iron_status,
     get_status,
     get_trimester_limits,
     resolve_user_nutrition_context,
@@ -30,12 +36,19 @@ def _get_percent(value, standard):
 
 # 홈 화면 요약(GET /intake/summary)에서 선택 가능한 7개 영양소를 각각 어떤 방식으로
 # 판정할지 정의한다. type은 simplified_status_label()의 nutrient_type과 대응된다.
+# "band"형(fat/iron)은 총 에너지·트라이메스터 한도 등 서로 다른 부가 인자가 필요해
+# judge_fn으로 자신만의 판정 함수를 들고 다닌다 — fat/iron 외의 band형이 늘어나면
+# 이 패턴을 그대로 재사용하면 된다.
 _SUMMARY_NUTRIENT_FIELDS = {
     "carbohydrate": {"total_key": "total_carbohydrate", "unknown_key": "unknown_carbohydrate_count", "limit_key": "carbohydrate_g", "unit": "g", "type": "floor"},
     "sugar":        {"total_key": "total_sugar", "unknown_key": "unknown_sugar_count", "limit_key": "sugar_g", "unit": "g", "type": "ceiling"},
     "energy":       {"total_key": "total_calories", "unknown_key": "unknown_energy_count", "limit_key": "energy_kcal", "unit": "kcal", "type": "floor"},
-    "fat":          {"total_key": "total_fat", "unknown_key": "unknown_fat_count", "limit_key": None, "unit": "g", "type": "band"},
-    "cholesterol":  {"total_key": "total_cholesterol", "unknown_key": "unknown_cholesterol_count", "limit_key": None, "unit": "mg", "type": "informational"},
+    "fat":          {"total_key": "total_fat", "unknown_key": "unknown_fat_count", "limit_key": None, "unit": "g", "type": "band",
+                      "judge_fn": lambda total, unknown_count, totals, limits: get_fat_status(
+                          total, totals["total_calories"], limits["fat_ratio_min"], limits["fat_ratio_max"], unknown_count)},
+    "iron":         {"total_key": "total_iron", "unknown_key": "unknown_iron_count", "limit_key": None, "unit": "mg", "type": "band",
+                      "judge_fn": lambda total, unknown_count, totals, limits: get_iron_status(
+                          total, IRON_RECOMMENDED_MG, IRON_UPPER_LIMIT_MG, unknown_count)},
     "protein":      {"total_key": "total_protein", "unknown_key": "unknown_protein_count", "limit_key": "protein_g", "unit": "g", "type": "floor"},
     "sodium":       {"total_key": "total_sodium", "unknown_key": "unknown_sodium_count", "limit_key": "sodium_mg", "unit": "mg", "type": "ceiling"},
 }
@@ -55,13 +68,7 @@ def _build_nutrient_summary_item(key: str, totals: dict, limits: dict) -> dict:
         status = get_floor_status(total, limit, unknown_count)
         percent = _get_percent(total, limit)
     elif spec["type"] == "band":
-        status = get_fat_status(
-            total, totals["total_calories"], limits["fat_ratio_min"], limits["fat_ratio_max"], unknown_count
-        )
-        limit = None
-        percent = None
-    else:  # informational (cholesterol) — 판정 기준 자체가 없으므로 limit/percent 없이 숫자만 노출
-        status = get_informational_status(None if unknown_count > 0 else total)
+        status = spec["judge_fn"](total, unknown_count, totals, limits)
         limit = None
         percent = None
 
@@ -110,8 +117,8 @@ def _fetch_intake_summary_for_date(user_id: int, target_date: str, db: sqlite3.C
             COALESCE(SUM(CASE WHEN saturated_fat_g IS NULL THEN 1 ELSE 0 END), 0) AS unknown_saturated_fat_count,
             COALESCE(SUM(trans_fat_g), 0) AS total_trans_fat,
             COALESCE(SUM(CASE WHEN trans_fat_g IS NULL THEN 1 ELSE 0 END), 0) AS unknown_trans_fat_count,
-            COALESCE(SUM(cholesterol_mg), 0) AS total_cholesterol,
-            COALESCE(SUM(CASE WHEN cholesterol_mg IS NULL THEN 1 ELSE 0 END), 0) AS unknown_cholesterol_count
+            COALESCE(SUM(iron_mg), 0) AS total_iron,
+            COALESCE(SUM(CASE WHEN iron_mg IS NULL THEN 1 ELSE 0 END), 0) AS unknown_iron_count
         FROM food_log
         WHERE user_id = ? AND DATE(eaten_at) = ?
     """, (
@@ -156,7 +163,7 @@ def _fetch_intake_summary_for_date(user_id: int, target_date: str, db: sqlite3.C
     total_fat = intake["total_fat"]
     total_saturated_fat = intake["total_saturated_fat"]
     total_trans_fat = intake["total_trans_fat"]
-    total_cholesterol = intake["total_cholesterol"]
+    total_iron = intake["total_iron"]
     unknown_caffeine_count = intake["unknown_caffeine_count"]
     unknown_sugar_count = intake["unknown_sugar_count"]
     unknown_sodium_count = intake["unknown_sodium_count"]
@@ -166,7 +173,7 @@ def _fetch_intake_summary_for_date(user_id: int, target_date: str, db: sqlite3.C
     unknown_fat_count = intake["unknown_fat_count"]
     unknown_saturated_fat_count = intake["unknown_saturated_fat_count"]
     unknown_trans_fat_count = intake["unknown_trans_fat_count"]
-    unknown_cholesterol_count = intake["unknown_cholesterol_count"]
+    unknown_iron_count = intake["unknown_iron_count"]
 
     # 5. 잔여 허용량 계산 (상한선 영양소) / 목표까지 남은 양 계산 (하한선 영양소)
     remaining_caffeine = round(max(0, caffeine_limit - total_caffeine), 2)
@@ -210,9 +217,7 @@ def _fetch_intake_summary_for_date(user_id: int, target_date: str, db: sqlite3.C
         total_calories * trans_fat_ratio_max / KCAL_PER_GRAM_FAT,
         unknown_trans_fat_count,
     )
-    cholesterol_status = get_informational_status(
-        None if unknown_cholesterol_count > 0 else total_cholesterol
-    )
+    iron_status = get_iron_status(total_iron, IRON_RECOMMENDED_MG, IRON_UPPER_LIMIT_MG, unknown_iron_count)
 
     # overall_status는 기존과 동일하게 카페인/당류/나트륨만으로 계산한다.
     # 새로 추가된 영양소(탄수화물/단백질/에너지/지방류)는 아직 대부분의 food_log 행에
@@ -289,7 +294,7 @@ def _fetch_intake_summary_for_date(user_id: int, target_date: str, db: sqlite3.C
             "total_fat": total_fat,
             "total_saturated_fat": total_saturated_fat,
             "total_trans_fat": total_trans_fat,
-            "total_cholesterol": total_cholesterol,
+            "total_iron": total_iron,
             "unknown_caffeine_count": unknown_caffeine_count,
             "unknown_sugar_count": unknown_sugar_count,
             "unknown_sodium_count": unknown_sodium_count,
@@ -299,7 +304,7 @@ def _fetch_intake_summary_for_date(user_id: int, target_date: str, db: sqlite3.C
             "unknown_fat_count": unknown_fat_count,
             "unknown_saturated_fat_count": unknown_saturated_fat_count,
             "unknown_trans_fat_count": unknown_trans_fat_count,
-            "unknown_cholesterol_count": unknown_cholesterol_count
+            "unknown_iron_count": unknown_iron_count
         },
 
         "limits": {
@@ -344,14 +349,14 @@ def _fetch_intake_summary_for_date(user_id: int, target_date: str, db: sqlite3.C
             "fat_status": fat_status,
             "saturated_fat_status": saturated_fat_status,
             "trans_fat_status": trans_fat_status,
-            "cholesterol_status": cholesterol_status
+            "iron_status": iron_status
         },
 
         # 홈 화면(/intake/summary)과 동일한 어휘(simplified_status_label)를 재사용한다 —
         # 같은 상태 코드가 화면마다 다른 단어로 보이면 사용자가 혼란스러워할 수 있다.
         # overall/caffeine/sugar/sodium/saturated_fat/trans_fat은 get_status()(ceiling)
-        # 결과이고, carbohydrate/protein/energy는 get_floor_status()(floor), fat만
-        # get_fat_status()(band)다 — _SUMMARY_NUTRIENT_FIELDS의 type 매핑과 동일하다.
+        # 결과이고, carbohydrate/protein/energy는 get_floor_status()(floor), fat/iron은
+        # band(get_fat_status()/get_iron_status())다 — _SUMMARY_NUTRIENT_FIELDS의 type 매핑과 동일하다.
         "status_label": {
             "overall": simplified_status_label("ceiling", overall_status),
             "caffeine": simplified_status_label("ceiling", caffeine_status),
@@ -363,7 +368,7 @@ def _fetch_intake_summary_for_date(user_id: int, target_date: str, db: sqlite3.C
             "fat": simplified_status_label("band", fat_status),
             "saturated_fat": simplified_status_label("ceiling", saturated_fat_status),
             "trans_fat": simplified_status_label("ceiling", trans_fat_status),
-            "cholesterol": simplified_status_label("informational", cholesterol_status)
+            "iron": simplified_status_label("band", iron_status)
         },
 
         "summary": {
@@ -442,8 +447,8 @@ def get_intake_summary(
             COALESCE(SUM(CASE WHEN protein_g IS NULL THEN 1 ELSE 0 END), 0) AS unknown_protein_count,
             COALESCE(SUM(fat_g), 0) AS total_fat,
             COALESCE(SUM(CASE WHEN fat_g IS NULL THEN 1 ELSE 0 END), 0) AS unknown_fat_count,
-            COALESCE(SUM(cholesterol_mg), 0) AS total_cholesterol,
-            COALESCE(SUM(CASE WHEN cholesterol_mg IS NULL THEN 1 ELSE 0 END), 0) AS unknown_cholesterol_count
+            COALESCE(SUM(iron_mg), 0) AS total_iron,
+            COALESCE(SUM(CASE WHEN iron_mg IS NULL THEN 1 ELSE 0 END), 0) AS unknown_iron_count
         FROM food_log
         WHERE user_id = ? AND DATE(eaten_at) = ?
     """, (user_id, today))

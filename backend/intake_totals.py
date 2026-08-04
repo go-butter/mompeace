@@ -110,8 +110,11 @@ def get_floor_status(value, minimum, unknown_count) -> str:
 
 
 def get_informational_status(value) -> str:
-    """콜레스테롤처럼 공식 상한 기준이 없어 safe/caution/avoid 판정 자체를
-    하지 않는 영양소용. 값이 있으면 "info"(참고용 표시), 없으면 "unknown"."""
+    """공식 상한 기준이 없어 safe/caution/avoid 판정 자체를 하지 않는 영양소용.
+    값이 있으면 "info"(참고용 표시), 없으면 "unknown".
+
+    현재 호출하는 곳은 없다(콜레스테롤이 판정 대상에서 제외되며 유일한 사용처가
+    사라짐) — 향후 공식 기준이 없는 영양소가 다시 생기면 재사용할 수 있어 남겨둔다."""
     return "unknown" if value is None else "info"
 
 
@@ -145,6 +148,22 @@ def get_fat_status(value, energy_total, ratio_min, ratio_max, unknown_count) -> 
     return "safe"
 
 
+def get_iron_status(value, recommended, upper_limit, unknown_count) -> str:
+    """철분처럼 권장량(하한)과 상한섭취량이 모두 있는 "밴드"형 판정.
+    fat(get_fat_status)과 달리 절대 mg 기준이라 에너지 비율 환산이 필요 없다.
+    """
+    if unknown_count > 0:
+        return "unknown"
+
+    ceiling_status = get_status(value, upper_limit, 0)
+    if ceiling_status in ("caution", "avoid"):
+        return ceiling_status
+
+    if value < recommended:
+        return "low"
+    return "safe"
+
+
 _CEILING_LABELS = {"safe": "여유", "caution": "안전", "avoid": "위험", "unknown": "정보없음"}
 _FLOOR_LABELS = {"sufficient": "충분", "insufficient": "부족", "unknown": "정보없음"}
 _BAND_LABELS = {"safe": "여유", "low": "부족", "caution": "안전", "avoid": "위험", "unknown": "정보없음"}
@@ -160,10 +179,10 @@ def simplified_status_label(nutrient_type: str, status: str) -> str | None:
     - "ceiling": get_status() 결과용 (caffeine/sugar/sodium)
     - "floor": get_floor_status() 결과용 (carbohydrate/protein/energy/water) — 공식
       기준이 목표치 하나뿐이라 완충 구간 없는 이진 판정(충분/부족)이다
-    - "band": get_fat_status() 결과용 (fat) — safe/caution/avoid는 ceiling과 같은 어휘,
-      low(하한 미달)는 floor와 같은 의미이므로 같은 단어("부족")를 재사용한다
-    - "informational": get_informational_status() 결과용 (cholesterol) — "info"는
-      판정 자체가 없으므로 라벨 없이 None을 반환한다 (숫자만 표시, 칩 없음)
+    - "band": get_fat_status()/get_iron_status() 결과용 (fat/iron) — safe/caution/avoid는
+      ceiling과 같은 어휘, low(하한 미달)는 floor와 같은 의미이므로 같은 단어("부족")를 재사용한다
+    - "informational": get_informational_status() 결과용 (공식 상한 기준이 없는 영양소) — "info"는
+      판정 자체가 없으므로 라벨 없이 None을 반환한다 (숫자만 표시, 칩 없음). 현재 실제 호출처 없음.
     """
     if nutrient_type == "ceiling":
         return _CEILING_LABELS.get(status, "정보없음")

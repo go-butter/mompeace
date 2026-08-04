@@ -4,12 +4,12 @@ from datetime import date as date_type, timedelta
 from fastapi import APIRouter, HTTPException, Depends
 
 from backend.database import get_db
-from backend.nutrition_constants import KCAL_PER_GRAM_FAT
+from backend.nutrition_constants import IRON_RECOMMENDED_MG, IRON_UPPER_LIMIT_MG, KCAL_PER_GRAM_FAT
 from backend.intake_totals import (
     compute_overall_status,
     get_fat_status,
     get_floor_status,
-    get_informational_status,
+    get_iron_status,
     get_status,
     get_trimester_limits,
     resolve_user_nutrition_context,
@@ -79,7 +79,7 @@ def _get_percent(value: float, standard: float) -> float:
 
 
 def _compute_extra_nutrient_totals(cursor, user_id: int, start_date: str, end_date: str) -> dict:
-    """탄수화물/단백질/지방류/콜레스테롤/에너지의 기간 합계 + unknown 카운트.
+    """탄수화물/단백질/지방류/철분/에너지의 기간 합계 + unknown 카운트.
 
     카페인/당류/나트륨과 달리 시간대별(daily)/요일별(weekly) 차트에는 포함하지 않고
     리포트 상단 요약(totals/limits/percentages/status)에만 쓰인다.
@@ -98,8 +98,8 @@ def _compute_extra_nutrient_totals(cursor, user_id: int, start_date: str, end_da
             COALESCE(SUM(CASE WHEN saturated_fat_g IS NULL THEN 1 ELSE 0 END), 0) AS unknown_saturated_fat_count,
             COALESCE(SUM(trans_fat_g), 0) AS total_trans_fat,
             COALESCE(SUM(CASE WHEN trans_fat_g IS NULL THEN 1 ELSE 0 END), 0) AS unknown_trans_fat_count,
-            COALESCE(SUM(cholesterol_mg), 0) AS total_cholesterol,
-            COALESCE(SUM(CASE WHEN cholesterol_mg IS NULL THEN 1 ELSE 0 END), 0) AS unknown_cholesterol_count
+            COALESCE(SUM(iron_mg), 0) AS total_iron,
+            COALESCE(SUM(CASE WHEN iron_mg IS NULL THEN 1 ELSE 0 END), 0) AS unknown_iron_count
         FROM food_log
         WHERE user_id = ? AND DATE(eaten_at) BETWEEN ? AND ?
     """, (user_id, start_date, end_date))
@@ -107,7 +107,7 @@ def _compute_extra_nutrient_totals(cursor, user_id: int, start_date: str, end_da
 
 
 def _build_extra_nutrient_report_block(totals: dict, limits: dict, divisor: int) -> dict:
-    """새로 추가된 영양소(에너지/탄수화물/단백질/지방류/콜레스테롤)의 totals/daily_average/
+    """새로 추가된 영양소(에너지/탄수화물/단백질/지방류/철분)의 totals/daily_average/
     limits/percentages/status 블록.
 
     divisor=1이면 daily 리포트(기간 합계 = 하루 값), weekly 리포트에서는 기록이 있는 날
@@ -128,7 +128,7 @@ def _build_extra_nutrient_report_block(totals: dict, limits: dict, divisor: int)
     total_fat = totals["total_fat"]
     total_saturated_fat = totals["total_saturated_fat"]
     total_trans_fat = totals["total_trans_fat"]
-    total_cholesterol = totals["total_cholesterol"]
+    total_iron = totals["total_iron"]
 
     avg_energy = round(total_energy / divisor, 1)
     avg_carb = round(total_carb / divisor, 1)
@@ -153,8 +153,8 @@ def _build_extra_nutrient_report_block(totals: dict, limits: dict, divisor: int)
         total_energy * trans_fat_ratio_max / KCAL_PER_GRAM_FAT,
         totals["unknown_trans_fat_count"],
     )
-    cholesterol_status = get_informational_status(
-        None if totals["unknown_cholesterol_count"] > 0 else total_cholesterol
+    iron_status = get_iron_status(
+        total_iron, IRON_RECOMMENDED_MG, IRON_UPPER_LIMIT_MG, totals["unknown_iron_count"]
     )
 
     return {
@@ -165,7 +165,7 @@ def _build_extra_nutrient_report_block(totals: dict, limits: dict, divisor: int)
             "fat_g": round(total_fat, 2),
             "saturated_fat_g": round(total_saturated_fat, 2),
             "trans_fat_g": round(total_trans_fat, 2),
-            "cholesterol_mg": round(total_cholesterol, 2),
+            "iron_mg": round(total_iron, 2),
         },
         "daily_average": {
             "energy_kcal": avg_energy,
@@ -193,7 +193,7 @@ def _build_extra_nutrient_report_block(totals: dict, limits: dict, divisor: int)
             "fat_status": fat_status,
             "saturated_fat_status": saturated_fat_status,
             "trans_fat_status": trans_fat_status,
-            "cholesterol_status": cholesterol_status,
+            "iron_status": iron_status,
         },
     }
 

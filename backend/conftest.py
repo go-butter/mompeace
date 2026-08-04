@@ -54,6 +54,7 @@ CREATE TABLE food_items (
     saturated_fat_g REAL,
     trans_fat_g    REAL,
     cholesterol_mg REAL,
+    iron_mg        REAL,
     allergen_info  TEXT,
     additive_info  TEXT,
     data_source    TEXT,
@@ -75,6 +76,7 @@ CREATE TABLE user_food_items (
     saturated_fat_g REAL,
     trans_fat_g     REAL,
     cholesterol_mg  REAL,
+    iron_mg         REAL,
     created_at      TEXT DEFAULT (datetime('now', 'localtime')),
     FOREIGN KEY (user_id) REFERENCES users(user_id)
 );
@@ -98,6 +100,7 @@ CREATE TABLE food_log (
     saturated_fat_g REAL,
     trans_fat_g    REAL,
     cholesterol_mg REAL,
+    iron_mg        REAL,
     risk_level     TEXT DEFAULT 'safe',
     eaten_at      TEXT DEFAULT (datetime('now', 'localtime')),
     created_at    TEXT DEFAULT (datetime('now', 'localtime')),

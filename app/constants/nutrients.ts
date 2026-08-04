@@ -5,7 +5,7 @@ export type SelectableNutrientKey =
   | 'sugar'
   | 'energy'
   | 'fat'
-  | 'cholesterol'
+  | 'iron'
   | 'protein'
   | 'sodium';
 
@@ -14,7 +14,7 @@ export const SELECTABLE_NUTRIENT_KEYS: SelectableNutrientKey[] = [
   'sugar',
   'energy',
   'fat',
-  'cholesterol',
+  'iron',
   'protein',
   'sodium',
 ];
@@ -24,7 +24,7 @@ export const NUTRIENT_LABELS_KO: Record<SelectableNutrientKey, string> = {
   sugar: '당류',
   energy: '에너지',
   fat: '지방',
-  cholesterol: '콜레스테롤',
+  iron: '철분',
   protein: '단백질',
   sodium: '나트륨',
 };

@@ -5,6 +5,7 @@ backend/routers/food_log.py::create_food_log()의 자유 텍스트 추가 성분
 핵심 검증 대상:
 - 이름이 "지방"과 정확히 일치하고 값이 숫자로 파싱되면 food_log.fat_g에도 반영된다
 - 이름이 "콜레스테롤"과 정확히 일치하고 값이 숫자로 파싱되면 food_log.cholesterol_mg에도 반영된다
+- 이름이 "철분"과 정확히 일치하고 값이 숫자로 파싱되면 food_log.iron_mg에도 반영된다
 - 이름은 일치하지만 값이 숫자로 파싱되지 않으면 크래시 없이 타입 컬럼은 None으로 남는다
 - 이름이 알려진 라벨과 일치하지 않으면 타입 컬럼에 영향 없음 (기존 동작 그대로)
 - 매칭 여부와 무관하게 모든 항목은 food_log_extra_nutrients에 그대로 저장된다
@@ -61,6 +62,18 @@ class TestExtraNutrientNameMatching:
         row = _fetch_log(db, result["log_id"])
         assert row["cholesterol_mg"] == 30.0
 
+    def test_matching_iron_name_with_numeric_value_populates_iron_mg(self, db):
+        user_id = make_user(db)
+        log = FoodLogCreate(
+            user_id=user_id,
+            food_name="테스트 음식",
+            input_type="manual",
+            extra_nutrients=[ExtraNutrientIn(name="철분", value="5", unit="mg")],
+        )
+        result = create_food_log(log=log, db=db)
+        row = _fetch_log(db, result["log_id"])
+        assert row["iron_mg"] == 5.0
+
     def test_matching_name_with_non_numeric_value_leaves_column_none(self, db):
         user_id = make_user(db)
         log = FoodLogCreate(
@@ -82,14 +95,15 @@ class TestExtraNutrientNameMatching:
             user_id=user_id,
             food_name="테스트 음식",
             input_type="manual",
-            extra_nutrients=[ExtraNutrientIn(name="철분", value="5", unit="mg")],
+            extra_nutrients=[ExtraNutrientIn(name="칼륨", value="5", unit="mg")],
         )
         result = create_food_log(log=log, db=db)
         row = _fetch_log(db, result["log_id"])
         assert row["fat_g"] is None
         assert row["cholesterol_mg"] is None
+        assert row["iron_mg"] is None
         assert _fetch_extra_nutrients(db, result["log_id"]) == [
-            {"name": "철분", "value": "5", "unit": "mg"}
+            {"name": "칼륨", "value": "5", "unit": "mg"}
         ]
 
     def test_food_id_derived_fat_is_not_overwritten_by_extra_nutrient_match(self, db):

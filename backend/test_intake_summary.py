@@ -11,7 +11,7 @@ backend/routers/intake.py 의 get_intake_summary() (GET /intake/summary/{user_id
   (크래시 없음)
 - 영양소 유형별로 simplified_status_label()이 올바른 방향의 어휘를 쓴다:
   ceiling(당류 등)=여유/안전/위험, floor(탄수화물 등)=충분/부족(이진, 완충 구간 없음),
-  band(지방)=상황에 따라 두 어휘를 섞어 씀, informational(콜레스테롤)=판정 없음
+  band(지방/철분)=상황에 따라 두 어휘를 섞어 씀
 - 알 수 없는 사용자는 404
 """
 from fastapi import HTTPException
@@ -176,26 +176,59 @@ class TestIntakeSummaryAgeBracket:
         assert protein["limit"] == 50.0
 
 
-class TestIntakeSummaryInformationalType:
-    def test_cholesterol_known_value_has_no_status_label(self, db):
-        user_id = make_user(db, selected_nutrients="cholesterol")
-        make_food_log(db, user_id, cholesterol_mg=45)
+class TestIntakeSummaryIronBandType:
+    """철분은 콜레스테롤을 대체한 판정형 영양소로, fat과 동일한 band 어휘를 쓴다
+    (권장량 24mg / 상한 45mg, KDRI — nutrition_constants.IRON_RECOMMENDED_MG/IRON_UPPER_LIMIT_MG)."""
+
+    def test_iron_low(self, db):
+        user_id = make_user(db, selected_nutrients="iron")
+        make_food_log(db, user_id, iron_mg=10)  # 권장량(24mg) 미만
 
         result = get_intake_summary(user_id=user_id, db=db)
 
-        cholesterol = result["selected_nutrients"][0]
-        assert cholesterol["total"] == 45.0
-        assert cholesterol["status"] == "info"
-        assert cholesterol["status_label"] is None
-        assert cholesterol["limit"] is None
-        assert cholesterol["percent"] is None
+        iron = result["selected_nutrients"][0]
+        assert iron["total"] == 10.0
+        assert iron["status"] == "low"
+        assert iron["status_label"] == "부족"
+        assert iron["limit"] is None
+        assert iron["percent"] is None
 
-    def test_cholesterol_unknown_value_shows_no_info_label(self, db):
-        user_id = make_user(db, selected_nutrients="cholesterol")
-        make_food_log(db, user_id, calories_kcal=2000)  # cholesterol_mg 미기록 (NULL)
+    def test_iron_safe(self, db):
+        user_id = make_user(db, selected_nutrients="iron")
+        make_food_log(db, user_id, iron_mg=30)  # 권장량 이상, 상한의 70%(31.5mg) 미만
 
         result = get_intake_summary(user_id=user_id, db=db)
 
-        cholesterol = result["selected_nutrients"][0]
-        assert cholesterol["status"] == "unknown"
-        assert cholesterol["status_label"] == "정보없음"
+        iron = result["selected_nutrients"][0]
+        assert iron["status"] == "safe"
+        assert iron["status_label"] == "여유"
+
+    def test_iron_caution(self, db):
+        user_id = make_user(db, selected_nutrients="iron")
+        make_food_log(db, user_id, iron_mg=40)  # 상한(45mg)의 70%(31.5mg) 초과
+
+        result = get_intake_summary(user_id=user_id, db=db)
+
+        iron = result["selected_nutrients"][0]
+        assert iron["status"] == "caution"
+        assert iron["status_label"] == "안전"
+
+    def test_iron_avoid(self, db):
+        user_id = make_user(db, selected_nutrients="iron")
+        make_food_log(db, user_id, iron_mg=50)  # 상한(45mg) 초과
+
+        result = get_intake_summary(user_id=user_id, db=db)
+
+        iron = result["selected_nutrients"][0]
+        assert iron["status"] == "avoid"
+        assert iron["status_label"] == "위험"
+
+    def test_iron_unknown_when_missing(self, db):
+        user_id = make_user(db, selected_nutrients="iron")
+        make_food_log(db, user_id, calories_kcal=2000)  # iron_mg 미기록 (NULL)
+
+        result = get_intake_summary(user_id=user_id, db=db)
+
+        iron = result["selected_nutrients"][0]
+        assert iron["status"] == "unknown"
+        assert iron["status_label"] == "정보없음"

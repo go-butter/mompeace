@@ -48,6 +48,7 @@ class FoodLogCreate(BaseModel):
     protein_g: Optional[float] = None
     fat_g: Optional[float] = None
     cholesterol_mg: Optional[float] = None
+    iron_mg: Optional[float] = None
     food_id: Optional[int] = None
     eaten_at: Optional[str] = None
     extra_nutrients: Optional[list[ExtraNutrientIn]] = None

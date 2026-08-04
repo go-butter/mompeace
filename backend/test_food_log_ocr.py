@@ -16,8 +16,8 @@ create_food_log()는 이 변경 전까지 직접 테스트가 없었으므로, n
 - serving_multiplier를 곱해도 원본이 None이면 결과는 항상 None (정보 없음 ≠ 0)
 - food_id가 함께 전달되면 food_id 경로(_judge_food_log_from_food_item)가 우선
   적용되고 serving_multiplier는 무시된다 (이중 곱셈 방지)
-- fat_g/cholesterol_mg 직접 입력값은 그대로 저장되고, 생략 시 None으로 남는다
-- food_id 경로에서는 food_items의 fat_g/cholesterol_mg에도 amount가 곱해져 저장된다
+- fat_g/cholesterol_mg/iron_mg 직접 입력값은 그대로 저장되고, 생략 시 None으로 남는다
+- food_id 경로에서는 food_items의 fat_g/cholesterol_mg/iron_mg에도 amount가 곱해져 저장된다
 """
 import sqlite3
 
@@ -176,11 +176,13 @@ class TestFatCholesterolDirectField:
             input_type="manual",
             fat_g=12.5,
             cholesterol_mg=45.0,
+            iron_mg=8.0,
         )
         result = create_food_log(log=log, db=db)
         row = _fetch_log(db, result["log_id"])
         assert row["fat_g"] == 12.5
         assert row["cholesterol_mg"] == 45.0
+        assert row["iron_mg"] == 8.0
 
     def test_omitted_fat_and_cholesterol_stay_none(self, db):
         user_id = make_user(db)
@@ -193,10 +195,11 @@ class TestFatCholesterolDirectField:
         row = _fetch_log(db, result["log_id"])
         assert row["fat_g"] is None
         assert row["cholesterol_mg"] is None
+        assert row["iron_mg"] is None
 
     def test_food_id_path_derives_fat_and_cholesterol_from_food_items(self, db):
         user_id = make_user(db)
-        food_id = _make_food_item(db, fat_g=10.0, cholesterol_mg=20.0)
+        food_id = _make_food_item(db, fat_g=10.0, cholesterol_mg=20.0, iron_mg=5.0)
         log = FoodLogCreate(
             user_id=user_id,
             food_name="무시됨",
@@ -208,3 +211,4 @@ class TestFatCholesterolDirectField:
         row = _fetch_log(db, result["log_id"])
         assert row["fat_g"] == 20.0
         assert row["cholesterol_mg"] == 40.0
+        assert row["iron_mg"] == 10.0

@@ -8,7 +8,7 @@ backend/routers/premium.py 의 get_premium_report() 테스트 (기존 커버리�
 - weekly: 요일별 버킷팅, 항목별/전체 status, daily_average는 항상 7일 기준
 - weekly comparison(지난주 대비): 퍼센트포인트 차이로 계산되고, 지난주 기록이 전혀 없으면 null
 - "기록 자체가 없음"과 "기록은 있지만 값이 NULL(unknown)"을 구분하는 회귀 가드
-- food_log.fat_g/cholesterol_mg에 실제 값이 있으면 fat_status/cholesterol_status가
+- food_log.fat_g/iron_mg에 실제 값이 있으면 fat_status/iron_status가
   더 이상 항상 "unknown"이 아니라 실제 값 기반으로 계산된다 (기존에는 두 컬럼이
   한 번도 채워진 적이 없어 이 경로가 커버되지 않았음)
 """
@@ -94,21 +94,21 @@ class TestGetPremiumReportDaily:
         assert evening["status"] == "safe"
 
 
-class TestGetPremiumReportFatCholesterol:
-    def test_fat_and_cholesterol_totals_and_status_from_real_values(self, db):
+class TestGetPremiumReportFatIron:
+    def test_fat_and_iron_totals_and_status_from_real_values(self, db):
         user_id = make_user(db, pregnancy_week=20)
         # 40g 지방 / 2000kcal = 총 에너지의 18% -> 15~30% 밴드 안쪽 (safe)
+        # 30mg 철분: 권장량(24mg) 이상, 상한(45mg)의 70%(31.5mg) 미만 -> safe
         make_food_log(db, user_id, caffeine_mg=0, sugar_g=0, sodium_mg=0,
-                       calories_kcal=2000, fat_g=40, cholesterol_mg=150,
+                       calories_kcal=2000, fat_g=40, iron_mg=30,
                        eaten_at="2030-01-15 09:00:00")
 
         result = get_premium_report(user_id=user_id, period="daily", date="2030-01-15", db=db)
 
         assert result["totals"]["fat_g"] == 40.0
-        assert result["totals"]["cholesterol_mg"] == 150.0
+        assert result["totals"]["iron_mg"] == 30.0
         assert result["status"]["fat_status"] == "safe"
-        # 콜레스테롤: 공식 상한 기준이 없어 값이 있으면 "info"로 표시된다 (unknown이 아님)
-        assert result["status"]["cholesterol_status"] == "info"
+        assert result["status"]["iron_status"] == "safe"
 
     def test_fat_status_compares_grams_against_gram_limit_not_raw_kcal_number(self, db):
         # 회귀 가드: energy_total(kcal) * ratio는 kcal 단위이므로, 그램 단위인

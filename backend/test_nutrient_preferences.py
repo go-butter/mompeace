@@ -117,7 +117,7 @@ class TestUpdateNutrientPreferencesValidation:
         with pytest.raises(HTTPException) as exc_info:
             update_nutrient_preferences(
                 user_id=user_id,
-                prefs=NutrientPreferenceUpdate(selected_nutrients=["iron"]),
+                prefs=NutrientPreferenceUpdate(selected_nutrients=["potassium"]),
                 db=db,
             )
         assert exc_info.value.status_code == 400
@@ -151,11 +151,11 @@ class TestUpdateNutrientPreferencesPartialUpdate:
         result = update_nutrient_preferences(
             user_id=user_id,
             prefs=NutrientPreferenceUpdate(
-                selected_nutrients=["carbohydrate", "energy", "cholesterol"]
+                selected_nutrients=["carbohydrate", "energy", "iron"]
             ),
             db=db,
         )
-        assert result["selected_nutrients"] == ["carbohydrate", "energy", "cholesterol"]
+        assert result["selected_nutrients"] == ["carbohydrate", "energy", "iron"]
 
     def test_four_items_now_exceeds_max_returns_400(self, db):
         user_id = make_user(db)
@@ -163,7 +163,7 @@ class TestUpdateNutrientPreferencesPartialUpdate:
             update_nutrient_preferences(
                 user_id=user_id,
                 prefs=NutrientPreferenceUpdate(
-                    selected_nutrients=["carbohydrate", "energy", "cholesterol", "sodium"]
+                    selected_nutrients=["carbohydrate", "energy", "iron", "sodium"]
                 ),
                 db=db,
             )
