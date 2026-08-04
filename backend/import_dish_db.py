@@ -35,6 +35,7 @@ COLUMN_MAP = {
     "포화지방산(g)": "saturated_fat_g",
     "트랜스지방산(g)": "trans_fat_g",
     "콜레스테롤(mg)": "cholesterol_mg",
+    "철(mg)": "iron_mg",
 }
 
 # 대표식품명 or 식품소분류명 → subcategory (순서대로 시도)
@@ -50,7 +51,7 @@ REQUIRED_COLUMNS = {"식품명"}
 NUMERIC_COLUMNS = {
     "에너지(kcal)", "단백질(g)", "지방(g)", "탄수화물(g)", "당류(g)",
     "나트륨(mg)", "카페인(mg)",
-    "포화지방산(g)", "트랜스지방산(g)", "콜레스테롤(mg)",
+    "포화지방산(g)", "트랜스지방산(g)", "콜레스테롤(mg)", "철(mg)",
 }
 
 # 실제 식품 중량 (영양성분함량기준량과 다를 수 있음 — 스케일링용, COLUMN_MAP에는 없음)
@@ -226,6 +227,7 @@ def main():
             saturated_fat_g = _scale(_to_float_or_none(excel_row.get("포화지방산(g)")), scale)
             trans_fat_g = _scale(_to_float_or_none(excel_row.get("트랜스지방산(g)")), scale)
             cholesterol_mg = _scale(_to_float_or_none(excel_row.get("콜레스테롤(mg)")), scale)
+            iron_mg = _scale(_to_float_or_none(excel_row.get("철(mg)")), scale)
 
             if caffeine_mg is not None:
                 caffeine_has += 1
@@ -278,6 +280,7 @@ def main():
                         saturated_fat_g = ?,
                         trans_fat_g    = ?,
                         cholesterol_mg = ?,
+                        iron_mg        = ?,
                         notes          = ?,
                         updated_at     = datetime('now')
                     WHERE food_id = ?
@@ -285,7 +288,7 @@ def main():
                     food_code_raw, food_name, category, subcategory,
                     serving_label, calories_kcal, protein_g, fat_g,
                     carbohydrate_g, sugar_g, sodium_mg, caffeine_mg,
-                    saturated_fat_g, trans_fat_g, cholesterol_mg,
+                    saturated_fat_g, trans_fat_g, cholesterol_mg, iron_mg,
                     notes, existing_id,
                 ))
                 update_count += 1
@@ -295,14 +298,14 @@ def main():
                         food_code, food_name, category, subcategory,
                         serving_label, calories_kcal, protein_g, fat_g,
                         carbohydrate_g, sugar_g, sodium_mg, caffeine_mg,
-                        saturated_fat_g, trans_fat_g, cholesterol_mg,
+                        saturated_fat_g, trans_fat_g, cholesterol_mg, iron_mg,
                         data_source, notes, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
                 """, (
                     food_code_raw, food_name, category, subcategory,
                     serving_label, calories_kcal, protein_g, fat_g,
                     carbohydrate_g, sugar_g, sodium_mg, caffeine_mg,
-                    saturated_fat_g, trans_fat_g, cholesterol_mg,
+                    saturated_fat_g, trans_fat_g, cholesterol_mg, iron_mg,
                     DATA_SOURCE, notes,
                 ))
                 insert_count += 1

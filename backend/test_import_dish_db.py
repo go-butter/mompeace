@@ -147,6 +147,7 @@ CREATE TABLE food_items (
     saturated_fat_g REAL,
     trans_fat_g    REAL,
     cholesterol_mg REAL,
+    iron_mg        REAL,
     allergen_info  TEXT,
     additive_info  TEXT,
     data_source    TEXT,
@@ -159,11 +160,11 @@ XLSX_COLUMNS = [
     "식품코드", "식품명", "식품대분류명", "대표식품명",
     "영양성분함량기준량", "식품중량",
     "에너지(kcal)", "단백질(g)", "지방(g)", "탄수화물(g)", "당류(g)",
-    "나트륨(mg)", "카페인(mg)",
+    "나트륨(mg)", "카페인(mg)", "철(mg)",
 ]
 
 
-def _make_row(food_code, food_name, basis, weight, caffeine):
+def _make_row(food_code, food_name, basis, weight, caffeine, iron="2"):
     return {
         "식품코드": food_code,
         "식품명": food_name,
@@ -178,6 +179,7 @@ def _make_row(food_code, food_name, basis, weight, caffeine):
         "당류(g)": "3",
         "나트륨(mg)": "4",
         "카페인(mg)": caffeine,
+        "철(mg)": iron,
     }
 
 
@@ -224,6 +226,7 @@ def test_import_scales_nutrients_by_food_weight_ratio(import_env, capsys):
     assert rows[0]["sugar_g"] == pytest.approx(3 * 3.55)
     assert rows[0]["calories_kcal"] == pytest.approx(50 * 3.55)
     assert rows[0]["fat_g"] == pytest.approx(5 * 3.55)
+    assert rows[0]["iron_mg"] == pytest.approx(2 * 3.55)
 
 
 def test_import_missing_weight_row_left_unscaled_and_flagged(import_env, capsys):
@@ -291,6 +294,16 @@ def test_import_null_caffeine_stays_null_even_when_scaled(import_env):
 
     rows = _query_food_items(db_path)
     assert rows[0]["caffeine_mg"] is None
+
+
+def test_import_null_iron_stays_null_even_when_scaled(import_env):
+    db_path, write_xlsx = import_env
+    write_xlsx([_make_row("F015", "철분없음", "100g", "355g", "10", iron="-")])
+
+    import_dish_db.main()
+
+    rows = _query_food_items(db_path)
+    assert rows[0]["iron_mg"] is None
 
 
 def test_reimport_preserves_food_id_for_matched_food_code(import_env):
