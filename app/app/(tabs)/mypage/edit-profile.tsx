@@ -87,6 +87,9 @@ export default function EditProfileScreen() {
   const [week, setWeek] = useState(String(user?.pregnancy_week ?? ''));
   const [day, setDay] = useState(String(user?.pregnancy_day ?? ''));
   const [dueDate, setDueDate] = useState(() => parseStoredDueDate(user?.due_date));
+  const [ageBracket, setAgeBracket] = useState<'19-29' | '30-49'>(
+    user?.age_bracket === '30-49' ? '30-49' : '19-29'
+  );
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -116,6 +119,7 @@ export default function EditProfileScreen() {
         pregnancy_week: Number(week),
         pregnancy_day: Number(day),
         due_date: toInputDateValue(dueDate),
+        age_bracket: ageBracket,
       });
       login({
         ...user,
@@ -123,6 +127,7 @@ export default function EditProfileScreen() {
         pregnancy_day: response.pregnancy_day,
         pregnancy_entered_at: response.pregnancy_entered_at,
         due_date: response.due_date,
+        age_bracket: response.age_bracket,
       });
       await refresh();
       router.back();
@@ -256,6 +261,34 @@ export default function EditProfileScreen() {
             </Text>
           </View>
         </View>
+
+        <View style={[styles.card, styles.secondCard]}>
+          <View style={styles.row}>
+            <View style={styles.iconCircle}>
+              <BabyIcon width={24} height={24} />
+            </View>
+            <Text style={styles.rowTitle}>나이대</Text>
+          </View>
+          <View style={styles.ageBracketRow}>
+            {(['19-29', '30-49'] as const).map((bracket) => (
+              <Pressable
+                key={bracket}
+                style={[
+                  styles.ageBracketOption,
+                  ageBracket === bracket && styles.ageBracketOptionSelected,
+                ]}
+                onPress={() => setAgeBracket(bracket)}>
+                <Text
+                  style={[
+                    styles.ageBracketOptionText,
+                    ageBracket === bracket && styles.ageBracketOptionTextSelected,
+                  ]}>
+                  {bracket}세
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
       </ScrollView>
 
       <View style={styles.footer}>
@@ -309,6 +342,9 @@ const styles = StyleSheet.create({
     padding: 20,
     borderWidth: 1,
     borderColor: authColors.border,
+  },
+  secondCard: {
+    marginTop: 16,
   },
   row: {
     flexDirection: 'row',
@@ -389,6 +425,32 @@ const styles = StyleSheet.create({
     fontFamily: fonts.regular,
     color: authColors.gray,
     flex: 1,
+  },
+  ageBracketRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 16,
+  },
+  ageBracketOption: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: authColors.border,
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  ageBracketOptionSelected: {
+    borderColor: authColors.pink,
+    backgroundColor: '#FFF0F0',
+  },
+  ageBracketOptionText: {
+    fontSize: 15,
+    fontFamily: fonts.regular,
+    color: authColors.gray,
+  },
+  ageBracketOptionTextSelected: {
+    fontFamily: fonts.medium,
+    color: authColors.pink,
   },
   footer: {
     paddingHorizontal: 24,

@@ -97,6 +97,7 @@ export default function PregnancyInputScreen() {
   const [week, setWeek] = useState('21');
   const [day, setDay] = useState('3');
   const [dueDate, setDueDate] = useState(new Date(2026, 9, 26));
+  const [ageBracket, setAgeBracket] = useState<'19-29' | '30-49'>('19-29');
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -139,6 +140,7 @@ export default function PregnancyInputScreen() {
         pregnancy_week: Number(week),
         pregnancy_day: Number(day),
         due_date: toInputDateValue(dueDate),
+        age_bracket: ageBracket,
       });
       login({
         ...user,
@@ -146,6 +148,7 @@ export default function PregnancyInputScreen() {
         pregnancy_day: response.pregnancy_day,
         pregnancy_entered_at: response.pregnancy_entered_at,
         due_date: response.due_date,
+        age_bracket: response.age_bracket,
       });
       if (!isMountedRef.current) return;
       router.push('/(auth)/nutrient-select');
@@ -291,6 +294,34 @@ export default function PregnancyInputScreen() {
             <Text style={styles.bannerText}>
               임신 주차 또는 출산예정일 중 하나만 입력해도 자동으로 계산해줘요! 수정도 가능해요 :)
             </Text>
+          </View>
+        </View>
+
+        <View style={styles.card}>
+          <View style={styles.row}>
+            <View style={styles.iconCircle}>
+              <BabyIcon width={24} height={24} />
+            </View>
+            <Text style={styles.rowTitle}>나이대</Text>
+          </View>
+          <View style={styles.ageBracketRow}>
+            {(['19-29', '30-49'] as const).map((bracket) => (
+              <Pressable
+                key={bracket}
+                style={[
+                  styles.ageBracketOption,
+                  ageBracket === bracket && styles.ageBracketOptionSelected,
+                ]}
+                onPress={() => setAgeBracket(bracket)}>
+                <Text
+                  style={[
+                    styles.ageBracketOptionText,
+                    ageBracket === bracket && styles.ageBracketOptionTextSelected,
+                  ]}>
+                  {bracket}세
+                </Text>
+              </Pressable>
+            ))}
           </View>
         </View>
       </ScrollView>
@@ -439,6 +470,32 @@ const styles = StyleSheet.create({
     fontFamily: fonts.regular,
     color: authColors.gray,
     flex: 1,
+  },
+  ageBracketRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 16,
+  },
+  ageBracketOption: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: authColors.border,
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  ageBracketOptionSelected: {
+    borderColor: authColors.pink,
+    backgroundColor: '#FFF0F0',
+  },
+  ageBracketOptionText: {
+    fontSize: 15,
+    fontFamily: fonts.regular,
+    color: authColors.gray,
+  },
+  ageBracketOptionTextSelected: {
+    fontFamily: fonts.medium,
+    color: authColors.pink,
   },
   footer: {
     paddingHorizontal: 24,

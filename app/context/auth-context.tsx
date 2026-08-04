@@ -8,6 +8,7 @@ export interface AuthUser {
   pregnancy_day?: number | null;
   pregnancy_entered_at?: string | null;
   due_date: string | null;
+  age_bracket?: string | null;
 }
 
 interface AuthContextValue {

@@ -10,6 +10,9 @@ export interface RegisterRequest {
   // 선택은 nutrient-select.tsx가 별도로 updateNutrientPreferences()를 호출해 저장한다.
   // 백엔드 모델과 형태를 맞추기 위해 필드만 남겨둔다.
   selected_nutrients?: string[];
+  // 실제 앱 플로우에서는 사용되지 않음 — 나이대는 input.tsx가 별도로
+  // updatePregnancyInfo()를 통해 저장한다. 백엔드 모델과 형태를 맞추기 위해 필드만 남겨둔다.
+  age_bracket?: '19-29' | '30-49';
 }
 
 export interface RegisterResponse {
@@ -34,9 +37,10 @@ export interface LoginResponse {
 }
 
 export interface PregnancyUpdateRequest {
-  pregnancy_week: number;
-  pregnancy_day: number;
-  due_date: string;
+  pregnancy_week?: number;
+  pregnancy_day?: number;
+  due_date?: string;
+  age_bracket?: '19-29' | '30-49';
 }
 
 export interface PregnancyUpdateResponse {
@@ -45,6 +49,7 @@ export interface PregnancyUpdateResponse {
   pregnancy_day: number | null;
   due_date: string | null;
   pregnancy_entered_at: string | null;
+  age_bracket: string | null;
   message: string;
 }
 
@@ -57,7 +62,6 @@ export interface IntakeTodayResponse {
   days_until_due: number | null;
   trimester: string;
   trimester_label: string;
-  water_cups: number;
   intake: {
     total_caffeine: number;
     total_sugar: number;
