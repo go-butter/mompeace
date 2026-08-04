@@ -1,42 +1,17 @@
 """
-GET /foods/search의 임신 주차 서버 계산 검증.
+GET /foods/search의 사용자 검증 동작 테스트.
 
-핵심 검증 대상:
-- pregnancy_entered_at 앵커로부터 경과일을 더한 "오늘" 기준 주차가 사용되는지
-  (클라이언트가 보낸 값이 아니라 서버가 재계산한 값이어야 한다)
-- user_id가 주어졌지만 존재하지 않는 사용자면 404
-- user_id를 주지 않으면 기존과 동일하게 기본값 20주가 적용된다
+과거에는 서버가 재계산한 임신 주차가 응답의 risk 필드로 노출되어 이를 검증했지만,
+PRODUCT_LIMITS 기반 위험도 판정(evaluate_food_risk)이 은퇴하면서 risk 필드와 함께
+주차 노출도 사라졌다. 남은 관찰 가능한 동작은 알 수 없는 user_id에 대한 404뿐이다.
 """
-from datetime import date, timedelta
-
 import pytest
 from fastapi import HTTPException
 
 from backend.routers.foods import search_food
 
-from .conftest import make_food_item, make_user
 
-
-class TestDynamicPregnancyWeek:
-    def test_search_food_uses_recalculated_week_not_stale_anchor(self, db):
-        make_food_item(db, food_name="테스트 음식", caffeine_mg=0, sugar_g=0, sodium_mg=0)
-        entered_at = (date.today() - timedelta(days=30)).isoformat()
-        user_id = make_user(db, pregnancy_week=10, pregnancy_day=0, pregnancy_entered_at=entered_at)
-
-        result = search_food(query="테스트", page_no=1, num_of_rows=10, user_id=user_id, db=db)
-
-        # 10주0일 + 30일 경과 = 14주2일 (기존 정적 값 10주가 아니어야 한다)
-        risk = result["results"][0]["risk"]
-        assert risk["pregnancy_week"] == 14
-        assert risk["trimester"] == "middle"
-
-    def test_search_food_without_user_id_defaults_to_week_20(self, db):
-        make_food_item(db, food_name="테스트 음식", caffeine_mg=0, sugar_g=0, sodium_mg=0)
-
-        result = search_food(query="테스트", page_no=1, num_of_rows=10, user_id=None, db=db)
-
-        assert result["results"][0]["risk"]["pregnancy_week"] == 20
-
+class TestSearchFoodUserValidation:
     def test_search_food_with_nonexistent_user_id_raises_404(self, db):
         with pytest.raises(HTTPException) as exc_info:
             search_food(query="테스트", page_no=1, num_of_rows=10, user_id=999999, db=db)

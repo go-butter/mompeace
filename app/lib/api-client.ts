@@ -113,7 +113,6 @@ export interface FoodLogEntry {
   unit: string | null;
   eaten_at: string;
   time: string;
-  risk_level: string;
   calories_kcal: number | null;
   sugar_g: number;
   sodium_mg: number;
@@ -127,30 +126,6 @@ export interface FoodLogTodayResponse {
   date: string;
   count: number;
   logs: FoodLogEntry[];
-}
-
-export interface RiskDetailEntry {
-  value: number | null;
-  unit: string;
-  status: 'safe' | 'caution' | 'avoid' | 'unknown' | 'check_required';
-  label: string;
-  standard: string;
-  keywords?: string[];
-}
-
-export interface BarcodeRisk {
-  pregnancy_week: number;
-  trimester: 'early' | 'middle' | 'late';
-  trimester_label: string;
-  overall_status: 'safe' | 'caution' | 'avoid';
-  overall_label: string;
-  title: string;
-  details: {
-    caffeine: RiskDetailEntry;
-    sugar: RiskDetailEntry;
-    sodium: RiskDetailEntry;
-  };
-  messages: string[];
 }
 
 export interface FoodLogCreateRequest {
@@ -227,7 +202,6 @@ export interface FoodSearchResultItem {
   source: 'personal' | 'dish_db_download';
   food_id: number;
   data: PersonalFoodData | DishDbFoodData;
-  risk: BarcodeRisk | null;
 }
 
 export interface FoodSearchResponse {

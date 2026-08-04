@@ -21,6 +21,9 @@ def test_search_food_matches_dish_db_by_name(db):
     assert result["count"] == 1
     assert result["results"][0]["source"] == "dish_db_download"
     assert result["results"][0]["data"]["food_name"] == "된장찌개"
+    # PRODUCT_LIMITS 기반 단일 제품 위험도 판정(evaluate_food_risk)은 은퇴했다 —
+    # 응답에 "risk" 키가 되살아나지 않도록 가드한다.
+    assert "risk" not in result["results"][0]
 
 
 def test_search_food_no_match_returns_empty_catalog_results(db):

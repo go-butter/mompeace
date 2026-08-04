@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException, Depends
 
 from backend.database import get_db
 from backend.models import UserFoodItemCreate
-from backend.risk import calculate_current_pregnancy_age, evaluate_food_risk
+from backend.risk import calculate_current_pregnancy_age
 
 router = APIRouter()
 
@@ -42,7 +42,6 @@ def search_food(
 
     1. (user_id가 주어진 경우) user_food_items에서 개인 기록 먼저 검색
     2. food_items 테이블의 dish_db_download 카탈로그에서 음식명으로 검색
-    3. 임신 주차 기준 위험도 판단 결과 포함
     """
 
     if not query or query.strip() == "":
@@ -51,7 +50,9 @@ def search_food(
             detail="검색어를 입력해 주세요."
         )
 
-    pregnancy_week = _resolve_pregnancy_week(user_id, db)
+    # 결과에 위험도 판정을 싣던 시절의 주차 계산은 제거됐지만, 알 수 없는 user_id에
+    # 404를 반환하는 검증 동작은 유지한다.
+    _resolve_pregnancy_week(user_id, db)
 
     personal_results = []
     if user_id is not None:
@@ -66,7 +67,6 @@ def search_food(
                 "source": "personal",
                 "food_id": row["user_food_item_id"],
                 "data": row,
-                "risk": None,
             })
 
     _ALLOWED_SOURCE = "dish_db_download"
@@ -98,16 +98,10 @@ def search_food(
             "calories_kcal": row.get("calories_kcal"),
         }
 
-        risk_result = evaluate_food_risk(
-            food_data=food_data,
-            pregnancy_week=pregnancy_week
-        )
-
         results.append({
             "source": "dish_db_download",
             "food_id": row["food_id"],
             "data": food_data,
-            "risk": risk_result
         })
 
     results = personal_results + results
