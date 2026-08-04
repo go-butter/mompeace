@@ -7,10 +7,8 @@ import {
   FoodLogEntry,
   getFoodLogByDate,
   getFoodLogCalendar,
-  getIntakeByDate,
-  getWaterByDate,
-  IntakeTodayResponse,
-  WaterTodayResponse,
+  getIntakeSummary,
+  IntakeSummaryResponse,
 } from '@/lib/api-client';
 
 function todayIso() {
@@ -31,8 +29,7 @@ export function useFoodDiary() {
   const [statusByDate, setStatusByDate] = useState<
     Record<string, FoodLogCalendarDay['overall_status']>
   >({});
-  const [intake, setIntake] = useState<IntakeTodayResponse | null>(null);
-  const [water, setWater] = useState<WaterTodayResponse | null>(null);
+  const [summary, setSummary] = useState<IntakeSummaryResponse | null>(null);
   const [foodLog, setFoodLog] = useState<FoodLogEntry[]>([]);
 
   const [loadingCalendar, setLoadingCalendar] = useState(true);
@@ -59,14 +56,12 @@ export function useFoodDiary() {
     setLoadingDay(true);
     setError(null);
     return Promise.all([
-      getIntakeByDate(user.user_id, selectedDate),
+      getIntakeSummary(user.user_id, selectedDate),
       getFoodLogByDate(user.user_id, selectedDate),
-      getWaterByDate(user.user_id, selectedDate),
     ])
-      .then(([intakeRes, foodLogRes, waterRes]) => {
-        setIntake(intakeRes);
+      .then(([summaryRes, foodLogRes]) => {
+        setSummary(summaryRes);
         setFoodLog(foodLogRes.logs);
-        setWater(waterRes);
       })
       .catch((err) => setError(err instanceof ApiError ? err.message : (err as Error).message))
       .finally(() => setLoadingDay(false));
@@ -88,8 +83,7 @@ export function useFoodDiary() {
     setSelectedDate,
     changeMonth,
     statusByDate,
-    intake,
-    water,
+    summary,
     foodLog,
     loading: loadingCalendar || loadingDay,
     error,

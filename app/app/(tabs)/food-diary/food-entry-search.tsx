@@ -50,6 +50,26 @@ function getResultKey(item: FoodSearchResultItem, index: number) {
 
 const CART_SHEET_MAX_HEIGHT_RATIO = 0.72;
 
+function formatCoreNutrients(data: Record<string, any>) {
+  return (
+    `칼로리 ${formatNutrient(data.calories_kcal, 'kcal')} · ` +
+    `탄수화물 ${formatNutrient(data.carbohydrate_g, 'g')} · ` +
+    `당류 ${formatNutrient(data.sugar_g, 'g')} · ` +
+    `지방 ${formatNutrient(data.fat_g, 'g')} · ` +
+    `철분 ${formatNutrient(data.iron_mg, 'mg')} · ` +
+    `단백질 ${formatNutrient(data.protein_g, 'g')} · ` +
+    `나트륨 ${formatNutrient(data.sodium_mg, 'mg')}`
+  );
+}
+
+function formatExtraNutrients(data: Record<string, any>) {
+  return (
+    `포화지방 ${formatNutrient(data.saturated_fat_g, 'g')} · ` +
+    `트랜스지방 ${formatNutrient(data.trans_fat_g, 'g')} · ` +
+    `콜레스테롤 ${formatNutrient(data.cholesterol_mg, 'mg')}`
+  );
+}
+
 function SearchResultRow({
   item,
   expanded,
@@ -69,23 +89,33 @@ function SearchResultRow({
 
   if (item.source !== 'dish_db_download') {
     return (
-      <Pressable style={styles.row} onPress={onAdd}>
-        <View style={styles.rowTextArea}>
-          <View style={styles.rowNameRow}>
-            <Text style={styles.rowName}>{data.food_name}</Text>
-            {item.source === 'personal' && (
-              <View style={styles.personalBadge}>
-                <Text style={styles.personalBadgeText}>개인 기록</Text>
+      <View style={styles.dishRow}>
+        <View style={styles.dishRowHeader}>
+          <Pressable style={styles.rowMainArea} onPress={onAdd}>
+            <View style={styles.rowTextArea}>
+              <View style={styles.rowNameRow}>
+                <Text style={styles.rowName}>{data.food_name}</Text>
+                <View style={styles.personalBadge}>
+                  <Text style={styles.personalBadgeText}>개인 기록</Text>
+                </View>
               </View>
+              <Text style={styles.rowMeta}>{formatCoreNutrients(data)}</Text>
+            </View>
+          </Pressable>
+          <Pressable style={styles.personalExpandButton} onPress={onToggleExpand} hitSlop={8}>
+            {expanded ? (
+              <UpIcon width={16} height={16} />
+            ) : (
+              <DownIcon width={16} height={16} />
             )}
-          </View>
-          <Text style={styles.rowMeta}>
-            칼로리 {formatNutrient(data.calories_kcal, 'kcal')} · 당류{' '}
-            {formatNutrient(data.sugar_g, 'g')} · 나트륨{' '}
-            {formatNutrient(data.sodium_mg, 'mg')}
-          </Text>
+          </Pressable>
         </View>
-      </Pressable>
+        {expanded && (
+          <View style={styles.rowDetail}>
+            <Text style={styles.rowDetailText}>{formatExtraNutrients(data)}</Text>
+          </View>
+        )}
+      </View>
     );
   }
 
@@ -102,10 +132,7 @@ function SearchResultRow({
         <Pressable style={styles.rowMainArea} onPress={onToggleExpand}>
           <View style={styles.rowTextArea}>
             <Text style={[styles.rowName, styles.dishRowName]}>{data.food_name}</Text>
-            <Text style={styles.rowMeta}>
-              당류 {formatNutrient(data.sugar_g, 'g')} · 나트륨{' '}
-              {formatNutrient(data.sodium_mg, 'mg')}
-            </Text>
+            <Text style={styles.rowMeta}>{formatCoreNutrients(data)}</Text>
           </View>
           {expanded ? (
             <UpIcon width={16} height={16} />
@@ -116,10 +143,7 @@ function SearchResultRow({
       </View>
       {expanded && (
         <View style={styles.rowDetail}>
-          <Text style={styles.rowDetailText}>
-            칼로리 {formatNutrient(data.calories_kcal, 'kcal')} · 지방{' '}
-            {formatNutrient(data.fat_g, 'g')}
-          </Text>
+          <Text style={styles.rowDetailText}>{formatExtraNutrients(data)}</Text>
         </View>
       )}
     </View>
@@ -225,6 +249,8 @@ export default function FoodEntrySearchScreen() {
       calories_kcal: data.calories_kcal ?? 0,
       carbohydrate_g: data.carbohydrate_g ?? null,
       protein_g: data.protein_g ?? null,
+      fat_g: data.fat_g ?? null,
+      iron_mg: data.iron_mg ?? null,
       eaten_at: `${date} ${time}`,
     })
       .then(() => {
@@ -260,6 +286,8 @@ export default function FoodEntrySearchScreen() {
           calories_kcal: data.calories_kcal ?? 0,
           carbohydrate_g: data.carbohydrate_g ?? null,
           protein_g: data.protein_g ?? null,
+          fat_g: data.fat_g ?? null,
+          iron_mg: data.iron_mg ?? null,
           eaten_at: eatenAt,
         });
       })
@@ -477,17 +505,6 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 19,
   },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    backgroundColor: authColors.white,
-    borderWidth: 0.7,
-    borderColor: authColors.border,
-    borderRadius: 10,
-    marginBottom: 8,
-  },
   rowTextArea: {
     flex: 1,
   },
@@ -536,6 +553,11 @@ const styles = StyleSheet.create({
   },
   checkboxButton: {
     marginRight: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  personalExpandButton: {
+    marginLeft: 10,
     alignItems: 'center',
     justifyContent: 'center',
   },

@@ -10,10 +10,9 @@ import DownIcon from '@/assets/images/common/down.svg';
 import XIcon from '@/assets/images/common/x.svg';
 import RemainCoffeeIcon from '@/assets/images/home/home_remain_coffee.svg';
 import { authColors } from '@/components/auth/colors';
-import { homeColors } from '@/components/home/colors';
 import AddFoodPopup from '@/components/home/AddFoodPopup';
 import Calendar from '@/components/home/Calendar';
-import { waterColors } from '@/components/water/colors';
+import { summaryStatusColors, DEFAULT_SUMMARY_STATUS_COLORS } from '@/components/home/summaryColors';
 import { fonts } from '@/constants/fonts';
 import { useAuth } from '@/context/auth-context';
 import { useFoodDiary } from '@/context/food-diary-context';
@@ -66,12 +65,10 @@ export default function FoodDiaryScreen() {
     setSelectedDate,
     changeMonth,
     statusByDate,
-    intake,
-    water,
+    summary,
     foodLog,
     loading,
     error,
-    isToday,
     refreshDay,
   } = useFoodDiary();
 
@@ -122,7 +119,7 @@ export default function FoodDiaryScreen() {
     transform: [{ rotate: `${interpolate(expandProgress.value, [0, 1], [0, 180])}deg` }],
   }));
 
-  const caffeinePercent = intake ? Math.min(intake.progress.caffeine_percent, 100) : 0;
+  const caffeinePercent = summary ? Math.min(summary.caffeine.percent ?? 0, 100) : 0;
   const hasEntries = foodLog.length > 0;
 
   useFocusEffect(
@@ -136,18 +133,8 @@ export default function FoodDiaryScreen() {
       return <ActivityIndicator size="small" color={authColors.pink} style={{ marginVertical: 24 }} />;
     }
 
-    if (error || !intake) {
+    if (error || !summary) {
       return <Text style={styles.errorText}>{error || '데이터를 불러오지 못했습니다.'}</Text>;
-    }
-
-    if (!hasEntries) {
-      return (
-        <Text style={styles.emptyMessage}>
-          {isToday
-            ? '오늘 섭취한 음식이 추가되지 않았습니다!\nFood Diary 혹은 영양성분표 스캔을 통해\n음식을 추가해 주세요 :)'
-            : '이 날에는 기록된 음식이 없어요.'}
-        </Text>
-      );
     }
 
     return (
@@ -156,14 +143,14 @@ export default function FoodDiaryScreen() {
           <View style={styles.caffeineBox}>
             <Text style={styles.caffeineLabel}>☕ 카페인</Text>
             <Text style={styles.caffeineValueWrapper}>
-              <Text style={styles.caffeineValueNumber}>{intake.intake.total_caffeine}</Text>
-              <Text style={styles.caffeineValueUnit}> / {intake.limits.caffeine_limit_mg}mg</Text>
+              <Text style={styles.caffeineValueNumber}>{summary.caffeine.total}</Text>
+              <Text style={styles.caffeineValueUnit}> / {summary.caffeine.limit}mg</Text>
             </Text>
             <View style={styles.progressRow}>
               <View style={styles.progressBarTrack}>
                 <View style={[styles.progressBarFill, { width: `${caffeinePercent}%` }]} />
               </View>
-              <Text style={styles.caffeinePercent}>{intake.progress.caffeine_percent}%</Text>
+              <Text style={styles.caffeinePercent}>{summary.caffeine.percent}%</Text>
             </View>
           </View>
           <View style={styles.remainingBox}>
@@ -181,7 +168,7 @@ export default function FoodDiaryScreen() {
             <Text style={styles.remainingLabel}>잔여 허용량</Text>
             <Text style={styles.remainingValueWrapper}>
               <Text style={styles.remainingValueNumber}>
-                {intake.remaining.remaining_caffeine}
+                {Math.max(0, (summary.caffeine.limit ?? 0) - summary.caffeine.total)}
               </Text>
               <Text style={styles.remainingValueUnit}>mg</Text>
             </Text>
@@ -189,23 +176,24 @@ export default function FoodDiaryScreen() {
         </View>
 
         <View style={styles.chipRow}>
-          <StatusChip
-            label="당류"
-            value={intake.status_label.sugar}
-            colors={homeColors.sugar}
-          />
-          <StatusChip
-            label="나트륨"
-            value={intake.status_label.sodium}
-            colors={homeColors.sodium}
-          />
-          <Pressable style={styles.chipPressable} onPress={() => router.push('/water-diary')}>
-            <StatusChip
-              label="물"
-              value={`${Math.round(water?.total_ml ?? 0)}ml`}
-              colors={waterColors.chip}
-            />
-          </Pressable>
+          {[...summary.selected_nutrients, summary.water].map((item) =>
+            item.key === 'water' ? (
+              <Pressable key={item.key} style={styles.chipPressable} onPress={() => router.push('/water-diary')}>
+                <StatusChip
+                  label={item.label}
+                  value={item.status_label}
+                  colors={summaryStatusColors[item.status_label] ?? DEFAULT_SUMMARY_STATUS_COLORS}
+                />
+              </Pressable>
+            ) : (
+              <StatusChip
+                key={item.key}
+                label={item.label}
+                value={item.status_label}
+                colors={summaryStatusColors[item.status_label] ?? DEFAULT_SUMMARY_STATUS_COLORS}
+              />
+            )
+          )}
         </View>
       </>
     );

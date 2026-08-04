@@ -160,6 +160,8 @@ export interface FoodLogCreateRequest {
   calories_kcal?: number;
   carbohydrate_g?: number | null;
   protein_g?: number | null;
+  fat_g?: number | null;
+  iron_mg?: number | null;
   food_id?: number | null;
   eaten_at?: string;
   extra_nutrients?: { name: string; value: string; unit?: string }[];
@@ -181,6 +183,11 @@ export interface UserFoodItemCreateRequest {
   calories_kcal?: number;
   carbohydrate_g?: number | null;
   protein_g?: number | null;
+  fat_g?: number | null;
+  saturated_fat_g?: number | null;
+  trans_fat_g?: number | null;
+  cholesterol_mg?: number | null;
+  iron_mg?: number | null;
 }
 
 export interface UserFoodItemCreateResponse {
@@ -198,6 +205,11 @@ export interface PersonalFoodData {
   calories_kcal: number;
   carbohydrate_g: number | null;
   protein_g: number | null;
+  fat_g: number | null;
+  saturated_fat_g: number | null;
+  trans_fat_g: number | null;
+  cholesterol_mg: number | null;
+  iron_mg: number | null;
   created_at: string;
 }
 
@@ -214,6 +226,10 @@ export interface DishDbFoodData {
   carbohydrate_g: number | null;
   protein_g: number | null;
   fat_g: number | null;
+  saturated_fat_g: number | null;
+  trans_fat_g: number | null;
+  cholesterol_mg: number | null;
+  iron_mg: number | null;
   calories_kcal: number | null;
 }
 
@@ -407,8 +423,8 @@ export function getIntakeToday(userId: number): Promise<IntakeTodayResponse> {
   return get(`/intake/today/${userId}`);
 }
 
-export function getIntakeSummary(userId: number): Promise<IntakeSummaryResponse> {
-  return get(`/intake/summary/${userId}`);
+export function getIntakeSummary(userId: number, date?: string): Promise<IntakeSummaryResponse> {
+  return get(`/intake/summary/${userId}${date ? `?date=${date}` : ''}`);
 }
 
 export function getFoodLogToday(userId: number): Promise<FoodLogTodayResponse> {
