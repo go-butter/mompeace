@@ -241,7 +241,7 @@ export default function FoodEntryManualScreen() {
       caffeine_mg: caffeine,
       sugar_g: sugar,
       sodium_mg: sodium,
-      calories_kcal: 0,
+      calories_kcal: calories,
       carbohydrate_g: carbohydrate,
       protein_g: protein,
       fat_g: fat,
