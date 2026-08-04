@@ -46,6 +46,25 @@ def test_search_food_includes_calories_and_fat_for_dish_db(db):
     assert data["fat_g"] == 19.18
 
 
+def test_search_food_includes_saturated_trans_cholesterol_iron(db):
+    make_food_item(
+        db,
+        food_name="테스트철분식품",
+        saturated_fat_g=1.2,
+        trans_fat_g=0.1,
+        cholesterol_mg=5.0,
+        iron_mg=2.3,
+    )
+
+    result = search_food(query="테스트철분식품", page_no=1, num_of_rows=10, user_id=None, db=db)
+
+    data = result["results"][0]["data"]
+    assert data["saturated_fat_g"] == 1.2
+    assert data["trans_fat_g"] == 0.1
+    assert data["cholesterol_mg"] == 5.0
+    assert data["iron_mg"] == 2.3
+
+
 def test_search_food_passes_through_null_nutrient_fields(db):
     make_food_item(db, food_name="정보부족음식", sodium_mg=None, caffeine_mg=None)
 

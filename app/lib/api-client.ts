@@ -102,6 +102,25 @@ export interface IntakeTodayResponse {
   note: string | null;
 }
 
+export interface NutrientSummaryItem {
+  key: string;
+  label: string;
+  total: number;
+  unit: string;
+  limit: number | null;
+  percent: number | null;
+  status: string;
+  status_label: string;
+}
+
+export interface IntakeSummaryResponse {
+  user_id: number;
+  date: string;
+  caffeine: NutrientSummaryItem;
+  water: NutrientSummaryItem;
+  selected_nutrients: NutrientSummaryItem[];
+}
+
 export interface FoodLogEntry {
   log_id: number;
   user_id: number;
@@ -386,6 +405,10 @@ export function updateNutrientPreferences(
 
 export function getIntakeToday(userId: number): Promise<IntakeTodayResponse> {
   return get(`/intake/today/${userId}`);
+}
+
+export function getIntakeSummary(userId: number): Promise<IntakeSummaryResponse> {
+  return get(`/intake/summary/${userId}`);
 }
 
 export function getFoodLogToday(userId: number): Promise<FoodLogTodayResponse> {

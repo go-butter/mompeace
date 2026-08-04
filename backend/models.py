@@ -78,6 +78,11 @@ class UserFoodItemCreate(BaseModel):
     calories_kcal: float = 0
     carbohydrate_g: Optional[float] = None
     protein_g: Optional[float] = None
+    fat_g: Optional[float] = None
+    saturated_fat_g: Optional[float] = None
+    trans_fat_g: Optional[float] = None
+    cholesterol_mg: Optional[float] = None
+    iron_mg: Optional[float] = None
 
 
 class RecommendationRequest(BaseModel):

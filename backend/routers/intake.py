@@ -412,15 +412,19 @@ def get_intake_by_date(
 @router.get("/intake/summary/{user_id}")
 def get_intake_summary(
     user_id: int,
+    date: str = None,
     db: sqlite3.Connection = Depends(get_db)
 ):
-    """홈 화면 요약 카드용 응답: 카페인 + 물(항상 표시) + 사용자가 선택한 영양소, 오늘 하루 기준.
+    """홈/Food Diary 요약 카드용 응답: 카페인 + 물(항상 표시) + 사용자가 선택한 영양소,
+    date로 지정한 하루 기준 (미지정 시 오늘).
 
     users.selected_nutrients를 서버에서 직접 조회한다 — 클라이언트가 어떤 영양소를
     요청할지 지정하지 않고, DB에 저장된 선택을 그대로 신뢰한다(단일 소스 오브 트루스).
     Food Diary/프리미엄 리포트용 전체 응답(_fetch_intake_summary_for_date, 프리미엄
     리포트의 자체 집계)과는 완전히 별개이며 서로의 응답 형태에 영향을 주지 않는다.
     """
+    from datetime import date as date_type
+
     cursor = db.cursor()
 
     cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
@@ -429,7 +433,14 @@ def get_intake_summary(
         raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
     user = dict(user)
 
-    today = date.today().isoformat()
+    if date:
+        try:
+            target_date = date_type.fromisoformat(date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="날짜 형식이 올바르지 않습니다. YYYY-MM-DD 형식을 사용해 주세요.")
+    else:
+        target_date = date_type.today()
+    today = target_date.isoformat()
 
     cursor.execute("""
         SELECT

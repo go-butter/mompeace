@@ -17,17 +17,22 @@ import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
 const HEART_ASPECT_RATIO = 696 / 588;
 
 import FoodIcon from '@/assets/images/home/food.svg';
-import CalendarIcon from '@/assets/images/home/calendar.svg';
+import WaterIcon from '@/assets/images/home/water.svg';
 import ReportIcon from '@/assets/images/home/report.svg';
 import RemainCoffeeIcon from '@/assets/images/home/home_remain_coffee.svg';
 import ProfileIcon from '@/assets/images/common/profile_circle.svg';
+import AddFoodPopup from '@/components/home/AddFoodPopup';
 import { authColors } from '@/components/auth/colors';
-import { homeColors } from '@/components/home/colors';
-import { waterColors } from '@/components/water/colors';
+import { summaryStatusColors, DEFAULT_SUMMARY_STATUS_COLORS } from '@/components/home/summaryColors';
 import { fonts, nanumSquareRound } from '@/constants/fonts';
 import { useAuth } from '@/context/auth-context';
 import { useIntake } from '@/context/intake-context';
-import { FoodLogEntry } from '@/lib/api-client';
+import {
+  ApiError,
+  FoodLogEntry,
+  getIntakeSummary,
+  IntakeSummaryResponse,
+} from '@/lib/api-client';
 
 const WEEKDAY_LABELS = ['일', '월', '화', '수', '목', '금', '토'];
 
@@ -89,13 +94,32 @@ function FoodLogRow({ entry }: { entry: FoodLogEntry }) {
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
-  const { intake, water, foodLog, hasEntries, loading, error, refresh } = useIntake();
+  const { intake, foodLog, hasEntries, loading, error, refresh } = useIntake();
   const [bannerSize, setBannerSize] = useState({ width: 0, height: 0 });
+  const [summary, setSummary] = useState<IntakeSummaryResponse | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(true);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
+  const [popupVisible, setPopupVisible] = useState(false);
+
+  const fetchSummary = useCallback(async () => {
+    if (!user?.user_id) return;
+    setSummaryLoading(true);
+    setSummaryError(null);
+    try {
+      const res = await getIntakeSummary(user.user_id);
+      setSummary(res);
+    } catch (err) {
+      setSummaryError(err instanceof ApiError ? err.message : (err as Error).message);
+    } finally {
+      setSummaryLoading(false);
+    }
+  }, [user?.user_id]);
 
   useFocusEffect(
     useCallback(() => {
       refresh();
-    }, [refresh])
+      fetchSummary();
+    }, [refresh, fetchSummary])
   );
 
   const handleBannerLayout = (event: LayoutChangeEvent) => {
@@ -119,9 +143,8 @@ export default function HomeScreen() {
     );
   }
 
-  const caffeinePercent = Math.min(intake.progress.caffeine_percent, 100);
-
   return (
+    <View style={styles.screen}>
     <ScrollView
       style={styles.container}
       contentContainerStyle={[styles.content, { paddingTop: insets.top + 20 }]}>
@@ -200,28 +223,32 @@ export default function HomeScreen() {
           <Text style={styles.cardSubtitle}>기준: 주차별 1일 권장 허용량</Text>
         </View>
 
-        {!hasEntries ? (
-          <Text style={styles.emptyMessage}>
-            오늘 섭취한 음식이 추가되지 않았습니다!{'\n'}Food Diary 혹은 영양성분표 스캔을 통해{'\n'}
-            음식을 추가해 주세요 :)
-          </Text>
-        ) : (
+        {summaryLoading && !summary ? (
+          <ActivityIndicator size="small" color={authColors.pink} style={styles.summaryLoading} />
+        ) : summaryError ? (
+          <Text style={styles.errorText}>{summaryError}</Text>
+        ) : summary ? (
           <>
             <View style={styles.intakeRow}>
               <View style={styles.caffeineBox}>
                 <Text style={styles.caffeineLabel}>☕ 카페인</Text>
                 <Text style={styles.caffeineValueWrapper}>
-                  <Text style={styles.caffeineValueNumber}>{intake.intake.total_caffeine}</Text>
+                  <Text style={styles.caffeineValueNumber}>{summary.caffeine.total}</Text>
                   <Text style={styles.caffeineValueUnit}>
                     {' '}
-                    / {intake.limits.caffeine_limit_mg}mg
+                    / {summary.caffeine.limit}mg
                   </Text>
                 </Text>
                 <View style={styles.progressRow}>
                   <View style={styles.progressBarTrack}>
-                    <View style={[styles.progressBarFill, { width: `${caffeinePercent}%` }]} />
+                    <View
+                      style={[
+                        styles.progressBarFill,
+                        { width: `${Math.min(summary.caffeine.percent ?? 0, 100)}%` },
+                      ]}
+                    />
                   </View>
-                  <Text style={styles.caffeinePercent}>{intake.progress.caffeine_percent}%</Text>
+                  <Text style={styles.caffeinePercent}>{summary.caffeine.percent}%</Text>
                 </View>
               </View>
               <View style={styles.remainingBox}>
@@ -239,7 +266,7 @@ export default function HomeScreen() {
                 <Text style={styles.remainingLabel}>잔여 허용량</Text>
                 <Text style={styles.remainingValueWrapper}>
                   <Text style={styles.remainingValueNumber}>
-                    {intake.remaining.remaining_caffeine}
+                    {Math.max(0, (summary.caffeine.limit ?? 0) - summary.caffeine.total)}
                   </Text>
                   <Text style={styles.remainingValueUnit}>mg</Text>
                 </Text>
@@ -247,40 +274,35 @@ export default function HomeScreen() {
             </View>
 
             <View style={styles.chipRow}>
-              <StatusChip label="당류" value={intake.status_label.sugar} colors={homeColors.sugar} />
-              <StatusChip
-                label="나트륨"
-                value={intake.status_label.sodium}
-                colors={homeColors.sodium}
-              />
-              <Pressable style={styles.chipPressable} onPress={() => router.push('/water-diary')}>
+              {[...summary.selected_nutrients, summary.water].map((item) => (
                 <StatusChip
-                  label="물"
-                  value={`${Math.round(water?.total_ml ?? 0)}ml`}
-                  colors={waterColors.chip}
+                  key={item.key}
+                  label={item.label}
+                  value={item.status_label}
+                  colors={summaryStatusColors[item.status_label] ?? DEFAULT_SUMMARY_STATUS_COLORS}
                 />
-              </Pressable>
+              ))}
             </View>
           </>
-        )}
+        ) : null}
       </View>
 
       <View style={styles.shortcutCard}>
         <ShortcutButton
           icon={<FoodIcon width={24} height={24} />}
-          title="오늘의 추천"
-          subtitle="섭취 가능 음식"
-          onPress={() => router.push('/(tabs)/recommend')}
+          title="음식 추가하기"
+          subtitle="빠른 식사 기록"
+          onPress={() => setPopupVisible(true)}
         />
         <ShortcutButton
-          icon={<CalendarIcon width={24} height={24} />}
-          title="Food Diary"
-          subtitle="음식 기록장"
-          onPress={() => router.push('/(tabs)/food-diary')}
+          icon={<WaterIcon width={24} height={24} />}
+          title="수분 다이어리"
+          subtitle="물 섭취 기록"
+          onPress={() => router.push('/water-diary')}
         />
         <ShortcutButton
           icon={<ReportIcon width={24} height={24} />}
-          title="프리미엄 리포트"
+          title="건강 리포트"
           subtitle="식습관 분석"
           onPress={() => router.push('/premium-report')}
         />
@@ -302,10 +324,19 @@ export default function HomeScreen() {
         </View>
       )}
     </ScrollView>
+      <AddFoodPopup
+        visible={popupVisible}
+        onClose={() => setPopupVisible(false)}
+        selectedDate={intake.date}
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+  },
   container: {
     flex: 1,
     backgroundColor: '#FFF9F8',
@@ -422,14 +453,9 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: authColors.gray,
   },
-  emptyMessage: {
-    fontFamily: fonts.regular,
-    fontSize: 13,
-    color: authColors.gray,
-    textAlign: 'center',
-    marginTop: 36,
+  summaryLoading: {
+    marginTop: 24,
     marginBottom: 24,
-    lineHeight: 22,
   },
   intakeRow: {
     flexDirection: 'row',
@@ -517,9 +543,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
     marginTop: 14,
-  },
-  chipPressable: {
-    flex: 1,
   },
   chip: {
     flex: 1,

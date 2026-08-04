@@ -45,6 +45,32 @@ class TestCreatePersonalFoodItem:
         assert row["carbohydrate_g"] == 15
         assert row["protein_g"] == 4
 
+    def test_roundtrip_includes_fat_iron_cholesterol_saturated_trans(self, db):
+        user_id = make_user(db)
+        item = UserFoodItemCreate(
+            user_id=user_id,
+            food_name="테스트 삼겹살",
+            fat_g=12.5,
+            saturated_fat_g=4.1,
+            trans_fat_g=0.2,
+            cholesterol_mg=30.0,
+            iron_mg=1.8,
+        )
+
+        result = create_personal_food_item(item=item, db=db)
+
+        cursor = db.cursor()
+        cursor.execute(
+            "SELECT * FROM user_food_items WHERE user_food_item_id = ?",
+            (result["user_food_item_id"],),
+        )
+        row = dict(cursor.fetchone())
+        assert row["fat_g"] == 12.5
+        assert row["saturated_fat_g"] == 4.1
+        assert row["trans_fat_g"] == 0.2
+        assert row["cholesterol_mg"] == 30.0
+        assert row["iron_mg"] == 1.8
+
     def test_dedupes_by_user_and_food_name(self, db):
         user_id = make_user(db)
         item = UserFoodItemCreate(user_id=user_id, food_name="중복 음식", sugar_g=5)

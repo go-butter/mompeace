@@ -17,7 +17,7 @@ backend/routers/intake.py 의 get_intake_summary() (GET /intake/summary/{user_id
 from fastapi import HTTPException
 import pytest
 
-from backend.routers.intake import get_intake_summary
+from backend.routers.intake import get_intake_by_date, get_intake_summary
 
 from .conftest import make_food_log, make_user
 
@@ -232,3 +232,46 @@ class TestIntakeSummaryIronBandType:
         iron = result["selected_nutrients"][0]
         assert iron["status"] == "unknown"
         assert iron["status_label"] == "정보없음"
+
+
+class TestIntakeSummaryDateParam:
+    """Food Diary가 /intake/by-date 대신 이 엔드포인트를 재사용할 수 있도록,
+    date 쿼리 파라미터로 오늘이 아닌 임의의 날짜도 조회할 수 있어야 한다."""
+
+    def test_no_date_param_defaults_to_today(self, db):
+        user_id = make_user(db, selected_nutrients="sugar")
+        make_food_log(db, user_id, sugar_g=20)
+
+        result = get_intake_summary(user_id=user_id, db=db)
+
+        from datetime import date as date_type
+        assert result["date"] == date_type.today().isoformat()
+        assert result["selected_nutrients"][0]["total"] == 20.0
+
+    def test_past_date_returns_that_days_data_only(self, db):
+        user_id = make_user(db, selected_nutrients="sugar")
+        make_food_log(db, user_id, eaten_at="2026-06-19 08:00:00", sugar_g=20)
+        make_food_log(db, user_id, sugar_g=999)  # 오늘 기록, 조회 대상 아님
+
+        result = get_intake_summary(user_id=user_id, date="2026-06-19", db=db)
+
+        assert result["date"] == "2026-06-19"
+        assert result["selected_nutrients"][0]["total"] == 20.0
+
+    def test_invalid_date_format_returns_400(self, db):
+        user_id = make_user(db)
+
+        with pytest.raises(HTTPException) as exc_info:
+            get_intake_summary(user_id=user_id, date="19-06-2026", db=db)
+        assert exc_info.value.status_code == 400
+
+    def test_matches_intake_by_date_for_same_user_and_date(self, db):
+        user_id = make_user(db, selected_nutrients="sugar")
+        make_food_log(db, user_id, eaten_at="2026-06-19 08:00:00", sugar_g=20)
+
+        summary = get_intake_summary(user_id=user_id, date="2026-06-19", db=db)
+        by_date = get_intake_by_date(user_id=user_id, date="2026-06-19", db=db)
+
+        sugar_summary = summary["selected_nutrients"][0]
+        assert sugar_summary["total"] == by_date["intake"]["total_sugar"]
+        assert sugar_summary["status_label"] == by_date["status_label"]["sugar"]

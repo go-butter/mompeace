@@ -95,6 +95,10 @@ def search_food(
             "carbohydrate_g": row.get("carbohydrate_g"),
             "protein_g": row.get("protein_g"),
             "fat_g": row.get("fat_g"),
+            "saturated_fat_g": row.get("saturated_fat_g"),
+            "trans_fat_g": row.get("trans_fat_g"),
+            "cholesterol_mg": row.get("cholesterol_mg"),
+            "iron_mg": row.get("iron_mg"),
             "calories_kcal": row.get("calories_kcal"),
         }
 
@@ -164,8 +168,9 @@ def create_personal_food_item(
 
     cursor.execute("""
         INSERT INTO user_food_items
-        (user_id, food_name, caffeine_mg, sugar_g, sodium_mg, calories_kcal, carbohydrate_g, protein_g)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        (user_id, food_name, caffeine_mg, sugar_g, sodium_mg, calories_kcal, carbohydrate_g, protein_g,
+         fat_g, saturated_fat_g, trans_fat_g, cholesterol_mg, iron_mg)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         item.user_id,
         item.food_name,
@@ -175,6 +180,11 @@ def create_personal_food_item(
         item.calories_kcal,
         item.carbohydrate_g,
         item.protein_g,
+        item.fat_g,
+        item.saturated_fat_g,
+        item.trans_fat_g,
+        item.cholesterol_mg,
+        item.iron_mg,
     ))
     db.commit()
 
