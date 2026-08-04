@@ -251,7 +251,7 @@ export default function FoodEntryManualScreen() {
         })
       )
       .then(() => {
-        router.replace('/(tabs)/home/food-diary');
+        router.replace('/(tabs)/food-diary');
       })
       .catch((err: Error) => {
         if (err.message.startsWith('LOG_FAILED')) {

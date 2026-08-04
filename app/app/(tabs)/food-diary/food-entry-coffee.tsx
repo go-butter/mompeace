@@ -190,7 +190,7 @@ export default function FoodEntryCoffeeScreen() {
       unit: '잔',
     })
       .then(() => {
-        router.replace('/(tabs)/home/food-diary');
+        router.replace('/(tabs)/food-diary');
       })
       .catch((err) => {
         const message = err instanceof ApiError ? err.message : (err as Error).message;

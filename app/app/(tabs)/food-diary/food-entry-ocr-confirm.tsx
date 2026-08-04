@@ -293,7 +293,7 @@ export default function FoodEntryOcrConfirmScreen() {
         .map((r) => ({ name: r.name.trim(), value: r.value.trim() })),
     })
       .then(() => {
-        router.replace('/(tabs)/home/food-diary');
+        router.replace('/(tabs)/food-diary');
       })
       .catch((err) => {
         const message = err instanceof ApiError ? err.message : (err as Error).message;

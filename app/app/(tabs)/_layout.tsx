@@ -6,6 +6,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import HomeIcon from '@/assets/images/common/tab_clarity_home-line.svg';
 import PlantIcon from '@/assets/images/common/tab_tabler_plant.svg';
 import PersonIcon from '@/assets/images/common/tab_charm_person.svg';
+// TODO: placeholder — reuses home's "Food Diary" shortcut icon until a dedicated tab icon is designed.
+import FoodDiaryIcon from '@/assets/images/home/calendar.svg';
 import { HapticTab } from '@/components/haptic-tab';
 
 const ACTIVE_COLOR = '#F47E8A';
@@ -63,6 +65,15 @@ export default function TabLayout() {
           tabBarLabel: ({ focused }) => <TabLabel focused={focused} label="홈" />,
           tabBarIcon: ({ focused }) => (
             <HomeIcon width={28} height={28} color={focused ? ACTIVE_COLOR : INACTIVE_COLOR} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="food-diary"
+        options={{
+          tabBarLabel: ({ focused }) => <TabLabel focused={focused} label="푸드다이어리" />,
+          tabBarIcon: ({ focused }) => (
+            <FoodDiaryIcon width={28} height={28} color={focused ? ACTIVE_COLOR : INACTIVE_COLOR} />
           ),
         }}
       />

@@ -199,7 +199,7 @@ export default function FoodDiaryScreen() {
             value={intake.status_label.sodium}
             colors={homeColors.sodium}
           />
-          <Pressable style={styles.chipPressable} onPress={() => router.push('/(tabs)/home/water-diary')}>
+          <Pressable style={styles.chipPressable} onPress={() => router.push('/water-diary')}>
             <StatusChip
               label="물"
               value={`${Math.round(water?.total_ml ?? 0)}ml`}
@@ -262,7 +262,7 @@ export default function FoodDiaryScreen() {
             </View>
           </View>
 
-          <Pressable onPress={() => router.push('/(tabs)/home/premium-report')}>
+          <Pressable onPress={() => router.push('/premium-report')}>
             <Text style={styles.premiumLink}>프리미엄 리포트 보기 {'>'}</Text>
           </Pressable>
         </View>

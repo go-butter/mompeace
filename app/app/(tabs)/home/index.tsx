@@ -253,7 +253,7 @@ export default function HomeScreen() {
                 value={intake.status_label.sodium}
                 colors={homeColors.sodium}
               />
-              <Pressable style={styles.chipPressable} onPress={() => router.push('/(tabs)/home/water-diary')}>
+              <Pressable style={styles.chipPressable} onPress={() => router.push('/water-diary')}>
                 <StatusChip
                   label="물"
                   value={`${Math.round(water?.total_ml ?? 0)}ml`}
@@ -276,13 +276,13 @@ export default function HomeScreen() {
           icon={<CalendarIcon width={24} height={24} />}
           title="Food Diary"
           subtitle="음식 기록장"
-          onPress={() => router.push('/(tabs)/home/food-diary')}
+          onPress={() => router.push('/(tabs)/food-diary')}
         />
         <ShortcutButton
           icon={<ReportIcon width={24} height={24} />}
           title="프리미엄 리포트"
           subtitle="식습관 분석"
-          onPress={() => router.push('/(tabs)/home/premium-report')}
+          onPress={() => router.push('/premium-report')}
         />
       </View>
 

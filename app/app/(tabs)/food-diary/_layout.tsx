@@ -20,9 +20,16 @@ const VISIBLE_TAB_BAR_STYLE = {
 } as const;
 
 const CONTENT_HEIGHT = 80; // mirrors (tabs)/_layout.tsx's CONTENT_HEIGHT
-const HIDDEN_TAB_BAR_ROUTES = new Set<string>([]);
+const HIDDEN_TAB_BAR_ROUTES = new Set([
+  'food-entry-search',
+  'food-entry-manual',
+  'food-entry-coffee',
+  'food-entry-ocr-capture',
+  'food-entry-ocr-confirm',
+  'food-entry-ocr-failure',
+]);
 
-export default function HomeLayout() {
+export default function FoodDiaryLayout() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const segments = useSegments();
@@ -41,7 +48,12 @@ export default function HomeLayout() {
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="index" />
-      <Stack.Screen name="food-diary-list" />
+      <Stack.Screen name="food-entry-search" />
+      <Stack.Screen name="food-entry-manual" />
+      <Stack.Screen name="food-entry-coffee" />
+      <Stack.Screen name="food-entry-ocr-capture" />
+      <Stack.Screen name="food-entry-ocr-confirm" />
+      <Stack.Screen name="food-entry-ocr-failure" />
     </Stack>
   );
 }

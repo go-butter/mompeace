@@ -26,7 +26,7 @@ export default function FoodEntryOcrCaptureScreen() {
       const result = await scanNutritionLabel({ image: photo.base64 });
 
       router.push({
-        pathname: '/(tabs)/home/food-entry-ocr-confirm',
+        pathname: '/(tabs)/food-diary/food-entry-ocr-confirm',
         params: {
           date,
           product_name: result.product_name ?? '',
@@ -41,7 +41,7 @@ export default function FoodEntryOcrCaptureScreen() {
         },
       });
     } catch {
-      router.replace({ pathname: '/(tabs)/home/food-entry-ocr-failure', params: { date } });
+      router.replace({ pathname: '/(tabs)/food-diary/food-entry-ocr-failure', params: { date } });
     } finally {
       setAnalyzing(false);
     }
