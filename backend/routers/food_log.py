@@ -5,11 +5,16 @@ from fastapi import APIRouter, HTTPException, Depends
 
 from backend.database import get_db
 from backend.models import FoodLogCreate, FoodLogFromFood, FeedbackRequest
-from backend.nutrition_constants import EXTRA_NUTRIENT_NAME_TO_COLUMN
+from backend.nutrition_constants import (
+    EXTRA_NUTRIENT_NAME_TO_COLUMN,
+    DAILY_CAFFEINE_LIMIT_MG,
+    DAILY_SUGAR_LIMIT_G,
+    DAILY_SODIUM_LIMIT_MG,
+)
 from backend.recommendation_model import recommend_food
 from backend.risk import calculate_current_pregnancy_age
 from backend.sensitivity import get_user_adj, recalculate_sensitivity
-from backend.intake_totals import compute_today_intake_totals
+from backend.intake_totals import compute_today_intake_totals, get_status
 
 router = APIRouter()
 
@@ -351,21 +356,11 @@ def _fetch_food_log_for_date(user_id: int, target_date: str, db: sqlite3.Connect
         sugar = log.get("sugar_g")
         sodium = log.get("sodium_mg")
 
-        # 각 영양소 상태: None이면 unknown
-        if caffeine is None:
-            caffeine_status = "unknown"
-        else:
-            caffeine_status = "safe" if caffeine <= 70 else "caution" if caffeine <= 200 else "avoid"
-
-        if sugar is None:
-            sugar_status = "unknown"
-        else:
-            sugar_status = "safe" if sugar <= 10 else "caution" if sugar <= 30 else "avoid"
-
-        if sodium is None:
-            sodium_status = "unknown"
-        else:
-            sodium_status = "safe" if sodium <= 500 else "caution" if sodium <= 1500 else "avoid"
+        # 각 영양소 상태: 일일 누적 판정(get_status())과 동일한 기준값/밴드를 재사용한다
+        # (nutrition_constants.py 단일 소스 오브 트루스 원칙 — 개별 항목용 별도 하드코딩 금지).
+        caffeine_status = get_status(caffeine, DAILY_CAFFEINE_LIMIT_MG, 1 if caffeine is not None else 0, 1)
+        sugar_status = get_status(sugar, DAILY_SUGAR_LIMIT_G, 1 if sugar is not None else 0, 1)
+        sodium_status = get_status(sodium, DAILY_SODIUM_LIMIT_MG, 1 if sodium is not None else 0, 1)
 
         nutrition_items = [
             {
