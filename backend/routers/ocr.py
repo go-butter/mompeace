@@ -1,11 +1,14 @@
 import sqlite3
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from backend.alternative_food_query import determine_trigger_nutrient, find_subcategory_alternatives
 from backend.database import get_db
 from backend.gemini_vision import GeminiDailyLimitExceededError, LabelNotDetectedError, call_gemini_vision
 from backend.intake_totals import build_item_nutrient_statuses, get_trimester_limits, resolve_user_nutrition_context
+from backend.ocr_category_classifier import classify_food
 from backend.ocr_nutrition_parser import resolve_ocr_nutrients
 
 router = APIRouter()
@@ -110,3 +113,80 @@ def scan_nutrition_label(req: OcrScanRequest, db: sqlite3.Connection = Depends(g
     resolved["nutrient_statuses"] = build_item_nutrient_statuses(status_input, limits)
 
     return resolved
+
+
+class OcrAlternativesRequest(BaseModel):
+    user_id: int
+    product_name: Optional[str] = None
+    # 키: carbohydrate/sugar/energy/fat/iron/protein/sodium (/ocr/scan 응답의
+    # nutrients.<key>.serving_value와 동일한 값을 그대로 전달하면 된다).
+    nutrients: dict[str, Optional[float]]
+
+
+def _empty_alternatives_response(trigger_nutrient: Optional[str] = None) -> dict:
+    return {
+        "available": False,
+        "trigger_nutrient": trigger_nutrient,
+        "category": None,
+        "subcategory": None,
+        "alternatives": [],
+    }
+
+
+@router.post("/ocr/alternatives")
+def get_ocr_alternatives(req: OcrAlternativesRequest, db: sqlite3.Connection = Depends(get_db)) -> dict:
+    """
+    OCR 스캔 품목이 위험(avoid) 판정을 받았을 때 같은 subcategory 안에서 그 원인이
+    된 특정 영양소 기준으로 정렬한 대체 후보를 찾는다.
+
+    분류/조회 실패는 전부 동일하게 "available: false"로 수렴한다 (아래 4가지 모두):
+    - avoid 상태인 영양소가 아예 없음 (Gemini 호출 없음)
+    - product_name이 비어있음 (Gemini 호출 없음)
+    - Gemini 분류 실패(스키마 불일치/일일 상한 초과/API 오류 등 — 절대 500/429로
+      올리지 않는다. /ocr/scan과 달리 이 기능은 부가 기능이라 실패가 스캔 흐름을
+      막아서는 안 된다)
+    - 분류엔 성공했지만 그 subcategory에 후보가 하나도 없음(포장 과자/음료류처럼
+      dish_nutrition_db가 원래 커버하지 않는 경우 — 조사에서 확인된 정상 케이스)
+    """
+    cursor = db.cursor()
+    cursor.execute("SELECT * FROM users WHERE user_id = ?", (req.user_id,))
+    user = cursor.fetchone()
+    if not user:
+        raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
+    user = dict(user)
+
+    week, age_bracket = resolve_user_nutrition_context(user)
+    _, limits = get_trimester_limits(week, age_bracket)
+    nutrient_statuses = build_item_nutrient_statuses(req.nutrients, limits)
+
+    trigger_nutrient = determine_trigger_nutrient(nutrient_statuses)
+    if trigger_nutrient is None:
+        return _empty_alternatives_response()
+
+    if not req.product_name or not req.product_name.strip():
+        return _empty_alternatives_response(trigger_nutrient)
+
+    if USE_MOCK_GEMINI:
+        # Mock path: skip the real Gemini classification calls entirely, same
+        # reasoning as /ocr/scan's mock block above (no confirmed-working key yet).
+        # --- Tweak this to test the match / no-match paths ---
+        # Set to (None, None) to exercise the "classification failed" ->
+        # available=false path without needing a real product Gemini can't classify.
+        category, subcategory = ("면 및 만두류", "라면")
+        # ---------------------------------------------------------------
+    else:
+        category, subcategory = classify_food(req.product_name, db)
+    if category is None or subcategory is None:
+        return _empty_alternatives_response(trigger_nutrient)
+
+    alternatives = find_subcategory_alternatives(db, subcategory, trigger_nutrient)
+    if not alternatives:
+        return _empty_alternatives_response(trigger_nutrient)
+
+    return {
+        "available": True,
+        "trigger_nutrient": trigger_nutrient,
+        "category": category,
+        "subcategory": subcategory,
+        "alternatives": alternatives,
+    }
