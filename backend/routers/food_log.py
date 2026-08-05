@@ -138,31 +138,62 @@ def create_food_log(
         # OCR 스캔 결과(1회 제공량 기준 값)에 사용자가 확인 화면에서 입력한
         # 인분수/그램 비율을 곱한다. food_id 경로의 _multiply()와 동일한
         # None-preserving 곱셈 — food_id가 없으므로 추천 판정은 호출하지 않는다.
+        # 추적 대상 7개 영양소 전부를 스케일한다 (당류/나트륨만 스케일하면 나머지
+        # 5개가 1회 제공량이 아닌 원본 그대로 저장되어버린다).
         caffeine_mg = _multiply(caffeine_mg, log.serving_multiplier)
         sugar_g = _multiply(sugar_g, log.serving_multiplier)
         sodium_mg = _multiply(sodium_mg, log.serving_multiplier)
+        calories_kcal = _multiply(calories_kcal, log.serving_multiplier)
+        carbohydrate_g = _multiply(carbohydrate_g, log.serving_multiplier)
+        protein_g = _multiply(protein_g, log.serving_multiplier)
+        fat_g = _multiply(fat_g, log.serving_multiplier)
+        iron_mg = _multiply(iron_mg, log.serving_multiplier)
     # food_id가 없는 순수 직접 입력은 recommend_food()가 기대하는 food_items
     # 행 형태(data_source 등)를 갖추지 못하므로 추천 판정을 호출하지 않는다.
     # recommendation_status/reason_nutrient는 NULL로 남는다.
 
     # 자유 텍스트 추가 성분(extra_nutrients) 중 이름이 알려진 라벨과 일치하면,
-    # 아직 fat_g/cholesterol_mg/iron_mg가 채워지지 않은 경우에 한해 타입 컬럼에도 반영한다
+    # 아직 해당 컬럼이 채워지지 않은 경우에 한해 타입 컬럼에도 반영한다
     # (food_id 경로에서 이미 구해진 값은 자유 텍스트로 덮어쓰지 않는다).
+    # EXTRA_NUTRIENT_NAME_TO_COLUMN이 매핑하는 모든 컬럼을 dict로 모아두고 일반적으로
+    # 갱신한다 — 컬럼별 if/elif를 하드코딩하면 새 매핑을 추가할 때마다 여기도 고쳐야 한다.
+    nutrient_values = {
+        "sugar_g": sugar_g,
+        "sodium_mg": sodium_mg,
+        "calories_kcal": calories_kcal,
+        "carbohydrate_g": carbohydrate_g,
+        "protein_g": protein_g,
+        "fat_g": fat_g,
+        "cholesterol_mg": cholesterol_mg,
+        "iron_mg": iron_mg,
+    }
+    # calories_kcal은 다른 컬럼과 달리 Optional이 아니라 기본값 0(FoodLogCreate.calories_kcal:
+    # float = 0)이라 "아직 모름"이 None이 아닌 0으로 표현된다 — "입력된 칼로리 대신 하드코딩된
+    # 0을 쓰지 않는다"는 기존 정책(5e0745d)과 동일하게, 여기서도 0을 "미입력"으로 취급한다.
+    def _already_known(column: str) -> bool:
+        value = nutrient_values.get(column)
+        if column == "calories_kcal":
+            return value not in (None, 0)
+        return value is not None
+
     if log.extra_nutrients:
         for en in log.extra_nutrients:
             column = EXTRA_NUTRIENT_NAME_TO_COLUMN.get(en.name.strip())
-            if column is None:
+            if column is None or _already_known(column):
                 continue
             try:
                 parsed_value = float(en.value)
             except (TypeError, ValueError):
                 continue
-            if column == "fat_g" and fat_g is None:
-                fat_g = parsed_value
-            elif column == "cholesterol_mg" and cholesterol_mg is None:
-                cholesterol_mg = parsed_value
-            elif column == "iron_mg" and iron_mg is None:
-                iron_mg = parsed_value
+            nutrient_values[column] = parsed_value
+    sugar_g = nutrient_values["sugar_g"]
+    sodium_mg = nutrient_values["sodium_mg"]
+    calories_kcal = nutrient_values["calories_kcal"]
+    carbohydrate_g = nutrient_values["carbohydrate_g"]
+    protein_g = nutrient_values["protein_g"]
+    fat_g = nutrient_values["fat_g"]
+    cholesterol_mg = nutrient_values["cholesterol_mg"]
+    iron_mg = nutrient_values["iron_mg"]
 
     if log.eaten_at is not None:
         cursor.execute("""

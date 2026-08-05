@@ -79,10 +79,33 @@ NUTRIENT_LABELS_KO = {
 
 # 자유 텍스트로 입력된 추가 성분(food_log_extra_nutrients)의 name이 아래 라벨과
 # 정확히 일치하면, 추가 성분 저장과 별개로 food_log의 타입 컬럼에도 값을 반영한다.
+# 탄수화물/당류/에너지/단백질/나트륨은 추적 대상 7개 영양소(NUTRIENT_LABELS_KO)와
+# 이름이 같다 — 매칭되면 daily 누적 판정(get_status 계열)에도 그대로 반영된다.
+# 콜레스테롤은 7개 추적 대상에는 없지만(판정 제외, nutrition_constants 상단 주석 참고)
+# 상세 화면 참고용 데이터 수집은 계속하므로 매핑을 유지한다.
 EXTRA_NUTRIENT_NAME_TO_COLUMN = {
+    "탄수화물": "carbohydrate_g",
+    "당류": "sugar_g",
+    "에너지": "calories_kcal",
     "지방": "fat_g",
-    "콜레스테롤": "cholesterol_mg",
     "철분": "iron_mg",
+    "단백질": "protein_g",
+    "나트륨": "sodium_mg",
+    "콜레스테롤": "cholesterol_mg",
+}
+
+# 단일 품목(OCR 스캔 결과 등) 판정용 — 추적 대상 7개 영양소가 각각 어떤 판정 방식을
+# 쓰는지(intake_totals.get_status 계열과 대응). "floor"(탄수화물/에너지/단백질)는
+# 누적 하루 최소치 개념이라 단일 품목에는 적용하지 않는다 — 단일 품목 판정에서는
+# 항상 unknown으로 처리한다(backend/intake_totals.py의 build_item_nutrient_statuses 참고).
+NUTRIENT_STATUS_TYPE = {
+    "carbohydrate": "floor",
+    "sugar": "ceiling",
+    "energy": "floor",
+    "fat": "band",
+    "iron": "band",
+    "protein": "floor",
+    "sodium": "ceiling",
 }
 
 

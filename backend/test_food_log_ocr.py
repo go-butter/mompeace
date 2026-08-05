@@ -145,6 +145,57 @@ class TestServingMultiplier:
         assert row["sugar_g"] == 3.6
         assert row["sodium_mg"] == 15.0
 
+    def test_serving_multiplier_scales_all_seven_tracked_fields(self, db):
+        # OCR 응답이 이제 7개 영양소를 전부 반환하므로, 인분수/그램 배율도 당류/
+        # 나트륨뿐 아니라 전부에 적용되어야 한다 (그렇지 않으면 5개가 1회 제공량이
+        # 아닌 원본 그대로 저장된다).
+        user_id = make_user(db)
+        log = FoodLogCreate(
+            user_id=user_id,
+            food_name="감자깡",
+            input_type="ocr",
+            sugar_g=3.6,
+            sodium_mg=15.0,
+            calories_kcal=45.0,
+            carbohydrate_g=7.0,
+            protein_g=0.6,
+            fat_g=1.8,
+            iron_mg=0.12,
+            serving_multiplier=2.0,
+        )
+        result = create_food_log(log=log, db=db)
+        row = _fetch_log(db, result["log_id"])
+        assert row["sugar_g"] == 7.2
+        assert row["sodium_mg"] == 30.0
+        assert row["calories_kcal"] == 90.0
+        assert row["carbohydrate_g"] == 14.0
+        assert row["protein_g"] == 1.2
+        assert row["fat_g"] == 3.6
+        assert row["iron_mg"] == 0.24
+
+    def test_serving_multiplier_none_preserving_per_field(self, db):
+        # 일부 영양소는 라벨에서 읽지 못해 None일 수 있다 — 그 필드만 None으로
+        # 남고 나머지는 정상적으로 스케일되어야 한다.
+        user_id = make_user(db)
+        log = FoodLogCreate(
+            user_id=user_id,
+            food_name="감자깡",
+            input_type="ocr",
+            sugar_g=3.6,
+            sodium_mg=15.0,
+            carbohydrate_g=7.0,
+            protein_g=None,  # 라벨에서 읽지 못함
+            fat_g=1.8,
+            iron_mg=None,  # 라벨에서 읽지 못함
+            serving_multiplier=2.0,
+        )
+        result = create_food_log(log=log, db=db)
+        row = _fetch_log(db, result["log_id"])
+        assert row["carbohydrate_g"] == 14.0
+        assert row["fat_g"] == 3.6
+        assert row["protein_g"] is None
+        assert row["iron_mg"] is None
+
     def test_serving_multiplier_ignored_when_food_id_present(self, db):
         # food_id 경로가 우선이므로, 혹시라도 serving_multiplier가 함께
         # 전달돼도 food_id 기준 판정(_judge_food_log_from_food_item, amount 배율)

@@ -17,6 +17,7 @@ import_dish_db.py의 _parse_weight_value/_compute_scale/_scale와 개념은 같�
 """
 from __future__ import annotations
 
+import math
 import re
 
 _LEADING_NUMBER_RE = re.compile(r"[-+]?\d+(?:\.\d+)?")
@@ -26,6 +27,19 @@ _VALID_METHODS = {
     "per_basis_with_total",
     "per_serving_with_count",
     "unknown",
+}
+
+# 추적 대상 7개 영양소 키(nutrition_constants.NUTRIENT_LABELS_KO와 동일한 키)를
+# GeminiLabelExtraction의 필드명으로 매핑한다 — resolve_ocr_nutrients()가 이 매핑을
+# 따라 7개 전부를 동일한 방식으로 스케일링한다.
+_NUTRIENT_EXTRACTION_FIELDS = {
+    "carbohydrate": "carbohydrate_g_per_basis",
+    "sugar": "sugar_g_per_basis",
+    "energy": "energy_kcal_per_basis",
+    "fat": "fat_g_per_basis",
+    "iron": "iron_mg_per_basis",
+    "protein": "protein_g_per_basis",
+    "sodium": "sodium_mg_per_basis",
 }
 
 
@@ -65,6 +79,43 @@ def scale_value(value: float | None, scale: float | None) -> float | None:
     return value * scale
 
 
+def truncate_to_places(value: float | None, places: int = 2) -> float | None:
+    """None-preserving 절사(truncate-toward-zero). round()과 달리 반올림하지 않는다.
+
+    이 앱의 영양소 값/기준량은 항상 0 이상이므로 절사(0 방향)와 내림(음의 무한대
+    방향)이 결과적으로 같지만, "절사"의 정확한 의미는 0 방향이므로 math.trunc를
+    쓴다 — round()를 재사용하는 food_log.py의 _multiply()와는 의도적으로 다른 함수다.
+    """
+    if value is None:
+        return None
+    factor = 10 ** places
+    return math.trunc(value * factor) / factor
+
+
+def compute_total_content_value(
+    basis_value: float | None,
+    basis_amount: float | None,
+    total_content_amount: float | None,
+    places: int = 2,
+) -> float | None:
+    """기준량(basis_amount)당 basis_value를 총 내용량(total_content_amount) 기준으로
+    환산 후 절사한다. compute_total_content_scale()을 그대로 재사용 — 1회 제공량
+    스케일(scale_factor)과는 완전히 독립적인 계산이므로, needs_review 여부와 무관하게
+    (1회 제공량을 몰라도) 항상 계산 가능하다.
+
+    scale_value()와 달리 scale이 None이면(기준량/총 내용량 중 하나라도 없으면)
+    basis_value를 그대로 통과시키지 않고 None을 반환한다 — resolve_ocr_nutrients()의
+    1회 제공량 스케일에는 needs_review 플래그가 있어 "raw passthrough"임을 호출 측이
+    알 수 있지만, 이 total_value에는 그런 플래그가 없다. scale 없이 passthrough하면
+    100g당 값을 총 내용량 값인 것처럼 잘못 표시하게 되어(둘의 실제 비율은 모르는
+    채로) 정보 없음보다 더 나쁜, 조용히 틀린 값이 된다.
+    """
+    scale = compute_total_content_scale(basis_amount, total_content_amount)
+    if scale is None:
+        return None
+    return truncate_to_places(scale_value(basis_value, scale), places)
+
+
 def resolve_ocr_nutrients(extraction: dict) -> dict:
     """
     Gemini 추출 결과(dict)를 받아 최종 응답을 만든다.
@@ -81,16 +132,23 @@ def resolve_ocr_nutrients(extraction: dict) -> dict:
     needs_review=True이고, basis_amount_value는 있을 수 있으므로(예: "100g당") 확인
     화면에서 그램 직접 입력 대체 흐름을 제공할 수 있다.
 
+    추적 대상 7개 영양소(_NUTRIENT_EXTRACTION_FIELDS) 전부에 대해 basis_value(라벨의
+    기준량당 값)/serving_value(1회 제공량 기준, scale_factor 적용)/total_value(총
+    내용량 기준, compute_total_content_value로 절사)를 계산해 "nutrients" 아래
+    반환한다. total_value는 scale_factor(1회 제공량 스케일)와 무관하게 basis_amount_value/
+    total_content_value만으로 계산되므로 needs_review=True여도 항상 계산된다.
+
     반환: {product_name, sugar_g, sodium_mg, scale_method, scale_factor_applied,
-           basis_amount_value, needs_review}
+           basis_amount_value, total_content_value, needs_review, nutrients}
+    기존 sugar_g/sodium_mg 필드는 nutrients["sugar"/"sodium"]["serving_value"]와
+    동일한 값을 그대로 유지한다 (기존 소비자와의 하위 호환 — additive 변경).
     """
     declared_method = extraction.get("reference_amount_display_method")
     if declared_method not in _VALID_METHODS:
         declared_method = "unknown"
 
-    sugar_raw = extraction.get("sugar_g_per_basis")
-    sodium_raw = extraction.get("sodium_mg_per_basis")
     basis_amount = extraction.get("basis_amount_value")
+    total_content_amount = extraction.get("total_content_value")
 
     scale_method = declared_method
     scale_factor: float | None = None
@@ -109,15 +167,23 @@ def resolve_ocr_nutrients(extraction: dict) -> dict:
 
     needs_review = scale_factor is None
 
-    sugar_g = scale_value(sugar_raw, scale_factor)
-    sodium_mg = scale_value(sodium_raw, scale_factor)
+    nutrients: dict[str, dict] = {}
+    for key, field_name in _NUTRIENT_EXTRACTION_FIELDS.items():
+        basis_value = extraction.get(field_name)
+        nutrients[key] = {
+            "basis_value": basis_value,
+            "serving_value": scale_value(basis_value, scale_factor),
+            "total_value": compute_total_content_value(basis_value, basis_amount, total_content_amount),
+        }
 
     return {
         "product_name": extraction.get("product_name"),
-        "sugar_g": sugar_g,
-        "sodium_mg": sodium_mg,
+        "sugar_g": nutrients["sugar"]["serving_value"],
+        "sodium_mg": nutrients["sodium"]["serving_value"],
         "scale_method": scale_method,
         "scale_factor_applied": scale_factor,
         "basis_amount_value": basis_amount,
+        "total_content_value": total_content_amount,
         "needs_review": needs_review,
+        "nutrients": nutrients,
     }

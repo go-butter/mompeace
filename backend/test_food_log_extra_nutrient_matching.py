@@ -106,6 +106,99 @@ class TestExtraNutrientNameMatching:
             {"name": "칼륨", "value": "5", "unit": "mg"}
         ]
 
+    # ── 7개 추적 대상 영양소 중 새로 추가된 5개(탄수화물/당류/에너지/단백질/나트륨) ──
+
+    def test_matching_carbohydrate_name_populates_carbohydrate_g(self, db):
+        user_id = make_user(db)
+        log = FoodLogCreate(
+            user_id=user_id,
+            food_name="테스트 음식",
+            input_type="manual",
+            extra_nutrients=[ExtraNutrientIn(name="탄수화물", value="45.5", unit="g")],
+        )
+        result = create_food_log(log=log, db=db)
+        row = _fetch_log(db, result["log_id"])
+        assert row["carbohydrate_g"] == 45.5
+
+    def test_matching_sugar_name_populates_sugar_g(self, db):
+        user_id = make_user(db)
+        log = FoodLogCreate(
+            user_id=user_id,
+            food_name="테스트 음식",
+            input_type="manual",
+            extra_nutrients=[ExtraNutrientIn(name="당류", value="8", unit="g")],
+        )
+        result = create_food_log(log=log, db=db)
+        row = _fetch_log(db, result["log_id"])
+        assert row["sugar_g"] == 8.0
+
+    def test_matching_energy_name_populates_calories_kcal(self, db):
+        user_id = make_user(db)
+        log = FoodLogCreate(
+            user_id=user_id,
+            food_name="테스트 음식",
+            input_type="manual",
+            extra_nutrients=[ExtraNutrientIn(name="에너지", value="250", unit="kcal")],
+        )
+        result = create_food_log(log=log, db=db)
+        row = _fetch_log(db, result["log_id"])
+        assert row["calories_kcal"] == 250.0
+
+    def test_matching_energy_name_does_not_overwrite_explicit_nonzero_calories(self, db):
+        # calories_kcal은 Optional이 아니라 기본값 0이라 "미입력"이 None이 아닌 0으로
+        # 표현된다 — 이미 0이 아닌 값이 명시적으로 전달됐다면 자유 텍스트로 덮어쓰지 않는다.
+        user_id = make_user(db)
+        log = FoodLogCreate(
+            user_id=user_id,
+            food_name="테스트 음식",
+            input_type="manual",
+            calories_kcal=300.0,
+            extra_nutrients=[ExtraNutrientIn(name="에너지", value="999", unit="kcal")],
+        )
+        result = create_food_log(log=log, db=db)
+        row = _fetch_log(db, result["log_id"])
+        assert row["calories_kcal"] == 300.0
+
+    def test_matching_protein_name_populates_protein_g(self, db):
+        user_id = make_user(db)
+        log = FoodLogCreate(
+            user_id=user_id,
+            food_name="테스트 음식",
+            input_type="manual",
+            extra_nutrients=[ExtraNutrientIn(name="단백질", value="12", unit="g")],
+        )
+        result = create_food_log(log=log, db=db)
+        row = _fetch_log(db, result["log_id"])
+        assert row["protein_g"] == 12.0
+
+    def test_matching_sodium_name_populates_sodium_mg(self, db):
+        user_id = make_user(db)
+        log = FoodLogCreate(
+            user_id=user_id,
+            food_name="테스트 음식",
+            input_type="manual",
+            extra_nutrients=[ExtraNutrientIn(name="나트륨", value="420", unit="mg")],
+        )
+        result = create_food_log(log=log, db=db)
+        row = _fetch_log(db, result["log_id"])
+        assert row["sodium_mg"] == 420.0
+
+    def test_food_id_derived_sodium_is_not_overwritten_by_extra_nutrient_match(self, db):
+        user_id = make_user(db)
+        food_id = make_food_item(db, sodium_mg=100.0)
+        log = FoodLogCreate(
+            user_id=user_id,
+            food_name="무시됨",
+            input_type="food_id",
+            food_id=food_id,
+            amount=1.0,
+            extra_nutrients=[ExtraNutrientIn(name="나트륨", value="999", unit="mg")],
+        )
+        result = create_food_log(log=log, db=db)
+        row = _fetch_log(db, result["log_id"])
+        # food_items에서 구한 100.0이 유지되어야 한다 (자유 텍스트 999로 덮어쓰면 안 됨)
+        assert row["sodium_mg"] == 100.0
+
     def test_food_id_derived_fat_is_not_overwritten_by_extra_nutrient_match(self, db):
         user_id = make_user(db)
         food_id = make_food_item(db, fat_g=10.0)

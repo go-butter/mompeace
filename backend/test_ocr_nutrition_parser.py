@@ -21,9 +21,11 @@ import pytest
 
 from backend.ocr_nutrition_parser import (
     compute_total_content_scale,
+    compute_total_content_value,
     parse_amount_value,
     resolve_ocr_nutrients,
     scale_value,
+    truncate_to_places,
 )
 
 
@@ -282,3 +284,130 @@ def test_resolve_none_nutrient_stays_none_even_with_valid_scale():
     assert result["scale_method"] == "per_basis_with_total"
     assert result["sugar_g"] is None
     assert result["sodium_mg"] == pytest.approx(15.0)
+
+
+# ── truncate_to_places ───────────────────────────────────────────
+
+def test_truncate_to_places_none_returns_none():
+    assert truncate_to_places(None) is None
+
+
+def test_truncate_to_places_default_two_places():
+    assert truncate_to_places(12.3456) == pytest.approx(12.34)
+
+
+def test_truncate_to_places_does_not_round_up():
+    # 118.357을 반올림하면 118.36이 되지만, 절사(truncate)는 118.35여야 한다 —
+    # round()가 아니라 math.trunc를 쓰는지 확인하는 핵심 회귀 테스트. 두 결과가
+    # 0.01 차이로 뚜렷이 갈리는 값을 골라 부동소수점 오차로 흔들리지 않게 했다.
+    assert truncate_to_places(118.357, 2) == pytest.approx(118.35)
+    assert truncate_to_places(118.357, 2) != pytest.approx(118.36)
+
+
+def test_truncate_to_places_exact_value_unchanged():
+    assert truncate_to_places(12.3, 2) == pytest.approx(12.3)
+
+
+# ── compute_total_content_value ──────────────────────────────────
+
+def test_compute_total_content_value_basic():
+    # 100g당 33.34g -> 총 내용량 355g 기준: 33.34 * 3.55 = 118.357 -> 절사 118.35
+    assert compute_total_content_value(33.34, 100.0, 355.0) == pytest.approx(118.35)
+
+
+def test_compute_total_content_value_missing_basis_amount_returns_none():
+    assert compute_total_content_value(12.0, None, 355.0) is None
+
+
+def test_compute_total_content_value_missing_total_content_returns_none():
+    assert compute_total_content_value(12.0, 100.0, None) is None
+
+
+def test_compute_total_content_value_none_basis_value_stays_none():
+    assert compute_total_content_value(None, 100.0, 355.0) is None
+
+
+# ── resolve_ocr_nutrients: 7개 영양소 nutrients dict ─────────────
+
+def _full_extraction(**overrides):
+    base = {
+        "product_name": "테스트 과자",
+        "nutrition_table_found": True,
+        "reference_amount_display_method": "per_basis_with_total",
+        "basis_amount_value": 100.0,
+        "total_content_value": 355.0,
+        "servings_per_container": None,
+        "serving_size_g": 30.0,
+        "carbohydrate_g_per_basis": 70.0,
+        "sugar_g_per_basis": 12.0,
+        "energy_kcal_per_basis": 450.0,
+        "fat_g_per_basis": 18.0,
+        "iron_mg_per_basis": 1.2,
+        "protein_g_per_basis": 6.0,
+        "sodium_mg_per_basis": 178.0,
+    }
+    base.update(overrides)
+    return base
+
+
+def test_resolve_ocr_nutrients_returns_all_seven_nutrient_keys():
+    result = resolve_ocr_nutrients(_full_extraction())
+    assert set(result["nutrients"].keys()) == {
+        "carbohydrate", "sugar", "energy", "fat", "iron", "protein", "sodium",
+    }
+
+
+def test_resolve_ocr_nutrients_basis_value_passthrough():
+    result = resolve_ocr_nutrients(_full_extraction())
+    assert result["nutrients"]["carbohydrate"]["basis_value"] == 70.0
+    assert result["nutrients"]["protein"]["basis_value"] == 6.0
+
+
+def test_resolve_ocr_nutrients_serving_value_uses_scale_factor():
+    # scale_factor = serving_size_g(30) / basis_amount(100) = 0.3
+    result = resolve_ocr_nutrients(_full_extraction())
+    assert result["nutrients"]["carbohydrate"]["serving_value"] == pytest.approx(21.0)
+    assert result["nutrients"]["energy"]["serving_value"] == pytest.approx(135.0)
+    assert result["nutrients"]["fat"]["serving_value"] == pytest.approx(5.4)
+    assert result["nutrients"]["iron"]["serving_value"] == pytest.approx(0.36)
+    assert result["nutrients"]["protein"]["serving_value"] == pytest.approx(1.8)
+    # 기존 top-level sugar_g/sodium_mg와도 정확히 일치해야 한다 (하위 호환, 기존 소비자 보호)
+    assert result["sugar_g"] == result["nutrients"]["sugar"]["serving_value"]
+    assert result["sodium_mg"] == result["nutrients"]["sodium"]["serving_value"]
+
+
+def test_resolve_ocr_nutrients_total_value_uses_total_content_scale_and_truncates():
+    # total scale = total_content_value(355) / basis_amount(100) = 3.55.
+    # sugar/protein은 부동소수점 특성상 정확히 x.x0이 아니라 x.x99...로 계산되어
+    # 절사 시 반올림했다면 나올 값(42.6/21.3)보다 0.01 작은 값이 된다 — 이 테스트가
+    # 실제로 truncate(반올림 아님)를 검증하는 지점이다.
+    result = resolve_ocr_nutrients(_full_extraction())
+    assert result["nutrients"]["carbohydrate"]["total_value"] == pytest.approx(248.5)
+    assert result["nutrients"]["sugar"]["total_value"] == pytest.approx(42.59)
+    assert result["nutrients"]["energy"]["total_value"] == pytest.approx(1597.5)
+    assert result["nutrients"]["fat"]["total_value"] == pytest.approx(63.9)
+    assert result["nutrients"]["iron"]["total_value"] == pytest.approx(4.26)
+    assert result["nutrients"]["protein"]["total_value"] == pytest.approx(21.29)
+    assert result["nutrients"]["sodium"]["total_value"] == pytest.approx(631.9)
+    assert result["total_content_value"] == 355.0
+
+
+def test_resolve_ocr_nutrients_needs_review_total_value_still_computed():
+    # serving_size_g 없음 -> needs_review=True, scale_factor=None -> serving_value는
+    # 스케일 없이 raw 그대로(기존 동작). total_value는 basis_amount/total_content_value
+    # 만 있으면 계산되므로 needs_review와 무관하게 채워져야 한다 (1회 제공량 스케일과
+    # 완전히 독립적인 계산이라는 설계를 검증).
+    extraction = _full_extraction(serving_size_g=None)
+    result = resolve_ocr_nutrients(extraction)
+    assert result["needs_review"] is True
+    assert result["nutrients"]["carbohydrate"]["serving_value"] == 70.0  # raw passthrough
+    assert result["nutrients"]["carbohydrate"]["total_value"] == pytest.approx(248.5)
+
+
+def test_resolve_ocr_nutrients_missing_nutrient_field_is_none_throughout():
+    extraction = _full_extraction()
+    del extraction["iron_mg_per_basis"]
+    result = resolve_ocr_nutrients(extraction)
+    assert result["nutrients"]["iron"]["basis_value"] is None
+    assert result["nutrients"]["iron"]["serving_value"] is None
+    assert result["nutrients"]["iron"]["total_value"] is None

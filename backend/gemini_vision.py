@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import base64
 import os
+from datetime import date
 from typing import Literal, Optional
 
 from dotenv import load_dotenv
@@ -24,6 +25,13 @@ load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 MODEL_NAME = "gemini-2.5-flash"
+
+# 개발/테스트 중 실수로 반복 호출돼 과금되는 걸 막기 위한 하루 호출 상한.
+# 서버 프로세스가 살아있는 동안만 유지되는 메모리 카운터 — 재시작하면 초기화된다
+# (DB 테이블 없이도 충분한 수준의 안전장치이며, 이 이상의 영속성이 필요할 근거가 없다).
+GEMINI_DAILY_CALL_LIMIT = int(os.getenv("GEMINI_DAILY_CALL_LIMIT", "30"))
+
+_call_count_by_day: dict[str, int] = {}
 
 _PROMPT = """\
 당신은 한국 포장식품 영양성분표 이미지를 읽고 구조화된 데이터를 추출하는 도구입니다.
@@ -46,7 +54,12 @@ _PROMPT = """\
 - serving_size_g: 1회 제공량이 그램(g)/밀리리터(ml)로 별도 표기되어 있으면 그 숫자
   (영양성분표의 기준이 100g/100ml이더라도, 라벨 어딘가에 "1회 제공량: 30g"처럼
   별도로 적혀 있으면 그 값). 없으면 null (0으로 추측하지 말 것)
+- carbohydrate_g_per_basis: 기준량 당 탄수화물(g). 읽을 수 없으면 null (0으로 추측하지 말 것)
 - sugar_g_per_basis: 기준량 당 당류(g). 읽을 수 없으면 null (0으로 추측하지 말 것)
+- energy_kcal_per_basis: 기준량 당 에너지/열량(kcal). 읽을 수 없으면 null (0으로 추측하지 말 것)
+- fat_g_per_basis: 기준량 당 지방(g). 읽을 수 없으면 null (0으로 추측하지 말 것)
+- iron_mg_per_basis: 기준량 당 철분(mg). 읽을 수 없으면 null (0으로 추측하지 말 것)
+- protein_g_per_basis: 기준량 당 단백질(g). 읽을 수 없으면 null (0으로 추측하지 말 것)
 - sodium_mg_per_basis: 기준량 당 나트륨(mg). 읽을 수 없으면 null (0으로 추측하지 말 것)
 
 카페인 관련 필드는 추출하지 않습니다.
@@ -63,13 +76,34 @@ class GeminiLabelExtraction(BaseModel):
     total_content_value: Optional[float] = None
     servings_per_container: Optional[float] = None
     serving_size_g: Optional[float] = None
+    carbohydrate_g_per_basis: Optional[float] = None
     sugar_g_per_basis: Optional[float] = None
+    energy_kcal_per_basis: Optional[float] = None
+    fat_g_per_basis: Optional[float] = None
+    iron_mg_per_basis: Optional[float] = None
+    protein_g_per_basis: Optional[float] = None
     sodium_mg_per_basis: Optional[float] = None
 
 
 class LabelNotDetectedError(Exception):
     """Gemini가 이미지에서 영양성분표 자체를 찾지 못한 경우.
     ("찾았지만 환산 방식이 불명확함"과는 다른 케이스 — 그쪽은 needs_review로 처리)"""
+
+
+class GeminiDailyLimitExceededError(Exception):
+    """하루 Gemini 호출 상한(GEMINI_DAILY_CALL_LIMIT)을 초과한 경우.
+    개발/테스트 중 반복 호출로 인한 의도치 않은 과금을 막기 위한 안전장치 —
+    routers/ocr.py가 다른 실패와 구분해 별도 응답(429)으로 처리한다."""
+
+
+def _under_daily_limit() -> bool:
+    today = date.today().isoformat()
+    return _call_count_by_day.get(today, 0) < GEMINI_DAILY_CALL_LIMIT
+
+
+def _record_call() -> None:
+    today = date.today().isoformat()
+    _call_count_by_day[today] = _call_count_by_day.get(today, 0) + 1
 
 
 def _strip_data_uri_prefix(image_base64: str) -> str:
@@ -100,8 +134,13 @@ def call_gemini_vision(image_base64: str) -> dict:
     """
     if not GEMINI_API_KEY:
         raise ValueError("GEMINI_API_KEY가 .env 파일에 설정되어 있지 않습니다.")
+    if not _under_daily_limit():
+        raise GeminiDailyLimitExceededError(
+            f"하루 Gemini 호출 상한({GEMINI_DAILY_CALL_LIMIT}회)을 초과했습니다."
+        )
 
     client = genai.Client(api_key=GEMINI_API_KEY)
+    _record_call()
     response = client.models.generate_content(
         model=MODEL_NAME,
         contents=_build_contents(image_base64),

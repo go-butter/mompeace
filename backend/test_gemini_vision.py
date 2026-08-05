@@ -9,11 +9,13 @@ backend/gemini_vision.py 테스트.
 - GEMINI_API_KEY가 설정되어 있지 않으면 call_gemini_vision()은 실제 API를
   호출하기 전에 즉시 실패한다 (네트워크 호출 없음)
 """
+from datetime import date
+
 import pytest
 from pydantic import ValidationError
 
 from backend import gemini_vision
-from backend.gemini_vision import _parse_response, call_gemini_vision
+from backend.gemini_vision import GeminiDailyLimitExceededError, _parse_response, call_gemini_vision
 
 
 # ── _parse_response: 정상 케이스 ─────────────────────────────────
@@ -28,7 +30,12 @@ def test_parse_response_well_formed_json_all_fields():
       "total_content_value": 355.0,
       "servings_per_container": null,
       "serving_size_g": 30.0,
+      "carbohydrate_g_per_basis": 70.0,
       "sugar_g_per_basis": 12.0,
+      "energy_kcal_per_basis": 450.0,
+      "fat_g_per_basis": 18.0,
+      "iron_mg_per_basis": 1.2,
+      "protein_g_per_basis": 6.0,
       "sodium_mg_per_basis": 50.0
     }
     """
@@ -39,7 +46,12 @@ def test_parse_response_well_formed_json_all_fields():
     assert result["basis_amount_value"] == 100.0
     assert result["total_content_value"] == 355.0
     assert result["serving_size_g"] == 30.0
+    assert result["carbohydrate_g_per_basis"] == 70.0
     assert result["sugar_g_per_basis"] == 12.0
+    assert result["energy_kcal_per_basis"] == 450.0
+    assert result["fat_g_per_basis"] == 18.0
+    assert result["iron_mg_per_basis"] == 1.2
+    assert result["protein_g_per_basis"] == 6.0
     assert result["sodium_mg_per_basis"] == 50.0
 
 
@@ -49,7 +61,12 @@ def test_parse_response_missing_optional_fields_default_to_none_or_unknown():
     assert result["product_name"] is None
     assert result["reference_amount_display_method"] == "unknown"
     assert result["serving_size_g"] is None
+    assert result["carbohydrate_g_per_basis"] is None
     assert result["sugar_g_per_basis"] is None
+    assert result["energy_kcal_per_basis"] is None
+    assert result["fat_g_per_basis"] is None
+    assert result["iron_mg_per_basis"] is None
+    assert result["protein_g_per_basis"] is None
     assert result["sodium_mg_per_basis"] is None
 
 
@@ -90,3 +107,46 @@ def test_call_gemini_vision_without_api_key_raises_before_network_call(monkeypat
     monkeypatch.setattr(gemini_vision, "GEMINI_API_KEY", None)
     with pytest.raises(ValueError):
         call_gemini_vision("ZmFrZS1iYXNlNjQ=")
+
+
+# ── call_gemini_vision: 하루 호출 상한 초과 시 네트워크 호출 없이 즉시 실패 ──
+# _call_count_by_day는 모듈 전역 상태이므로, monkeypatch.setattr로 세팅해 테스트가
+# 끝나면 자동으로 원복되게 한다 (다른 테스트로 카운트가 새어나가지 않도록).
+
+def test_call_gemini_vision_over_daily_limit_raises_before_network_call(monkeypatch):
+    monkeypatch.setattr(gemini_vision, "GEMINI_API_KEY", "fake-key-for-test")
+    today = date.today().isoformat()
+    monkeypatch.setattr(
+        gemini_vision, "_call_count_by_day", {today: gemini_vision.GEMINI_DAILY_CALL_LIMIT}
+    )
+    with pytest.raises(GeminiDailyLimitExceededError):
+        call_gemini_vision("ZmFrZS1iYXNlNjQ=")
+
+
+def test_under_daily_limit_true_when_no_calls_recorded_today(monkeypatch):
+    monkeypatch.setattr(gemini_vision, "_call_count_by_day", {})
+    assert gemini_vision._under_daily_limit() is True
+
+
+def test_under_daily_limit_true_one_below_limit(monkeypatch):
+    today = date.today().isoformat()
+    monkeypatch.setattr(
+        gemini_vision, "_call_count_by_day", {today: gemini_vision.GEMINI_DAILY_CALL_LIMIT - 1}
+    )
+    assert gemini_vision._under_daily_limit() is True
+
+
+def test_under_daily_limit_false_at_limit(monkeypatch):
+    today = date.today().isoformat()
+    monkeypatch.setattr(
+        gemini_vision, "_call_count_by_day", {today: gemini_vision.GEMINI_DAILY_CALL_LIMIT}
+    )
+    assert gemini_vision._under_daily_limit() is False
+
+
+def test_record_call_increments_todays_count(monkeypatch):
+    monkeypatch.setattr(gemini_vision, "_call_count_by_day", {})
+    gemini_vision._record_call()
+    gemini_vision._record_call()
+    today = date.today().isoformat()
+    assert gemini_vision._call_count_by_day[today] == 2

@@ -11,7 +11,11 @@ from backend.nutrition_constants import (
     DEFAULT_AGE_BRACKET,
     FAT_ENERGY_RATIO_MAX,
     FAT_ENERGY_RATIO_MIN,
+    IRON_RECOMMENDED_MG,
+    IRON_UPPER_LIMIT_MG,
     KCAL_PER_GRAM_FAT,
+    NUTRIENT_LABELS_KO,
+    NUTRIENT_STATUS_TYPE,
     SATURATED_FAT_ENERGY_RATIO_MAX,
     TRANS_FAT_ENERGY_RATIO_MAX,
     TRIMESTER_ENERGY_ADD_KCAL,
@@ -203,6 +207,94 @@ def simplified_status_label(nutrient_type: str, status: str) -> str | None:
     if nutrient_type == "informational":
         return None if status == "info" else "정보없음"
     raise ValueError(f"알 수 없는 nutrient_type: {nutrient_type}")
+
+
+_ITEM_NUTRIENT_UNITS = {
+    "carbohydrate": "g",
+    "sugar": "g",
+    "energy": "kcal",
+    "fat": "g",
+    "iron": "mg",
+    "protein": "g",
+    "sodium": "mg",
+}
+
+
+def get_item_nutrient_status(
+    key: str,
+    value: float | None,
+    limits: dict,
+    item_energy_kcal: float | None,
+) -> str:
+    """단일 품목(예: OCR 스캔 결과) 영양소 하나의 상태 판정.
+
+    누적 일일 판정(_build_nutrient_summary_item 등)과 달리 "이 음식 하나"의 값만으로
+    판정한다. known_count/logged_count는 food_log.py의 기존 단일 항목 판정 패턴
+    (_fetch_food_log_for_date의 caffeine_status 등, "1 if value is not None else 0, 1")과
+    동일하게 value의 None 여부로 결정한다 — 로그가 이 품목 하나뿐이므로 logged_count=1 고정.
+
+    floor 타입(탄수화물/에너지/단백질)은 "하루 최소 섭취량" 개념이라 단일 품목에는
+    적용할 수 없다 — 어떤 음식 하나도 하루치 최소 탄수화물/단백질/에너지를 채우지
+    못하는 게 정상이라, get_floor_status를 그대로 쓰면 거의 모든 품목이 "부족"(→위험)이
+    되어버려 의미 있는 신호가 아니다. 제품 결정 사항으로 이 경우 항상 "unknown"을
+    반환한다 — 누적 하루 판정은 기존 홈/Food Diary 요약 화면에서 그대로 유지된다.
+    """
+    nutrient_type = NUTRIENT_STATUS_TYPE[key]
+    known_count = 0 if value is None else 1
+    logged_count = 1
+
+    if nutrient_type == "floor":
+        return "unknown"
+
+    if nutrient_type == "ceiling":
+        limit_key = {"sugar": "sugar_g", "sodium": "sodium_mg"}[key]
+        return get_status(value, limits[limit_key], known_count, logged_count)
+
+    if key == "iron":
+        return get_iron_status(value, IRON_RECOMMENDED_MG, IRON_UPPER_LIMIT_MG, known_count, logged_count)
+
+    if key == "fat":
+        # get_fat_status()는 energy_total <= 0만 방어하고 None은 방어하지 않는다
+        # (기존 유일한 호출부가 항상 COALESCE(...,0) SQL 합계를 넘겨 None일 수 없었기
+        # 때문) — 단일 품목은 에너지 값 자체가 라벨에 없을 수 있으므로 여기서 먼저 막는다.
+        if item_energy_kcal is None:
+            return "unknown"
+        return get_fat_status(
+            value, item_energy_kcal, limits["fat_ratio_min"], limits["fat_ratio_max"], known_count, logged_count
+        )
+
+    raise ValueError(f"알 수 없는 영양소 키: {key}")
+
+
+def build_item_nutrient_statuses(nutrients: dict[str, float | None], limits: dict) -> list[dict]:
+    """단일 품목(OCR 스캔 결과 등)의 추적 대상 7개 영양소 전부에 대해
+    {key, label, unit, status, status_label}을 계산해 리스트로 반환한다.
+
+    nutrients: {"carbohydrate":, "sugar":, "energy":, "fat":, "iron":, "protein":, "sodium":}
+      — 라벨이 제공하지 않은 값은 None. 지방 밴드 판정의 에너지 분모는 오늘 누적이
+      아니라 이 품목 자신의 nutrients["energy"]를 쓴다 — 단일 품목 판정이므로 "이
+      음식에서 지방이 차지하는 칼로리 비율"이 맥락에 맞고, 분자/분모가 같은 품목의
+      같은 스케일로 함께 변하므로 인분 크기와 무관하게 비율이 유지된다(문서 참고).
+    limits: get_trimester_limits()의 두 번째 반환값(carbohydrate_g/protein_g/energy_kcal/
+      fat_ratio_min/fat_ratio_max/sugar_g/sodium_mg 등 포함).
+
+    라벨이 제공하지 않은 영양소도 항목 자체는 항상 포함하고(정보없음 배지로 표시할
+    수 있도록) status만 unknown/정보없음으로 채운다 — 존재하는 값만 골라 리스트를
+    줄이지 않는다. 반환은 항상 7개 항목이다.
+    """
+    item_energy_kcal = nutrients.get("energy")
+    items = []
+    for key in NUTRIENT_STATUS_TYPE:
+        value = nutrients.get(key)
+        status = get_item_nutrient_status(key, value, limits, item_energy_kcal)
+        items.append({
+            "key": key,
+            "label": NUTRIENT_LABELS_KO[key],
+            "unit": _ITEM_NUTRIENT_UNITS[key],
+            "status": status,
+            "status_label": simplified_status_label(NUTRIENT_STATUS_TYPE[key], status),
+        })
+    return items
 
 
 TRIMESTER_LABELS = {"early": "임신 초기", "middle": "임신 중기", "late": "임신 후기"}
