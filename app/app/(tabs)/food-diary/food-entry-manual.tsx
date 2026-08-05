@@ -32,6 +32,10 @@ import CaloriesIcon from '@/assets/images/foodDiary/calories.svg';
 import CaffeineIcon from '@/assets/images/foodDiary/caffeine.svg';
 import SodiumIcon from '@/assets/images/foodDiary/sodium.svg';
 import SugarIcon from '@/assets/images/foodDiary/sugar.svg';
+import CarbohydrateIcon from '@/assets/images/foodDiary/carbohydrate.svg';
+import FatIcon from '@/assets/images/foodDiary/fat.svg';
+import IronIcon from '@/assets/images/foodDiary/iron.svg';
+import ProteinIcon from '@/assets/images/foodDiary/protein.svg';
 import { authColors } from '@/components/auth/colors';
 import BottomSheet from '@/components/common/BottomSheet';
 import { fonts, nanumSquareRound } from '@/constants/fonts';
@@ -316,7 +320,12 @@ export default function FoodEntryManualScreen() {
 
       {/* 음식명 */}
       <View style={styles.card}>
-        <Text style={styles.fieldLabel}>음식명</Text>
+        <View style={styles.fieldLabelRow}>
+          <View style={styles.stepBadge}>
+            <Text style={styles.stepBadgeText}>1</Text>
+          </View>
+          <Text style={styles.fieldLabel}>음식명</Text>
+        </View>
         <View style={styles.nameInputRow}>
           <SearchIcon width={16} height={16} color={authColors.gray} />
           <TextInput
@@ -331,7 +340,12 @@ export default function FoodEntryManualScreen() {
 
       {/* 섭취단위 */}
       <View style={styles.card}>
-        <Text style={styles.fieldLabel}>섭취단위</Text>
+        <View style={styles.fieldLabelRow}>
+          <View style={styles.stepBadge}>
+            <Text style={styles.stepBadgeText}>2</Text>
+          </View>
+          <Text style={styles.fieldLabel}>섭취단위</Text>
+        </View>
         <View style={styles.presetRow}>
           {AMOUNT_PRESETS.map((p) => (
             <Pressable
@@ -364,7 +378,12 @@ export default function FoodEntryManualScreen() {
 
       {/* 섭취시간 */}
       <View style={styles.card}>
-        <Text style={styles.fieldLabel}>섭취시간</Text>
+        <View style={styles.fieldLabelRow}>
+          <View style={styles.stepBadge}>
+            <Text style={styles.stepBadgeText}>3</Text>
+          </View>
+          <Text style={styles.fieldLabel}>섭취시간</Text>
+        </View>
         <Pressable style={styles.timeInput} onPress={toggleTimePicker}>
           <ClockIcon width={15} height={15} style={styles.timeInputClock} />
           <Text style={styles.timeInputText}>{formatTimeLabel(time)}</Text>
@@ -396,7 +415,10 @@ export default function FoodEntryManualScreen() {
       {/* 주요 성분 */}
       <View style={styles.card}>
         <View style={styles.nutrientHeaderRow}>
-          <View>
+          <View style={styles.fieldLabelRow}>
+            <View style={styles.stepBadge}>
+              <Text style={styles.stepBadgeText}>4</Text>
+            </View>
             <Text style={styles.fieldLabel}>주요 성분</Text>
           </View>
           <Pressable style={styles.addNutrientPill} onPress={addDraftRow}>
@@ -408,119 +430,119 @@ export default function FoodEntryManualScreen() {
           ※ {(amount.trim() || '1')}{unit} 기준으로 영양성분을 작성해주세요
         </Text>
 
-        <View style={styles.nutrientInputRow}>
-          <View style={styles.nutrientLabelGroup}>
-            <CaffeineIcon width={17} height={17} />
-            <Text style={styles.nutrientLabel}>카페인(mg)</Text>
+        <View style={styles.nutrientGrid}>
+          <View style={styles.nutrientCell}>
+            <View style={styles.nutrientLabelGroup}>
+              <CaffeineIcon width={17} height={17} />
+              <Text style={styles.nutrientLabel} numberOfLines={1}>카페인(mg)</Text>
+            </View>
+            <TextInput
+              style={styles.nutrientInput}
+              value={caffeineMg}
+              onChangeText={(text) => setCaffeineMg(sanitizeNonNegativeDecimal(text))}
+              placeholder="예: 65"
+              placeholderTextColor={authColors.gray}
+              keyboardType="decimal-pad"
+            />
           </View>
-          <TextInput
-            style={styles.nutrientInput}
-            value={caffeineMg}
-            onChangeText={(text) => setCaffeineMg(sanitizeNonNegativeDecimal(text))}
-            placeholder="예: 65"
-            placeholderTextColor={authColors.gray}
-            keyboardType="decimal-pad"
-          />
-        </View>
-        <View style={styles.nutrientInputRow}>
-          <View style={styles.nutrientLabelGroup}>
-            <SugarIcon width={17} height={17} />
-            <Text style={styles.nutrientLabel}>당류(g)</Text>
+          <View style={styles.nutrientCell}>
+            <View style={styles.nutrientLabelGroup}>
+              <SugarIcon width={17} height={17} />
+              <Text style={styles.nutrientLabel} numberOfLines={1}>당류(g)</Text>
+            </View>
+            <TextInput
+              style={styles.nutrientInput}
+              value={sugarG}
+              onChangeText={(text) => setSugarG(sanitizeNonNegativeDecimal(text))}
+              placeholder="예: 8"
+              placeholderTextColor={authColors.gray}
+              keyboardType="decimal-pad"
+            />
           </View>
-          <TextInput
-            style={styles.nutrientInput}
-            value={sugarG}
-            onChangeText={(text) => setSugarG(sanitizeNonNegativeDecimal(text))}
-            placeholder="예: 8"
-            placeholderTextColor={authColors.gray}
-            keyboardType="decimal-pad"
-          />
-        </View>
-        <View style={styles.nutrientInputRow}>
-          <View style={styles.nutrientLabelGroup}>
-            <SodiumIcon width={18} height={18} />
-            <Text style={styles.nutrientLabel}>나트륨(mg)</Text>
+          <View style={styles.nutrientCell}>
+            <View style={styles.nutrientLabelGroup}>
+              <SodiumIcon width={18} height={18} />
+              <Text style={styles.nutrientLabel} numberOfLines={1}>나트륨(mg)</Text>
+            </View>
+            <TextInput
+              style={styles.nutrientInput}
+              value={sodiumMg}
+              onChangeText={(text) => setSodiumMg(sanitizeNonNegativeDecimal(text))}
+              placeholder="예: 420"
+              placeholderTextColor={authColors.gray}
+              keyboardType="decimal-pad"
+            />
           </View>
-          <TextInput
-            style={styles.nutrientInput}
-            value={sodiumMg}
-            onChangeText={(text) => setSodiumMg(sanitizeNonNegativeDecimal(text))}
-            placeholder="예: 420"
-            placeholderTextColor={authColors.gray}
-            keyboardType="decimal-pad"
-          />
-        </View>
-        <View style={styles.nutrientInputRow}>
-          <View style={styles.nutrientLabelGroup}>
-            <CaloriesIcon width={17} height={17} />
-            <Text style={styles.nutrientLabel}>칼로리(kcal)</Text>
+          <View style={styles.nutrientCell}>
+            <View style={styles.nutrientLabelGroup}>
+              <CaloriesIcon width={17} height={17} />
+              <Text style={styles.nutrientLabel} numberOfLines={1}>칼로리(kcal)</Text>
+            </View>
+            <TextInput
+              style={styles.nutrientInput}
+              value={caloriesKcal}
+              onChangeText={(text) => setCaloriesKcal(sanitizeNonNegativeDecimal(text))}
+              placeholder="예: 250"
+              placeholderTextColor={authColors.gray}
+              keyboardType="decimal-pad"
+            />
           </View>
-          <TextInput
-            style={styles.nutrientInput}
-            value={caloriesKcal}
-            onChangeText={(text) => setCaloriesKcal(sanitizeNonNegativeDecimal(text))}
-            placeholder="예: 250"
-            placeholderTextColor={authColors.gray}
-            keyboardType="decimal-pad"
-          />
-        </View>
-
-        {/* TODO: placeholder — reuses existing icons until dedicated 탄수화물/지방/철분/단백질 icons are designed. */}
-        <View style={styles.nutrientInputRow}>
-          <View style={styles.nutrientLabelGroup}>
-            <SugarIcon width={17} height={17} />
-            <Text style={styles.nutrientLabel}>탄수화물(g)</Text>
+          <View style={styles.nutrientCell}>
+            <View style={styles.nutrientLabelGroup}>
+              <CarbohydrateIcon width={17} height={17} />
+              <Text style={styles.nutrientLabel} numberOfLines={1}>탄수화물(g)</Text>
+            </View>
+            <TextInput
+              style={styles.nutrientInput}
+              value={carbohydrateG}
+              onChangeText={(text) => setCarbohydrateG(sanitizeNonNegativeDecimal(text))}
+              placeholder="예: 30"
+              placeholderTextColor={authColors.gray}
+              keyboardType="decimal-pad"
+            />
           </View>
-          <TextInput
-            style={styles.nutrientInput}
-            value={carbohydrateG}
-            onChangeText={(text) => setCarbohydrateG(sanitizeNonNegativeDecimal(text))}
-            placeholder="예: 30"
-            placeholderTextColor={authColors.gray}
-            keyboardType="decimal-pad"
-          />
-        </View>
-        <View style={styles.nutrientInputRow}>
-          <View style={styles.nutrientLabelGroup}>
-            <CaloriesIcon width={17} height={17} />
-            <Text style={styles.nutrientLabel}>지방(g)</Text>
+          <View style={styles.nutrientCell}>
+            <View style={styles.nutrientLabelGroup}>
+              <FatIcon width={17} height={17} />
+              <Text style={styles.nutrientLabel} numberOfLines={1}>지방(g)</Text>
+            </View>
+            <TextInput
+              style={styles.nutrientInput}
+              value={fatG}
+              onChangeText={(text) => setFatG(sanitizeNonNegativeDecimal(text))}
+              placeholder="예: 10"
+              placeholderTextColor={authColors.gray}
+              keyboardType="decimal-pad"
+            />
           </View>
-          <TextInput
-            style={styles.nutrientInput}
-            value={fatG}
-            onChangeText={(text) => setFatG(sanitizeNonNegativeDecimal(text))}
-            placeholder="예: 10"
-            placeholderTextColor={authColors.gray}
-            keyboardType="decimal-pad"
-          />
-        </View>
-        <View style={styles.nutrientInputRow}>
-          <View style={styles.nutrientLabelGroup}>
-            <SodiumIcon width={18} height={18} />
-            <Text style={styles.nutrientLabel}>철분(mg)</Text>
+          <View style={styles.nutrientCell}>
+            <View style={styles.nutrientLabelGroup}>
+              <IronIcon width={17} height={17} />
+              <Text style={styles.nutrientLabel} numberOfLines={1}>철분(mg)</Text>
+            </View>
+            <TextInput
+              style={styles.nutrientInput}
+              value={ironMg}
+              onChangeText={(text) => setIronMg(sanitizeNonNegativeDecimal(text))}
+              placeholder="예: 2"
+              placeholderTextColor={authColors.gray}
+              keyboardType="decimal-pad"
+            />
           </View>
-          <TextInput
-            style={styles.nutrientInput}
-            value={ironMg}
-            onChangeText={(text) => setIronMg(sanitizeNonNegativeDecimal(text))}
-            placeholder="예: 2"
-            placeholderTextColor={authColors.gray}
-            keyboardType="decimal-pad"
-          />
-        </View>
-        <View style={styles.nutrientInputRow}>
-          <View style={styles.nutrientLabelGroup}>
-            <CaffeineIcon width={17} height={17} />
-            <Text style={styles.nutrientLabel}>단백질(g)</Text>
+          <View style={styles.nutrientCell}>
+            <View style={styles.nutrientLabelGroup}>
+              <ProteinIcon width={17} height={17} />
+              <Text style={styles.nutrientLabel} numberOfLines={1}>단백질(g)</Text>
+            </View>
+            <TextInput
+              style={styles.nutrientInput}
+              value={proteinG}
+              onChangeText={(text) => setProteinG(sanitizeNonNegativeDecimal(text))}
+              placeholder="예: 5"
+              placeholderTextColor={authColors.gray}
+              keyboardType="decimal-pad"
+            />
           </View>
-          <TextInput
-            style={styles.nutrientInput}
-            value={proteinG}
-            onChangeText={(text) => setProteinG(sanitizeNonNegativeDecimal(text))}
-            placeholder="예: 5"
-            placeholderTextColor={authColors.gray}
-            keyboardType="decimal-pad"
-          />
         </View>
 
         <View>
@@ -620,6 +642,24 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 0 },
     elevation: 3,
   },
+  fieldLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  stepBadge: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: authColors.pink,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 8,
+  },
+  stepBadgeText: {
+    fontFamily: nanumSquareRound.bold,
+    fontSize: 12,
+    color: authColors.white,
+  },
   fieldLabel: {
     fontFamily: fonts.medium,
     fontSize: 14,
@@ -644,7 +684,6 @@ const styles = StyleSheet.create({
   amountRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     marginTop: 10,
     gap: 8,
   },
@@ -654,7 +693,7 @@ const styles = StyleSheet.create({
     borderColor: authColors.border,
     borderRadius: 6,
     height: 32,
-    width: 170,
+    flex: 1,
     paddingHorizontal: 12,
     fontSize: 12,
     color: '#000000',
@@ -668,12 +707,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: authColors.border,
     borderRadius: 100,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingHorizontal: 16,
+    paddingVertical: 7,
+    backgroundColor: '#FFF5F3',
   },
   presetChipSelected: {
     borderColor: authColors.pink,
-    backgroundColor: '#FFF5F3',
+    backgroundColor: authColors.pink,
   },
   presetChipText: {
     fontFamily: nanumSquareRound.bold,
@@ -681,7 +721,7 @@ const styles = StyleSheet.create({
     color: authColors.gray,
   },
   presetChipTextSelected: {
-    color: authColors.pink,
+    color: authColors.white,
   },
   unitTriggerPill: {
     flexDirection: 'row',
@@ -691,6 +731,8 @@ const styles = StyleSheet.create({
     borderWidth: 0.7,
     borderColor: authColors.border,
     borderRadius: 6,
+    backgroundColor: '#FFF5F3',
+    flexShrink: 0,
     height: 32,
     paddingHorizontal: 12,
   },
@@ -792,22 +834,31 @@ const styles = StyleSheet.create({
     fontFamily: fonts.regular,
     fontSize: 11,
     color: authColors.gray,
-    marginTop: -4,
+    marginTop: 8,
   },
-  nutrientInputRow: {
+  nutrientGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    rowGap: 12,
+    marginTop: 12,
+  },
+  nutrientCell: {
+    width: '48%',
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 12,
+    gap: 8,
   },
   nutrientLabelGroup: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 5,
+    flexShrink: 1,
   },
   nutrientLabel: {
     fontSize: 12,
     color: '#000000',
+    flexShrink: 1,
   },
   nutrientInput: {
     backgroundColor: authColors.white,
@@ -815,8 +866,8 @@ const styles = StyleSheet.create({
     borderColor: authColors.border,
     borderRadius: 6,
     height: 27,
-    width: 118,
-    paddingHorizontal: 10,
+    flex: 1,
+    paddingHorizontal: 8,
     fontSize: 12,
     color: '#000000',
   },
