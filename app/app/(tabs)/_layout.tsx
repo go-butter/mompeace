@@ -6,8 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import HomeIcon from '@/assets/images/common/tab_clarity_home-line.svg';
 import PlantIcon from '@/assets/images/common/tab_tabler_plant.svg';
 import PersonIcon from '@/assets/images/common/tab_charm_person.svg';
-// TODO: placeholder — reuses home's "Food Diary" shortcut icon until a dedicated tab icon is designed.
-import FoodDiaryIcon from '@/assets/images/home/calendar.svg';
+import FoodDiaryIcon from '@/assets/images/foodDiary/foodDiary.svg';
 import { HapticTab } from '@/components/haptic-tab';
 
 const ACTIVE_COLOR = '#F47E8A';
