@@ -14,6 +14,7 @@ from backend.nutrition_constants import (
 )
 from backend.risk import calculate_current_pregnancy_age, calculate_days_until_due
 from backend.intake_totals import (
+    TRIMESTER_LABELS,
     compute_overall_status,
     get_fat_status,
     get_floor_status,
@@ -139,11 +140,7 @@ def _fetch_intake_summary_for_date(user_id: int, target_date: str, db: sqlite3.C
 
     # 3. 임신 단계 판별 + 4. 주차별 기준값 조회
     trimester, limits = get_trimester_limits(week, age_bracket)
-    trimester_label = {
-        "early": "임신 초기",
-        "middle": "임신 중기",
-        "late": "임신 후기",
-    }[trimester]
+    trimester_label = TRIMESTER_LABELS[trimester]
 
     caffeine_limit = limits["caffeine_mg"]
     sugar_limit = limits["sugar_g"]

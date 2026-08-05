@@ -639,3 +639,22 @@ export interface CoffeeOptionsResponse {
 export function getCoffeeOptions(): Promise<CoffeeOptionsResponse> {
   return get('/coffee/options');
 }
+
+export interface TipItem {
+  content: string;
+}
+
+export interface TrimesterTipItem extends TipItem {
+  category: string;
+}
+
+export interface TipsTodayResponse {
+  trimester: string;
+  trimester_label: string;
+  trimester_tip: TrimesterTipItem;
+  common_tip: TipItem;
+}
+
+export function getTipsToday(userId: number, date?: string): Promise<TipsTodayResponse> {
+  return get(`/tips/today/${userId}${date ? `?date=${date}` : ''}`);
+}

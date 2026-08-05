@@ -205,6 +205,9 @@ def simplified_status_label(nutrient_type: str, status: str) -> str | None:
     raise ValueError(f"알 수 없는 nutrient_type: {nutrient_type}")
 
 
+TRIMESTER_LABELS = {"early": "임신 초기", "middle": "임신 중기", "late": "임신 후기"}
+
+
 def get_trimester_limits(pregnancy_week: int, age_bracket: str = DEFAULT_AGE_BRACKET) -> tuple[str, dict]:
     """트라이메스터 판별 및 1일 허용 기준 조회.
 

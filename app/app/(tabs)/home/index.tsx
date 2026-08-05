@@ -3,6 +3,7 @@ import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Image,
   LayoutChangeEvent,
   Pressable,
@@ -21,6 +22,7 @@ import WaterIcon from '@/assets/images/home/water.svg';
 import ReportIcon from '@/assets/images/home/report.svg';
 import RemainCoffeeIcon from '@/assets/images/home/home_remain_coffee.svg';
 import ProfileIcon from '@/assets/images/common/profile_circle.svg';
+import InformationIcon from '@/assets/images/onboarding/information.svg';
 import AddFoodPopup from '@/components/home/AddFoodPopup';
 import { authColors } from '@/components/auth/colors';
 import { summaryStatusColors, DEFAULT_SUMMARY_STATUS_COLORS } from '@/components/home/summaryColors';
@@ -31,7 +33,9 @@ import {
   ApiError,
   FoodLogEntry,
   getIntakeSummary,
+  getTipsToday,
   IntakeSummaryResponse,
+  TipsTodayResponse,
 } from '@/lib/api-client';
 
 const WEEKDAY_LABELS = ['일', '월', '화', '수', '목', '금', '토'];
@@ -99,6 +103,9 @@ export default function HomeScreen() {
   const [summary, setSummary] = useState<IntakeSummaryResponse | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(true);
   const [summaryError, setSummaryError] = useState<string | null>(null);
+  const [tips, setTips] = useState<TipsTodayResponse | null>(null);
+  const [tipsLoading, setTipsLoading] = useState(true);
+  const [tipsError, setTipsError] = useState<string | null>(null);
   const [popupVisible, setPopupVisible] = useState(false);
 
   const fetchSummary = useCallback(async () => {
@@ -115,11 +122,26 @@ export default function HomeScreen() {
     }
   }, [user?.user_id]);
 
+  const fetchTips = useCallback(async () => {
+    if (!user?.user_id) return;
+    setTipsLoading(true);
+    setTipsError(null);
+    try {
+      const res = await getTipsToday(user.user_id);
+      setTips(res);
+    } catch (err) {
+      setTipsError(err instanceof ApiError ? err.message : (err as Error).message);
+    } finally {
+      setTipsLoading(false);
+    }
+  }, [user?.user_id]);
+
   useFocusEffect(
     useCallback(() => {
       refresh();
       fetchSummary();
-    }, [refresh, fetchSummary])
+      fetchTips();
+    }, [refresh, fetchSummary, fetchTips])
   );
 
   const handleBannerLayout = (event: LayoutChangeEvent) => {
@@ -306,6 +328,48 @@ export default function HomeScreen() {
           subtitle="식습관 분석"
           onPress={() => router.push('/premium-report')}
         />
+      </View>
+
+      <View style={styles.card}>
+        <View style={styles.cardHeaderRow}>
+          <Text style={styles.cardTitle}>오늘의 맘 Tip</Text>
+          <Pressable
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            onPress={() =>
+              Alert.alert(
+                '오늘의 맘 Tip 안내',
+                '임신 초·중·후기별로 매일 정보가 달라져요! 임산부 공통 상식은 식습관과 관련한 정보를 제공해요 :)'
+              )
+            }>
+            <InformationIcon width={20} height={20} />
+          </Pressable>
+        </View>
+
+        {tipsLoading && !tips ? (
+          <ActivityIndicator size="small" color={authColors.pink} style={styles.summaryLoading} />
+        ) : tipsError ? (
+          <Text style={styles.errorText}>{tipsError}</Text>
+        ) : tips ? (
+          <View style={styles.tipRow}>
+            <View style={styles.tipColumn}>
+              <Text style={styles.cardSubtitle}>
+                {tips.trimester_label} 기준 - {tips.trimester_tip.category}
+              </Text>
+              <Text style={[styles.tipContent, styles.tipContentStandalone]}>
+                {tips.trimester_tip.content}
+              </Text>
+            </View>
+
+            <View style={styles.tipColumnDivider} />
+
+            <View style={styles.tipColumn}>
+              <Text style={styles.cardSubtitle}>임산부 공통 상식</Text>
+              <Text style={[styles.tipContent, styles.tipContentStandalone]}>
+                {tips.common_tip.content}
+              </Text>
+            </View>
+          </View>
+        ) : null}
       </View>
 
       {hasEntries && (
@@ -616,5 +680,27 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: authColors.brown,
     flex: 1,
+  },
+  tipRow: {
+    flexDirection: 'row',
+    marginTop: 16,
+  },
+  tipColumn: {
+    flex: 1,
+  },
+  tipColumnDivider: {
+    width: 1,
+    backgroundColor: authColors.border,
+    marginHorizontal: 14,
+  },
+  tipContent: {
+    fontFamily: fonts.regular,
+    fontSize: 13,
+    color: authColors.grayDark,
+    lineHeight: 19,
+    marginTop: 8,
+  },
+  tipContentStandalone: {
+    marginTop: 8,
   },
 });
