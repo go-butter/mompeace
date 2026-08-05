@@ -21,7 +21,7 @@ WEEKDAY_LABELS = ["월", "화", "수", "목", "금", "토", "일"]
 
 
 def _aggregate_week(cursor, user_id: int, monday: date_type, sunday: date_type) -> tuple[list[dict], int]:
-    """월요일~일요일 7일간 요일별 영양소 합계 + unknown 카운트 집계.
+    """월요일~일요일 7일간 요일별 영양소 합계 + known 카운트 집계.
 
     반환: (week_days, row_count). row_count는 해당 기간에 존재하는 food_log 행 수로,
     "기록이 아예 없음"과 "기록은 있지만 합계가 0"을 구분하는 데 쓰인다.
@@ -42,9 +42,9 @@ def _aggregate_week(cursor, user_id: int, monday: date_type, sunday: date_type) 
             "caffeine_mg": 0.0,
             "sugar_g":     0.0,
             "sodium_mg":   0.0,
-            "unknown_caffeine": 0,
-            "unknown_sugar":    0,
-            "unknown_sodium":   0,
+            "known_caffeine": 0,
+            "known_sugar":    0,
+            "known_sodium":   0,
             "log_count":        0,
         })
 
@@ -61,12 +61,12 @@ def _aggregate_week(cursor, user_id: int, monday: date_type, sunday: date_type) 
                 day["sugar_g"]     += s
                 day["sodium_mg"]   += n
                 day["log_count"]   += 1
-                if caffeine_val is None:
-                    day["unknown_caffeine"] += 1
-                if sugar_val is None:
-                    day["unknown_sugar"] += 1
-                if sodium_val is None:
-                    day["unknown_sodium"] += 1
+                if caffeine_val is not None:
+                    day["known_caffeine"] += 1
+                if sugar_val is not None:
+                    day["known_sugar"] += 1
+                if sodium_val is not None:
+                    day["known_sodium"] += 1
                 break
 
     return week_days, len(rows)
@@ -79,7 +79,7 @@ def _get_percent(value: float, standard: float) -> float:
 
 
 def _compute_extra_nutrient_totals(cursor, user_id: int, start_date: str, end_date: str) -> dict:
-    """탄수화물/단백질/지방류/철분/에너지의 기간 합계 + unknown 카운트.
+    """탄수화물/단백질/지방류/철분/에너지의 기간 합계 + known 카운트.
 
     카페인/당류/나트륨과 달리 시간대별(daily)/요일별(weekly) 차트에는 포함하지 않고
     리포트 상단 요약(totals/limits/percentages/status)에만 쓰인다.
@@ -87,19 +87,20 @@ def _compute_extra_nutrient_totals(cursor, user_id: int, start_date: str, end_da
     cursor.execute("""
         SELECT
             COALESCE(SUM(calories_kcal), 0) AS total_energy,
-            COALESCE(SUM(CASE WHEN calories_kcal IS NULL THEN 1 ELSE 0 END), 0) AS unknown_energy_count,
+            COUNT(calories_kcal) AS known_energy_count,
             COALESCE(SUM(carbohydrate_g), 0) AS total_carbohydrate,
-            COALESCE(SUM(CASE WHEN carbohydrate_g IS NULL THEN 1 ELSE 0 END), 0) AS unknown_carbohydrate_count,
+            COUNT(carbohydrate_g) AS known_carbohydrate_count,
             COALESCE(SUM(protein_g), 0) AS total_protein,
-            COALESCE(SUM(CASE WHEN protein_g IS NULL THEN 1 ELSE 0 END), 0) AS unknown_protein_count,
+            COUNT(protein_g) AS known_protein_count,
             COALESCE(SUM(fat_g), 0) AS total_fat,
-            COALESCE(SUM(CASE WHEN fat_g IS NULL THEN 1 ELSE 0 END), 0) AS unknown_fat_count,
+            COUNT(fat_g) AS known_fat_count,
             COALESCE(SUM(saturated_fat_g), 0) AS total_saturated_fat,
-            COALESCE(SUM(CASE WHEN saturated_fat_g IS NULL THEN 1 ELSE 0 END), 0) AS unknown_saturated_fat_count,
+            COUNT(saturated_fat_g) AS known_saturated_fat_count,
             COALESCE(SUM(trans_fat_g), 0) AS total_trans_fat,
-            COALESCE(SUM(CASE WHEN trans_fat_g IS NULL THEN 1 ELSE 0 END), 0) AS unknown_trans_fat_count,
+            COUNT(trans_fat_g) AS known_trans_fat_count,
             COALESCE(SUM(iron_mg), 0) AS total_iron,
-            COALESCE(SUM(CASE WHEN iron_mg IS NULL THEN 1 ELSE 0 END), 0) AS unknown_iron_count
+            COUNT(iron_mg) AS known_iron_count,
+            COUNT(*) AS logged_count
         FROM food_log
         WHERE user_id = ? AND DATE(eaten_at) BETWEEN ? AND ?
     """, (user_id, start_date, end_date))
@@ -134,11 +135,12 @@ def _build_extra_nutrient_report_block(totals: dict, limits: dict, divisor: int)
     avg_carb = round(total_carb / divisor, 1)
     avg_protein = round(total_protein / divisor, 1)
 
-    energy_status = get_floor_status(avg_energy, energy_target, totals["unknown_energy_count"])
-    carb_status = get_floor_status(avg_carb, carb_min, totals["unknown_carbohydrate_count"])
-    protein_status = get_floor_status(avg_protein, protein_target, totals["unknown_protein_count"])
+    logged_count = totals["logged_count"]
+    energy_status = get_floor_status(avg_energy, energy_target, totals["known_energy_count"], logged_count)
+    carb_status = get_floor_status(avg_carb, carb_min, totals["known_carbohydrate_count"], logged_count)
+    protein_status = get_floor_status(avg_protein, protein_target, totals["known_protein_count"], logged_count)
     fat_status = get_fat_status(
-        total_fat, total_energy, fat_ratio_min, fat_ratio_max, totals["unknown_fat_count"]
+        total_fat, total_energy, fat_ratio_min, fat_ratio_max, totals["known_fat_count"], logged_count
     )
     # energy_total(kcal) * ratio는 kcal 단위이므로, 그램 단위인 total_saturated_fat/
     # total_trans_fat과 비교하려면 KCAL_PER_GRAM_FAT(9kcal/g)로 나눠 환산해야 한다
@@ -146,15 +148,17 @@ def _build_extra_nutrient_report_block(totals: dict, limits: dict, divisor: int)
     saturated_fat_status = get_status(
         total_saturated_fat,
         total_energy * saturated_fat_ratio_max / KCAL_PER_GRAM_FAT,
-        totals["unknown_saturated_fat_count"],
+        totals["known_saturated_fat_count"],
+        logged_count,
     )
     trans_fat_status = get_status(
         total_trans_fat,
         total_energy * trans_fat_ratio_max / KCAL_PER_GRAM_FAT,
-        totals["unknown_trans_fat_count"],
+        totals["known_trans_fat_count"],
+        logged_count,
     )
     iron_status = get_iron_status(
-        total_iron, IRON_RECOMMENDED_MG, IRON_UPPER_LIMIT_MG, totals["unknown_iron_count"]
+        total_iron, IRON_RECOMMENDED_MG, IRON_UPPER_LIMIT_MG, totals["known_iron_count"], logged_count
     )
 
     return {
@@ -309,23 +313,25 @@ def get_premium_report(
         slot_data = {
             s: {
                 "caffeine_mg": 0.0, "sugar_g": 0.0, "sodium_mg": 0.0,
-                "unknown_caffeine": 0, "unknown_sugar": 0, "unknown_sodium": 0,
+                "known_caffeine": 0, "known_sugar": 0, "known_sodium": 0,
+                "log_count": 0,
             }
             for s in SLOTS
         }
 
         total_caffeine = total_sugar = total_sodium = 0.0
-        unknown_caffeine_count = unknown_sugar_count = unknown_sodium_count = 0
+        known_caffeine_count = known_sugar_count = known_sodium_count = 0
+        logged_count = len(rows)
         for r in rows:
             caffeine_val = r.get("caffeine_mg")
             sugar_val = r.get("sugar_g")
             sodium_val = r.get("sodium_mg")
-            if caffeine_val is None:
-                unknown_caffeine_count += 1
-            if sugar_val is None:
-                unknown_sugar_count += 1
-            if sodium_val is None:
-                unknown_sodium_count += 1
+            if caffeine_val is not None:
+                known_caffeine_count += 1
+            if sugar_val is not None:
+                known_sugar_count += 1
+            if sodium_val is not None:
+                known_sodium_count += 1
             c = caffeine_val or 0.0
             s = sugar_val or 0.0
             n = sodium_val or 0.0
@@ -348,20 +354,21 @@ def get_premium_report(
             slot_data[slot]["caffeine_mg"] += c
             slot_data[slot]["sugar_g"]     += s
             slot_data[slot]["sodium_mg"]   += n
-            if caffeine_val is None:
-                slot_data[slot]["unknown_caffeine"] += 1
-            if sugar_val is None:
-                slot_data[slot]["unknown_sugar"] += 1
-            if sodium_val is None:
-                slot_data[slot]["unknown_sodium"] += 1
+            slot_data[slot]["log_count"]   += 1
+            if caffeine_val is not None:
+                slot_data[slot]["known_caffeine"] += 1
+            if sugar_val is not None:
+                slot_data[slot]["known_sugar"] += 1
+            if sodium_val is not None:
+                slot_data[slot]["known_sodium"] += 1
 
         caffeine_pct = _get_percent(total_caffeine, caffeine_limit)
         sugar_pct    = _get_percent(total_sugar,    sugar_limit)
         sodium_pct   = _get_percent(total_sodium,   sodium_limit)
 
-        caffeine_status = get_status(total_caffeine, caffeine_limit, unknown_caffeine_count)
-        sugar_status    = get_status(total_sugar,    sugar_limit,    unknown_sugar_count)
-        sodium_status   = get_status(total_sodium,   sodium_limit,   unknown_sodium_count)
+        caffeine_status = get_status(total_caffeine, caffeine_limit, known_caffeine_count, logged_count)
+        sugar_status    = get_status(total_sugar,    sugar_limit,    known_sugar_count, logged_count)
+        sodium_status   = get_status(total_sodium,   sodium_limit,   known_sodium_count, logged_count)
         overall_status  = compute_overall_status(caffeine_status, sugar_status, sodium_status)
 
         # 시간대별 정규화 점수 (AI 요약용)
@@ -377,9 +384,9 @@ def get_premium_report(
         chart_items = []
         for slot in SLOTS:
             d = slot_data[slot]
-            item_caffeine_status = get_status(d["caffeine_mg"], caffeine_limit, d["unknown_caffeine"])
-            item_sugar_status    = get_status(d["sugar_g"],     sugar_limit,    d["unknown_sugar"])
-            item_sodium_status   = get_status(d["sodium_mg"],   sodium_limit,   d["unknown_sodium"])
+            item_caffeine_status = get_status(d["caffeine_mg"], caffeine_limit, d["known_caffeine"], d["log_count"])
+            item_sugar_status    = get_status(d["sugar_g"],     sugar_limit,    d["known_sugar"], d["log_count"])
+            item_sodium_status   = get_status(d["sodium_mg"],   sodium_limit,   d["known_sodium"], d["log_count"])
             chart_items.append({
                 "label":  slot,
                 "status": compute_overall_status(item_caffeine_status, item_sugar_status, item_sodium_status),
@@ -449,20 +456,20 @@ def get_premium_report(
     monday = target_date - timedelta(days=target_date.weekday())
     sunday = monday + timedelta(days=6)
 
-    week_days, _ = _aggregate_week(cursor, user_id, monday, sunday)
+    week_days, week_row_count = _aggregate_week(cursor, user_id, monday, sunday)
 
     # 주간 합계
     total_caffeine = sum(d["caffeine_mg"] for d in week_days)
     total_sugar    = sum(d["sugar_g"]     for d in week_days)
     total_sodium   = sum(d["sodium_mg"]   for d in week_days)
 
-    unknown_caffeine_count = sum(d["unknown_caffeine"] for d in week_days)
-    unknown_sugar_count    = sum(d["unknown_sugar"]    for d in week_days)
-    unknown_sodium_count   = sum(d["unknown_sodium"]   for d in week_days)
+    known_caffeine_count = sum(d["known_caffeine"] for d in week_days)
+    known_sugar_count    = sum(d["known_sugar"]    for d in week_days)
+    known_sodium_count   = sum(d["known_sodium"]   for d in week_days)
 
-    caffeine_status = get_status(total_caffeine, caffeine_limit, unknown_caffeine_count)
-    sugar_status    = get_status(total_sugar,    sugar_limit,    unknown_sugar_count)
-    sodium_status   = get_status(total_sodium,   sodium_limit,   unknown_sodium_count)
+    caffeine_status = get_status(total_caffeine, caffeine_limit, known_caffeine_count, week_row_count)
+    sugar_status    = get_status(total_sugar,    sugar_limit,    known_sugar_count, week_row_count)
+    sodium_status   = get_status(total_sodium,   sodium_limit,   known_sodium_count, week_row_count)
     overall_status  = compute_overall_status(caffeine_status, sugar_status, sodium_status)
 
     # 일평균 (기록이 있는 날 수 기준. 기록이 아예 없는 주는 0으로 나누지 않도록 1로 대체 -
@@ -492,9 +499,9 @@ def get_premium_report(
 
     chart_items = []
     for d in week_days:
-        item_caffeine_status = get_status(d["caffeine_mg"], caffeine_limit, d["unknown_caffeine"])
-        item_sugar_status    = get_status(d["sugar_g"],     sugar_limit,    d["unknown_sugar"])
-        item_sodium_status   = get_status(d["sodium_mg"],   sodium_limit,   d["unknown_sodium"])
+        item_caffeine_status = get_status(d["caffeine_mg"], caffeine_limit, d["known_caffeine"], d["log_count"])
+        item_sugar_status    = get_status(d["sugar_g"],     sugar_limit,    d["known_sugar"], d["log_count"])
+        item_sodium_status   = get_status(d["sodium_mg"],   sodium_limit,   d["known_sodium"], d["log_count"])
         chart_items.append({
             "label":  d["label"],
             "date":   d["date"],
@@ -513,18 +520,14 @@ def get_premium_report(
     # 지난주 대비 비교 (퍼센트포인트 차이, daily_average와 동일하게 기록이 있는 날 수 기준으로 계산)
     prev_monday = monday - timedelta(days=7)
     prev_sunday = sunday - timedelta(days=7)
-    prev_week_days, prev_row_count = _aggregate_week(cursor, user_id, prev_monday, prev_sunday)
-
-    unknown_caffeine_count_prev = sum(d["unknown_caffeine"] for d in prev_week_days)
-    unknown_sugar_count_prev    = sum(d["unknown_sugar"]    for d in prev_week_days)
-    unknown_sodium_count_prev   = sum(d["unknown_sodium"]   for d in prev_week_days)
+    prev_week_days, _ = _aggregate_week(cursor, user_id, prev_monday, prev_sunday)
 
     # nutrient별로 "확인된 값이 하나도 없음"을 따로 판정한다.
-    # prev_row_count==0(기록 자체가 없음)과 prev_row_count>0인데 그 nutrient만 전부 NULL인 경우를
+    # 지난 주 기록 자체가 없는 경우와, 기록은 있는데 그 nutrient만 전부 NULL인 경우를
     # 모두 포괄한다 (두 경우 다 known_count == 0).
-    prev_known_caffeine_count = prev_row_count - unknown_caffeine_count_prev
-    prev_known_sugar_count    = prev_row_count - unknown_sugar_count_prev
-    prev_known_sodium_count   = prev_row_count - unknown_sodium_count_prev
+    prev_known_caffeine_count = sum(d["known_caffeine"] for d in prev_week_days)
+    prev_known_sugar_count    = sum(d["known_sugar"]    for d in prev_week_days)
+    prev_known_sodium_count   = sum(d["known_sodium"]   for d in prev_week_days)
 
     prev_total_caffeine = sum(d["caffeine_mg"] for d in prev_week_days)
     prev_total_sugar    = sum(d["sugar_g"]     for d in prev_week_days)

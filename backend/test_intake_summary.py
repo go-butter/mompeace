@@ -233,6 +233,20 @@ class TestIntakeSummaryIronBandType:
         assert iron["status"] == "unknown"
         assert iron["status_label"] == "정보없음"
 
+    def test_iron_uses_known_value_even_when_another_food_has_null_iron(self, db):
+        # 회귀 가드: 오늘 기록한 음식 중 하나라도 iron_mg가 NULL이면 확인된 다른 음식의
+        # 실제 철분 값까지 "정보없음"으로 뭉개버리던 버그의 가드.
+        user_id = make_user(db, selected_nutrients="iron")
+        make_food_log(db, user_id, iron_mg=30)          # 확인된 값 (safe 구간)
+        make_food_log(db, user_id, calories_kcal=2000)  # 같은 날, iron_mg unknown
+
+        result = get_intake_summary(user_id=user_id, db=db)
+
+        iron = result["selected_nutrients"][0]
+        assert iron["total"] == 30.0
+        assert iron["status"] == "safe"
+        assert iron["status_label"] == "여유"
+
 
 class TestIntakeSummaryDateParam:
     """Food Diary가 /intake/by-date 대신 이 엔드포인트를 재사용할 수 있도록,

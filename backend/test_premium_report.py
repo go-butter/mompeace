@@ -64,7 +64,9 @@ class TestGetPremiumReportDaily:
         assert self._item(result, "오후")["caffeine_mg"] == 40.0
         assert self._item(result, "저녁")["caffeine_mg"] == 50.0
 
-    def test_unknown_sugar_marks_status_unknown_but_keeps_partial_sum(self, db):
+    def test_known_sugar_value_used_even_when_another_food_has_null_sugar(self, db):
+        # 회귀 가드: 같은 슬롯/하루에 확인된 값이 하나라도 있으면, 다른 음식의 NULL이
+        # 그 값을 "정보없음"으로 뭉개버리면 안 된다 (known_count > 0이므로 실제 값 기준 판정).
         user_id = make_user(db, pregnancy_week=20)
         make_food_log(db, user_id, caffeine_mg=0, sugar_g=8, sodium_mg=0,
                        eaten_at="2030-01-11 02:00:00")   # 새벽, 확인된 값
@@ -75,8 +77,8 @@ class TestGetPremiumReportDaily:
 
         dawn = self._item(result, "새벽")
         assert dawn["sugar_g"] == 8.0          # unknown은 0으로 뭉개지지 않고 부분합 유지
-        assert dawn["sugar_status"] == "unknown"
-        assert result["status"]["sugar_status"] == "unknown"  # 전체(top-level)에도 반영
+        assert dawn["sugar_status"] == "safe"  # 확인된 값(8g)이 있으므로 더 이상 unknown이 아님
+        assert result["status"]["sugar_status"] == "safe"  # 전체(top-level)에도 반영
 
     def test_empty_slot_is_safe_not_unknown(self, db):
         # 시간대에 로그가 아예 없는 것과 unknown 값이 있는 것은 다른 상태여야 한다

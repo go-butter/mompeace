@@ -40,35 +40,36 @@ def _get_percent(value, standard):
 # judge_fn으로 자신만의 판정 함수를 들고 다닌다 — fat/iron 외의 band형이 늘어나면
 # 이 패턴을 그대로 재사용하면 된다.
 _SUMMARY_NUTRIENT_FIELDS = {
-    "carbohydrate": {"total_key": "total_carbohydrate", "unknown_key": "unknown_carbohydrate_count", "limit_key": "carbohydrate_g", "unit": "g", "type": "floor"},
-    "sugar":        {"total_key": "total_sugar", "unknown_key": "unknown_sugar_count", "limit_key": "sugar_g", "unit": "g", "type": "ceiling"},
-    "energy":       {"total_key": "total_calories", "unknown_key": "unknown_energy_count", "limit_key": "energy_kcal", "unit": "kcal", "type": "floor"},
-    "fat":          {"total_key": "total_fat", "unknown_key": "unknown_fat_count", "limit_key": None, "unit": "g", "type": "band",
-                      "judge_fn": lambda total, unknown_count, totals, limits: get_fat_status(
-                          total, totals["total_calories"], limits["fat_ratio_min"], limits["fat_ratio_max"], unknown_count)},
-    "iron":         {"total_key": "total_iron", "unknown_key": "unknown_iron_count", "limit_key": None, "unit": "mg", "type": "band",
-                      "judge_fn": lambda total, unknown_count, totals, limits: get_iron_status(
-                          total, IRON_RECOMMENDED_MG, IRON_UPPER_LIMIT_MG, unknown_count)},
-    "protein":      {"total_key": "total_protein", "unknown_key": "unknown_protein_count", "limit_key": "protein_g", "unit": "g", "type": "floor"},
-    "sodium":       {"total_key": "total_sodium", "unknown_key": "unknown_sodium_count", "limit_key": "sodium_mg", "unit": "mg", "type": "ceiling"},
+    "carbohydrate": {"total_key": "total_carbohydrate", "known_key": "known_carbohydrate_count", "limit_key": "carbohydrate_g", "unit": "g", "type": "floor"},
+    "sugar":        {"total_key": "total_sugar", "known_key": "known_sugar_count", "limit_key": "sugar_g", "unit": "g", "type": "ceiling"},
+    "energy":       {"total_key": "total_calories", "known_key": "known_energy_count", "limit_key": "energy_kcal", "unit": "kcal", "type": "floor"},
+    "fat":          {"total_key": "total_fat", "known_key": "known_fat_count", "limit_key": None, "unit": "g", "type": "band",
+                      "judge_fn": lambda total, known_count, logged_count, totals, limits: get_fat_status(
+                          total, totals["total_calories"], limits["fat_ratio_min"], limits["fat_ratio_max"], known_count, logged_count)},
+    "iron":         {"total_key": "total_iron", "known_key": "known_iron_count", "limit_key": None, "unit": "mg", "type": "band",
+                      "judge_fn": lambda total, known_count, logged_count, totals, limits: get_iron_status(
+                          total, IRON_RECOMMENDED_MG, IRON_UPPER_LIMIT_MG, known_count, logged_count)},
+    "protein":      {"total_key": "total_protein", "known_key": "known_protein_count", "limit_key": "protein_g", "unit": "g", "type": "floor"},
+    "sodium":       {"total_key": "total_sodium", "known_key": "known_sodium_count", "limit_key": "sodium_mg", "unit": "mg", "type": "ceiling"},
 }
 
 
 def _build_nutrient_summary_item(key: str, totals: dict, limits: dict) -> dict:
     spec = _SUMMARY_NUTRIENT_FIELDS[key]
     total = totals[spec["total_key"]]
-    unknown_count = totals[spec["unknown_key"]]
+    known_count = totals[spec["known_key"]]
+    logged_count = totals["logged_count"]
 
     if spec["type"] == "ceiling":
         limit = limits[spec["limit_key"]]
-        status = get_status(total, limit, unknown_count)
+        status = get_status(total, limit, known_count, logged_count)
         percent = _get_percent(total, limit)
     elif spec["type"] == "floor":
         limit = limits[spec["limit_key"]]
-        status = get_floor_status(total, limit, unknown_count)
+        status = get_floor_status(total, limit, known_count, logged_count)
         percent = _get_percent(total, limit)
     elif spec["type"] == "band":
-        status = spec["judge_fn"](total, unknown_count, totals, limits)
+        status = spec["judge_fn"](total, known_count, logged_count, totals, limits)
         limit = None
         percent = None
 
@@ -100,25 +101,26 @@ def _fetch_intake_summary_for_date(user_id: int, target_date: str, db: sqlite3.C
     cursor.execute("""
         SELECT
             COALESCE(SUM(caffeine_mg), 0) AS total_caffeine,
-            COALESCE(SUM(CASE WHEN caffeine_mg IS NULL THEN 1 ELSE 0 END), 0) AS unknown_caffeine_count,
+            COUNT(caffeine_mg) AS known_caffeine_count,
             COALESCE(SUM(sugar_g), 0) AS total_sugar,
-            COALESCE(SUM(CASE WHEN sugar_g IS NULL THEN 1 ELSE 0 END), 0) AS unknown_sugar_count,
+            COUNT(sugar_g) AS known_sugar_count,
             COALESCE(SUM(sodium_mg), 0) AS total_sodium,
-            COALESCE(SUM(CASE WHEN sodium_mg IS NULL THEN 1 ELSE 0 END), 0) AS unknown_sodium_count,
+            COUNT(sodium_mg) AS known_sodium_count,
             COALESCE(SUM(calories_kcal), 0) AS total_calories,
-            COALESCE(SUM(CASE WHEN calories_kcal IS NULL THEN 1 ELSE 0 END), 0) AS unknown_energy_count,
+            COUNT(calories_kcal) AS known_energy_count,
             COALESCE(SUM(carbohydrate_g), 0) AS total_carbohydrate,
-            COALESCE(SUM(CASE WHEN carbohydrate_g IS NULL THEN 1 ELSE 0 END), 0) AS unknown_carbohydrate_count,
+            COUNT(carbohydrate_g) AS known_carbohydrate_count,
             COALESCE(SUM(protein_g), 0) AS total_protein,
-            COALESCE(SUM(CASE WHEN protein_g IS NULL THEN 1 ELSE 0 END), 0) AS unknown_protein_count,
+            COUNT(protein_g) AS known_protein_count,
             COALESCE(SUM(fat_g), 0) AS total_fat,
-            COALESCE(SUM(CASE WHEN fat_g IS NULL THEN 1 ELSE 0 END), 0) AS unknown_fat_count,
+            COUNT(fat_g) AS known_fat_count,
             COALESCE(SUM(saturated_fat_g), 0) AS total_saturated_fat,
-            COALESCE(SUM(CASE WHEN saturated_fat_g IS NULL THEN 1 ELSE 0 END), 0) AS unknown_saturated_fat_count,
+            COUNT(saturated_fat_g) AS known_saturated_fat_count,
             COALESCE(SUM(trans_fat_g), 0) AS total_trans_fat,
-            COALESCE(SUM(CASE WHEN trans_fat_g IS NULL THEN 1 ELSE 0 END), 0) AS unknown_trans_fat_count,
+            COUNT(trans_fat_g) AS known_trans_fat_count,
             COALESCE(SUM(iron_mg), 0) AS total_iron,
-            COALESCE(SUM(CASE WHEN iron_mg IS NULL THEN 1 ELSE 0 END), 0) AS unknown_iron_count
+            COUNT(iron_mg) AS known_iron_count,
+            COUNT(*) AS logged_count
         FROM food_log
         WHERE user_id = ? AND DATE(eaten_at) = ?
     """, (
@@ -164,16 +166,17 @@ def _fetch_intake_summary_for_date(user_id: int, target_date: str, db: sqlite3.C
     total_saturated_fat = intake["total_saturated_fat"]
     total_trans_fat = intake["total_trans_fat"]
     total_iron = intake["total_iron"]
-    unknown_caffeine_count = intake["unknown_caffeine_count"]
-    unknown_sugar_count = intake["unknown_sugar_count"]
-    unknown_sodium_count = intake["unknown_sodium_count"]
-    unknown_energy_count = intake["unknown_energy_count"]
-    unknown_carbohydrate_count = intake["unknown_carbohydrate_count"]
-    unknown_protein_count = intake["unknown_protein_count"]
-    unknown_fat_count = intake["unknown_fat_count"]
-    unknown_saturated_fat_count = intake["unknown_saturated_fat_count"]
-    unknown_trans_fat_count = intake["unknown_trans_fat_count"]
-    unknown_iron_count = intake["unknown_iron_count"]
+    known_caffeine_count = intake["known_caffeine_count"]
+    known_sugar_count = intake["known_sugar_count"]
+    known_sodium_count = intake["known_sodium_count"]
+    known_energy_count = intake["known_energy_count"]
+    known_carbohydrate_count = intake["known_carbohydrate_count"]
+    known_protein_count = intake["known_protein_count"]
+    known_fat_count = intake["known_fat_count"]
+    known_saturated_fat_count = intake["known_saturated_fat_count"]
+    known_trans_fat_count = intake["known_trans_fat_count"]
+    known_iron_count = intake["known_iron_count"]
+    logged_count = intake["logged_count"]
 
     # 5. 잔여 허용량 계산 (상한선 영양소) / 목표까지 남은 양 계산 (하한선 영양소)
     remaining_caffeine = round(max(0, caffeine_limit - total_caffeine), 2)
@@ -197,27 +200,29 @@ def _fetch_intake_summary_for_date(user_id: int, target_date: str, db: sqlite3.C
     energy_percent = get_percent(total_calories, energy_target)
 
     # 7. 상태 계산
-    caffeine_status = get_status(total_caffeine, caffeine_limit, unknown_caffeine_count)
-    sugar_status = get_status(total_sugar, sugar_limit, unknown_sugar_count)
-    sodium_status = get_status(total_sodium, sodium_limit, unknown_sodium_count)
-    carbohydrate_status = get_floor_status(total_carbohydrate, carbohydrate_minimum, unknown_carbohydrate_count)
-    protein_status = get_floor_status(total_protein, protein_target, unknown_protein_count)
-    energy_status = get_floor_status(total_calories, energy_target, unknown_energy_count)
-    fat_status = get_fat_status(total_fat, total_calories, fat_ratio_min, fat_ratio_max, unknown_fat_count)
+    caffeine_status = get_status(total_caffeine, caffeine_limit, known_caffeine_count, logged_count)
+    sugar_status = get_status(total_sugar, sugar_limit, known_sugar_count, logged_count)
+    sodium_status = get_status(total_sodium, sodium_limit, known_sodium_count, logged_count)
+    carbohydrate_status = get_floor_status(total_carbohydrate, carbohydrate_minimum, known_carbohydrate_count, logged_count)
+    protein_status = get_floor_status(total_protein, protein_target, known_protein_count, logged_count)
+    energy_status = get_floor_status(total_calories, energy_target, known_energy_count, logged_count)
+    fat_status = get_fat_status(total_fat, total_calories, fat_ratio_min, fat_ratio_max, known_fat_count, logged_count)
     # energy_total(kcal) * ratio는 kcal 단위이므로, 그램 단위인 total_saturated_fat/
     # total_trans_fat과 비교하려면 KCAL_PER_GRAM_FAT(9kcal/g)로 나눠 환산해야 한다
     # (get_fat_status()와 동일한 이유 — 환산 없이 비교하면 기준이 사실상 무의미해진다).
     saturated_fat_status = get_status(
         total_saturated_fat,
         total_calories * saturated_fat_ratio_max / KCAL_PER_GRAM_FAT,
-        unknown_saturated_fat_count,
+        known_saturated_fat_count,
+        logged_count,
     )
     trans_fat_status = get_status(
         total_trans_fat,
         total_calories * trans_fat_ratio_max / KCAL_PER_GRAM_FAT,
-        unknown_trans_fat_count,
+        known_trans_fat_count,
+        logged_count,
     )
-    iron_status = get_iron_status(total_iron, IRON_RECOMMENDED_MG, IRON_UPPER_LIMIT_MG, unknown_iron_count)
+    iron_status = get_iron_status(total_iron, IRON_RECOMMENDED_MG, IRON_UPPER_LIMIT_MG, known_iron_count, logged_count)
 
     # overall_status는 기존과 동일하게 카페인/당류/나트륨만으로 계산한다.
     # 새로 추가된 영양소(탄수화물/단백질/에너지/지방류)는 아직 대부분의 food_log 행에
@@ -295,16 +300,17 @@ def _fetch_intake_summary_for_date(user_id: int, target_date: str, db: sqlite3.C
             "total_saturated_fat": total_saturated_fat,
             "total_trans_fat": total_trans_fat,
             "total_iron": total_iron,
-            "unknown_caffeine_count": unknown_caffeine_count,
-            "unknown_sugar_count": unknown_sugar_count,
-            "unknown_sodium_count": unknown_sodium_count,
-            "unknown_energy_count": unknown_energy_count,
-            "unknown_carbohydrate_count": unknown_carbohydrate_count,
-            "unknown_protein_count": unknown_protein_count,
-            "unknown_fat_count": unknown_fat_count,
-            "unknown_saturated_fat_count": unknown_saturated_fat_count,
-            "unknown_trans_fat_count": unknown_trans_fat_count,
-            "unknown_iron_count": unknown_iron_count
+            "known_caffeine_count": known_caffeine_count,
+            "known_sugar_count": known_sugar_count,
+            "known_sodium_count": known_sodium_count,
+            "known_energy_count": known_energy_count,
+            "known_carbohydrate_count": known_carbohydrate_count,
+            "known_protein_count": known_protein_count,
+            "known_fat_count": known_fat_count,
+            "known_saturated_fat_count": known_saturated_fat_count,
+            "known_trans_fat_count": known_trans_fat_count,
+            "known_iron_count": known_iron_count,
+            "logged_count": logged_count
         },
 
         "limits": {
@@ -445,21 +451,22 @@ def get_intake_summary(
     cursor.execute("""
         SELECT
             COALESCE(SUM(caffeine_mg), 0) AS total_caffeine,
-            COALESCE(SUM(CASE WHEN caffeine_mg IS NULL THEN 1 ELSE 0 END), 0) AS unknown_caffeine_count,
+            COUNT(caffeine_mg) AS known_caffeine_count,
             COALESCE(SUM(sugar_g), 0) AS total_sugar,
-            COALESCE(SUM(CASE WHEN sugar_g IS NULL THEN 1 ELSE 0 END), 0) AS unknown_sugar_count,
+            COUNT(sugar_g) AS known_sugar_count,
             COALESCE(SUM(sodium_mg), 0) AS total_sodium,
-            COALESCE(SUM(CASE WHEN sodium_mg IS NULL THEN 1 ELSE 0 END), 0) AS unknown_sodium_count,
+            COUNT(sodium_mg) AS known_sodium_count,
             COALESCE(SUM(calories_kcal), 0) AS total_calories,
-            COALESCE(SUM(CASE WHEN calories_kcal IS NULL THEN 1 ELSE 0 END), 0) AS unknown_energy_count,
+            COUNT(calories_kcal) AS known_energy_count,
             COALESCE(SUM(carbohydrate_g), 0) AS total_carbohydrate,
-            COALESCE(SUM(CASE WHEN carbohydrate_g IS NULL THEN 1 ELSE 0 END), 0) AS unknown_carbohydrate_count,
+            COUNT(carbohydrate_g) AS known_carbohydrate_count,
             COALESCE(SUM(protein_g), 0) AS total_protein,
-            COALESCE(SUM(CASE WHEN protein_g IS NULL THEN 1 ELSE 0 END), 0) AS unknown_protein_count,
+            COUNT(protein_g) AS known_protein_count,
             COALESCE(SUM(fat_g), 0) AS total_fat,
-            COALESCE(SUM(CASE WHEN fat_g IS NULL THEN 1 ELSE 0 END), 0) AS unknown_fat_count,
+            COUNT(fat_g) AS known_fat_count,
             COALESCE(SUM(iron_mg), 0) AS total_iron,
-            COALESCE(SUM(CASE WHEN iron_mg IS NULL THEN 1 ELSE 0 END), 0) AS unknown_iron_count
+            COUNT(iron_mg) AS known_iron_count,
+            COUNT(*) AS logged_count
         FROM food_log
         WHERE user_id = ? AND DATE(eaten_at) = ?
     """, (user_id, today))
@@ -469,7 +476,7 @@ def get_intake_summary(
     _, limits = get_trimester_limits(week, age_bracket)
 
     caffeine_status = get_status(
-        totals["total_caffeine"], limits["caffeine_mg"], totals["unknown_caffeine_count"]
+        totals["total_caffeine"], limits["caffeine_mg"], totals["known_caffeine_count"], totals["logged_count"]
     )
     caffeine_item = {
         "key": "caffeine",
@@ -483,8 +490,8 @@ def get_intake_summary(
     }
 
     water = _fetch_water_summary_for_date(user_id, today, db)
-    # water_log.amount_ml은 NOT NULL이므로 unknown_count는 항상 0이다.
-    water_status = get_floor_status(water["total_ml"], water["target_ml"], 0)
+    # water_log.amount_ml은 NOT NULL이므로 항상 known으로 취급한다.
+    water_status = get_floor_status(water["total_ml"], water["target_ml"], known_count=1, logged_count=1)
     water_item = {
         "key": "water",
         "label": NUTRIENT_LABELS_KO["water"],
@@ -543,11 +550,12 @@ def get_food_log_calendar(
         SELECT
             DATE(eaten_at) AS log_date,
             COALESCE(SUM(caffeine_mg), 0) AS total_caffeine,
-            COALESCE(SUM(CASE WHEN caffeine_mg IS NULL THEN 1 ELSE 0 END), 0) AS unknown_caffeine_count,
+            COUNT(caffeine_mg) AS known_caffeine_count,
             COALESCE(SUM(sugar_g), 0) AS total_sugar,
-            COALESCE(SUM(CASE WHEN sugar_g IS NULL THEN 1 ELSE 0 END), 0) AS unknown_sugar_count,
+            COUNT(sugar_g) AS known_sugar_count,
             COALESCE(SUM(sodium_mg), 0) AS total_sodium,
-            COALESCE(SUM(CASE WHEN sodium_mg IS NULL THEN 1 ELSE 0 END), 0) AS unknown_sodium_count
+            COUNT(sodium_mg) AS known_sodium_count,
+            COUNT(*) AS logged_count
         FROM food_log
         WHERE user_id = ? AND DATE(eaten_at) BETWEEN ? AND ?
         GROUP BY DATE(eaten_at)
@@ -561,9 +569,9 @@ def get_food_log_calendar(
     days = []
     for row in cursor.fetchall():
         row = dict(row)
-        caffeine_status = get_status(row["total_caffeine"], caffeine_limit, row["unknown_caffeine_count"])
-        sugar_status = get_status(row["total_sugar"], sugar_limit, row["unknown_sugar_count"])
-        sodium_status = get_status(row["total_sodium"], sodium_limit, row["unknown_sodium_count"])
+        caffeine_status = get_status(row["total_caffeine"], caffeine_limit, row["known_caffeine_count"], row["logged_count"])
+        sugar_status = get_status(row["total_sugar"], sugar_limit, row["known_sugar_count"], row["logged_count"])
+        sodium_status = get_status(row["total_sodium"], sodium_limit, row["known_sodium_count"], row["logged_count"])
         overall_status = compute_overall_status(caffeine_status, sugar_status, sodium_status)
         days.append({"date": row["log_date"], "overall_status": overall_status})
 

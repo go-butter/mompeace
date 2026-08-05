@@ -47,9 +47,19 @@ def compute_today_intake_totals(user_id: int, db: sqlite3.Connection) -> dict:
     }
 
 
-def get_status(value, standard, unknown_count) -> str:
+def _is_data_unresolved(known_count: int, logged_count: int) -> bool:
+    """오늘 무언가는 기록됐는데(logged_count>0) 이 영양소 값이 하나도 확인되지
+    않은 경우(known_count==0)에만 unknown으로 판정한다. 아예 기록이 없는 날
+    (logged_count==0)은 이 함수가 관여하지 않고, 호출부의 기존 기본 판정
+    (ceiling은 0으로 계산되어 safe, floor/band는 각자의 기존 로직)을 그대로 따른다 —
+    그렇지 않으면 음식을 하나도 기록하지 않은 날조차 "정보없음"으로 보이게 된다.
+    """
+    return logged_count > 0 and known_count == 0
+
+
+def get_status(value, standard, known_count, logged_count) -> str:
     """단일 영양소 섭취 상태 판정 (safe/caution/avoid/unknown)."""
-    if unknown_count > 0:
+    if _is_data_unresolved(known_count, logged_count):
         return "unknown"
 
     if standard <= 0:
@@ -88,7 +98,7 @@ def compute_overall_status(*statuses) -> str:
     return "safe"
 
 
-def get_floor_status(value, minimum, unknown_count) -> str:
+def get_floor_status(value, minimum, known_count, logged_count) -> str:
     """하한선(최소 섭취 권장량) 기준 상태 판정 — 탄수화물/단백질/에너지처럼
     "초과"가 아니라 "미달"이 문제인 영양소용. get_status()의 상한선 판정과는
     방향이 반대이므로 별도 함수로 분리한다.
@@ -96,7 +106,7 @@ def get_floor_status(value, minimum, unknown_count) -> str:
     공식 기준이 목표치 하나뿐이라(완충 구간에 대한 별도 기준이 없음) 중간 단계
     없는 이진 판정이다: sufficient: 최소량 이상 / insufficient: 최소량 미만
     """
-    if unknown_count > 0:
+    if _is_data_unresolved(known_count, logged_count):
         return "unknown"
     if minimum <= 0:
         return "unknown"
@@ -118,7 +128,7 @@ def get_informational_status(value) -> str:
     return "unknown" if value is None else "info"
 
 
-def get_fat_status(value, energy_total, ratio_min, ratio_max, unknown_count) -> str:
+def get_fat_status(value, energy_total, ratio_min, ratio_max, known_count, logged_count) -> str:
     """총 지방처럼 상한(ratio_max)과 하한(ratio_min)이 모두 있는 "밴드"형 판정.
     총 에너지 섭취량 대비 비율로 기준을 동적으로 계산하므로, 오늘 에너지 섭취가
     없으면(0 이하) 비율 자체를 계산할 수 없어 unknown을 반환한다.
@@ -132,13 +142,13 @@ def get_fat_status(value, energy_total, ratio_min, ratio_max, unknown_count) -> 
     하한 미달은 별도로 "low"를 반환한다 (미달은 초과보다 약한 신호로 다루는 정책상
     avoid로 올라가지 않음 — compute_overall_status 참고).
     """
-    if unknown_count > 0:
+    if _is_data_unresolved(known_count, logged_count):
         return "unknown"
     if energy_total <= 0:
         return "unknown"
 
     upper_limit_g = energy_total * ratio_max / KCAL_PER_GRAM_FAT
-    ceiling_status = get_status(value, upper_limit_g, 0)
+    ceiling_status = get_status(value, upper_limit_g, known_count=1, logged_count=1)
     if ceiling_status in ("caution", "avoid"):
         return ceiling_status
 
@@ -148,14 +158,14 @@ def get_fat_status(value, energy_total, ratio_min, ratio_max, unknown_count) -> 
     return "safe"
 
 
-def get_iron_status(value, recommended, upper_limit, unknown_count) -> str:
+def get_iron_status(value, recommended, upper_limit, known_count, logged_count) -> str:
     """철분처럼 권장량(하한)과 상한섭취량이 모두 있는 "밴드"형 판정.
     fat(get_fat_status)과 달리 절대 mg 기준이라 에너지 비율 환산이 필요 없다.
     """
-    if unknown_count > 0:
+    if _is_data_unresolved(known_count, logged_count):
         return "unknown"
 
-    ceiling_status = get_status(value, upper_limit, 0)
+    ceiling_status = get_status(value, upper_limit, known_count=1, logged_count=1)
     if ceiling_status in ("caution", "avoid"):
         return ceiling_status
 
