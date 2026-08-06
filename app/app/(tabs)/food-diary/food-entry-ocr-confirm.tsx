@@ -576,16 +576,33 @@ export default function FoodEntryOcrConfirmScreen() {
     return scaleFactor != null ? truncate2(basisNum * scaleFactor) : basisNum;
   };
 
-  // 영양성분 상세의 읽기 전용 "총섭취량" 열 — 실제 저장되는 값(submittedValue)에
+  // 무게형 단위(g/ml)일 때는 scale_factor(1회 제공량 스케일)를 건너뛰고 원본
+  // 기준량당 값(basisNum)을 그대로 쓴다 — scale_factor를 거치면 이미 1회
+  // 제공량으로 환산된 값에 그램 비율을 다시 곱해 이중 스케일링되는 버그가 있었다
+  // (per_basis_with_total 라벨에서 scale_factor가 1.0이 아닐 때만 드러남, 예:
+  // 100g당 기준 + 1회 제공량 30g인 라벨에서 실제 섭취량을 g으로 직접 입력하는 경우).
+  // 개수형 단위(인분/개/접시/컵)는 submittedValue(scale_factor 적용값) 그대로 쓴다
+  // — 그 경우 scale_factor가 기준량→1회 제공량 변환을 정당하게 담당한다.
+  const consumptionBasisValue = (key: SelectableNutrientKey): number | null => {
+    if (isWeightUnit) {
+      const raw = nutrientFields[key].trim();
+      if (raw === '') return null;
+      const basisNum = Number(raw);
+      return Number.isNaN(basisNum) ? null : basisNum;
+    }
+    return submittedValue(key);
+  };
+
+  // 영양성분 상세의 읽기 전용 "총섭취량" 열 — consumptionBasisValue에
   // servingMultiplier를 곱한다. 총내용량(g)은 여기 관여하지 않는다 — 총내용량 kcal와
   // 마찬가지로 순수 참고용 필드다(예전에는 totalScale까지 곱해 이중 계산되던 버그가
   // 있었다). 저장된 state가 아니라 매 렌더마다 새로 계산되므로 재계산 걱정이 없다.
   const detailColumnValue = (key: SelectableNutrientKey): number | null => {
-    const submitted = submittedValue(key);
-    if (submitted == null || servingMultiplier == null || Number.isNaN(servingMultiplier)) {
+    const basis = consumptionBasisValue(key);
+    if (basis == null || servingMultiplier == null || Number.isNaN(servingMultiplier)) {
       return null;
     }
-    return truncate2(submitted * servingMultiplier);
+    return truncate2(basis * servingMultiplier);
   };
 
   const hasServingMultiplier = servingMultiplier != null && !Number.isNaN(servingMultiplier);
@@ -638,17 +655,17 @@ export default function FoodEntryOcrConfirmScreen() {
       amount: parsedAmount || 1,
       unit,
       caffeine_mg: caffeine,
-      sugar_g: submittedValue('sugar'),
-      sodium_mg: submittedValue('sodium'),
-      carbohydrate_g: submittedValue('carbohydrate'),
-      protein_g: submittedValue('protein'),
-      fat_g: submittedValue('fat'),
-      iron_mg: submittedValue('iron'),
+      sugar_g: consumptionBasisValue('sugar'),
+      sodium_mg: consumptionBasisValue('sodium'),
+      carbohydrate_g: consumptionBasisValue('carbohydrate'),
+      protein_g: consumptionBasisValue('protein'),
+      fat_g: consumptionBasisValue('fat'),
+      iron_mg: consumptionBasisValue('iron'),
       // calories_kcal은 다른 필드와 달리 null을 허용하지 않는 필드라(백엔드 컨벤션),
       // 정보없음일 때만 0으로 폴백한다 — 값이 있으면 항상 실제 값을 보낸다. 헤더의
       // kcal 필드(totalEnergyKcal)와는 무관 — 저장되는 값은 항상 에너지 행의
       // 100g당(basis)에서 계산한다.
-      calories_kcal: submittedValue('energy') ?? 0,
+      calories_kcal: consumptionBasisValue('energy') ?? 0,
       needs_review: needsReview,
       serving_multiplier: servingMultiplier,
       eaten_at: eatenAt,
