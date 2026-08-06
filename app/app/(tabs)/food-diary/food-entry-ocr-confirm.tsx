@@ -29,6 +29,7 @@ import CautionIcon from '@/assets/images/scan/caution.svg';
 import ClockIcon from '@/assets/images/common/clock.svg';
 import PrevIcon from '@/assets/images/common/prev.svg';
 import SearchIcon from '@/assets/images/scan/search.svg';
+import InformationIcon from '@/assets/images/onboarding/information.svg';
 import CaffeineIcon from '@/assets/images/foodDiary/caffeine.svg';
 import SodiumIcon from '@/assets/images/foodDiary/sodium.svg';
 import SugarIcon from '@/assets/images/foodDiary/sugar.svg';
@@ -38,6 +39,7 @@ import FatIcon from '@/assets/images/foodDiary/fat.svg';
 import IronIcon from '@/assets/images/foodDiary/iron.svg';
 import ProteinIcon from '@/assets/images/foodDiary/protein.svg';
 import { authColors } from '@/components/auth/colors';
+import BottomSheet from '@/components/common/BottomSheet';
 import StatusChip from '@/components/common/StatusChip';
 import AmountUnitPicker, { WEIGHT_UNITS } from '@/components/food-diary/AmountUnitPicker';
 import { summaryStatusColors, DEFAULT_SUMMARY_STATUS_COLORS } from '@/components/home/summaryColors';
@@ -79,6 +81,24 @@ const NUTRIENT_UNITS: Record<SelectableNutrientKey, string> = {
   iron: 'mg',
   protein: 'g',
   sodium: 'mg',
+};
+
+type InfoKey = 'safety' | 'nutrientStatus' | 'nutrientDetail';
+
+const INFO_CONTENT: Record<InfoKey, { title: string; body: string; note?: string }> = {
+  safety: {
+    title: '오늘 섭취 안전도란?',
+    body: '스캔한 식품의 영양성분을 임신 중 하루 권장 섭취 기준과 비교해서, 오늘 이 음식이 안전한 수준인지 알려드려요. 색상과 게이지는 가장 주의가 필요한 성분 하나를 기준으로 계산돼요.',
+  },
+  nutrientStatus: {
+    title: '성분별 상태란?',
+    body: '카페인, 나트륨, 당류 등 임신 중 주의가 필요한 성분들이 하루 권장 섭취 기준 대비 어느 정도인지 배지로 보여드려요. 배지 색상이 진할수록 섭취량이 기준에 가깝거나 초과했다는 뜻이에요.',
+  },
+  nutrientDetail: {
+    title: '영양성분 상세란?',
+    body: '라벨에 표시된 100g당 영양성분과, 실제로 섭취한 양(총섭취량) 기준 영양성분을 함께 보여드려요. 총섭취량 값은 100g당 값에 섭취량을 곱해 자동으로 계산돼요.',
+    note: '※ 카페인 함량은 제품 라벨의 원재료명 또는 영양정보 표시 앞부분에 별도로 표기되는 경우가 많아요. 라벨에서 바로 안 보이면 앞쪽을 확인해보세요.',
+  },
 };
 
 function sanitizeNonNegativeDecimal(text: string) {
@@ -414,6 +434,7 @@ export default function FoodEntryOcrConfirmScreen() {
   // 도착 즉시 바로 검토/수정할 수 있도록 편집 모드로 시작한다(요약 모드는 검토가
   // 끝난 뒤 접어두는 용도).
   const [isEditingTopCard, setIsEditingTopCard] = useState(true);
+  const [activeInfo, setActiveInfo] = useState<InfoKey | null>(null);
   const [caffeineMg, setCaffeineMg] = useState('');
   const [draftRows, setDraftRows] = useState<{ id: string; name: string; value: string }[]>([]);
   // 총내용량(g) — 라벨 헤더처럼 편집 가능. basis_amount_value(기준량, 100g)는
@@ -697,7 +718,14 @@ export default function FoodEntryOcrConfirmScreen() {
         <View style={styles.card}>
           {isEditingTopCard ? (
             <>
-              <Text style={styles.fieldLabel}>상품명</Text>
+              <View style={styles.nutrientHeaderRow}>
+                <Text style={styles.fieldLabel}>상품명</Text>
+                <Pressable
+                  style={styles.editTogglePill}
+                  onPress={() => setIsEditingTopCard((v) => !v)}>
+                  <Text style={styles.editTogglePillText}>완료</Text>
+                </Pressable>
+              </View>
               <View style={styles.nameEditRow}>
                 <View style={[styles.nameInputRow, styles.flexOne]}>
                   <SearchIcon width={16} height={16} color={authColors.gray} />
@@ -709,11 +737,6 @@ export default function FoodEntryOcrConfirmScreen() {
                     placeholderTextColor={authColors.gray}
                   />
                 </View>
-                <Pressable
-                  style={styles.editTogglePill}
-                  onPress={() => setIsEditingTopCard((v) => !v)}>
-                  <Text style={styles.editTogglePillText}>완료</Text>
-                </Pressable>
               </View>
 
               <View style={styles.cardDivider} />
@@ -782,7 +805,14 @@ export default function FoodEntryOcrConfirmScreen() {
 
         {/* 2. 오늘 섭취 안전도 — 단일 성분 헤드라인 + 원형 게이지 */}
         <View style={styles.card}>
-          <Text style={styles.fieldLabel}>오늘 섭취 안전도</Text>
+          <View style={styles.sectionHeaderRow}>
+            <Text style={styles.fieldLabel}>오늘 섭취 안전도</Text>
+            <Pressable
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              onPress={() => setActiveInfo('safety')}>
+              <InformationIcon width={18} height={18} />
+            </Pressable>
+          </View>
           <View style={styles.safetyRow}>
             <View style={styles.safetyTextGroup}>
               <Text
@@ -801,7 +831,14 @@ export default function FoodEntryOcrConfirmScreen() {
 
         {/* 3. 성분별 상태 — 7개 배지 그리드, 이전 라운드와 동일 */}
         <View style={styles.card}>
-          <Text style={styles.fieldLabel}>성분별 상태</Text>
+          <View style={styles.sectionHeaderRow}>
+            <Text style={styles.fieldLabel}>성분별 상태</Text>
+            <Pressable
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              onPress={() => setActiveInfo('nutrientStatus')}>
+              <InformationIcon width={18} height={18} />
+            </Pressable>
+          </View>
           <View style={styles.statusGrid}>
             {scanResult.nutrient_statuses.map((item) => (
               <StatusChip
@@ -817,7 +854,14 @@ export default function FoodEntryOcrConfirmScreen() {
 
         {/* 4. 영양성분 상세 (100g당 / 총섭취량(N인분)) */}
         <View style={styles.card}>
-          <Text style={styles.fieldLabel}>영양성분 상세</Text>
+          <View style={styles.sectionHeaderRow}>
+            <Text style={styles.fieldLabel}>영양성분 상세</Text>
+            <Pressable
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              onPress={() => setActiveInfo('nutrientDetail')}>
+              <InformationIcon width={18} height={18} />
+            </Pressable>
+          </View>
 
           {/* 총 내용량 헤더 — 실제 라벨의 "총 내용량(1포장) 당" 줄과 같은 형태.
               kcal 필드는 이제 독립 상태다 — 저장되는 값에 영향을 주지 않는 참고용 숫자. */}
@@ -948,6 +992,23 @@ export default function FoodEntryOcrConfirmScreen() {
           <Text style={styles.saveButtonText}>{saving ? '저장 중...' : '기록 저장'}</Text>
         </Pressable>
       </ScrollView>
+
+      <BottomSheet visible={activeInfo !== null} onClose={() => setActiveInfo(null)}>
+        <View style={[styles.infoSheet, { paddingBottom: styles.infoSheet.paddingBottom + insets.bottom }]}>
+          {activeInfo && (
+            <>
+              <Text style={styles.infoSheetTitle}>{INFO_CONTENT[activeInfo].title}</Text>
+              <Text style={styles.infoSheetBody}>{INFO_CONTENT[activeInfo].body}</Text>
+              {INFO_CONTENT[activeInfo].note && (
+                <Text style={styles.infoSheetNote}>{INFO_CONTENT[activeInfo].note}</Text>
+              )}
+            </>
+          )}
+          <Pressable onPress={() => setActiveInfo(null)}>
+            <Text style={styles.infoSheetCloseText}>확인</Text>
+          </Pressable>
+        </View>
+      </BottomSheet>
     </KeyboardAvoidingView>
   );
 }
@@ -1021,6 +1082,11 @@ const styles = StyleSheet.create({
     fontFamily: fonts.medium,
     fontSize: 14,
     color: '#000000',
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   nameInputRow: {
     flexDirection: 'row',
@@ -1312,10 +1378,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
     flex: 1,
+    minWidth: 0,
   },
   pairedInputCol: {
     alignItems: 'center',
+    justifyContent: 'center',
     width: 84,
+    height: 27,
   },
   pairedInput: {
     backgroundColor: authColors.white,
@@ -1337,7 +1406,8 @@ const styles = StyleSheet.create({
     fontFamily: fonts.medium,
     fontSize: 12,
     color: authColors.grayDark,
-    height: 27,
+    alignSelf: 'stretch',
+    textAlign: 'center',
     textAlignVertical: 'center',
   },
   pairedReadOnlyValueHighlighted: {
@@ -1424,5 +1494,40 @@ const styles = StyleSheet.create({
     fontFamily: fonts.semiBold,
     fontSize: 19,
     color: authColors.white,
+  },
+  infoSheet: {
+    backgroundColor: authColors.white,
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    paddingTop: 36,
+    paddingHorizontal: 19,
+    paddingBottom: 40,
+  },
+  infoSheetTitle: {
+    fontFamily: fonts.medium,
+    fontSize: 19,
+    color: '#000000',
+  },
+  infoSheetBody: {
+    fontFamily: nanumSquareRound.regular,
+    fontSize: 14,
+    lineHeight: 21,
+    color: authColors.grayDark,
+    marginTop: 12,
+  },
+  infoSheetNote: {
+    fontFamily: nanumSquareRound.regular,
+    fontSize: 12,
+    lineHeight: 18,
+    color: authColors.gray,
+    marginTop: 12,
+  },
+  infoSheetCloseText: {
+    fontFamily: nanumSquareRound.bold,
+    fontSize: 15,
+    color: authColors.pink,
+    textAlign: 'center',
+    marginTop: 24,
+    textDecorationLine: 'underline',
   },
 });
