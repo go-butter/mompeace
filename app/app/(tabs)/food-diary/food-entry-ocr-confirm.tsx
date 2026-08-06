@@ -23,6 +23,7 @@ import {
 } from 'react-native';
 import { Circle, Svg } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
 
 import ChevronDownIcon from '@/assets/images/common/chevron_down_plain.svg';
 import CautionIcon from '@/assets/images/scan/caution.svg';
@@ -52,6 +53,7 @@ import {
   getOcrAlternatives,
   OcrAlternativesResponse,
   OcrNutrientStatus,
+  OcrScaleMethod,
   OcrScanResponse,
   updateNutrientPreferences,
 } from '@/lib/api-client';
@@ -91,12 +93,12 @@ const INFO_CONTENT: Record<InfoKey, { title: string; body: string; note?: string
     body: '스캔한 식품의 영양성분을 임신 중 하루 권장 섭취 기준과 비교해서, 오늘 이 음식이 안전한 수준인지 알려드려요. 색상과 게이지는 가장 주의가 필요한 성분 하나를 기준으로 계산돼요.',
   },
   nutrientStatus: {
-    title: '성분별 상태란?',
-    body: '카페인, 나트륨, 당류 등 임신 중 주의가 필요한 성분들이 하루 권장 섭취 기준 대비 어느 정도인지 배지로 보여드려요. 배지 색상이 진할수록 섭취량이 기준에 가깝거나 초과했다는 뜻이에요.',
+    title: '영양소 섭취 분석이란?',
+    body: '카페인, 나트륨, 당류 등 임신 중 주의가 필요한 영양소가 하루 권장 섭취 기준 대비 어느 정도인지 배지로 분석해드려요. 배지 색상이 진할수록 섭취량이 기준에 가깝거나 초과했다는 뜻이에요.',
   },
   nutrientDetail: {
     title: '영양성분 상세란?',
-    body: '라벨에 표시된 100g당 영양성분과, 실제로 섭취한 양(총섭취량) 기준 영양성분을 함께 보여드려요. 총섭취량 값은 100g당 값에 섭취량을 곱해 자동으로 계산돼요.',
+    body: '라벨에 표시된 기준량당 영양성분과, 실제로 섭취한 양(총섭취량) 기준 영양성분을 함께 보여드려요. 총섭취량 값은 기준량당 값에 섭취량을 곱해 자동으로 계산돼요.',
     note: '※ 카페인 함량은 제품 라벨의 원재료명 또는 영양정보 표시 앞부분에 별도로 표기되는 경우가 많아요. 라벨에서 바로 안 보이면 앞쪽을 확인해보세요.',
   },
 };
@@ -219,6 +221,26 @@ function safetyBandLabel(percent: number | null): string {
   if (percent >= 70) return '양호해요';
   if (percent >= 40) return '보통이에요';
   return '주의가 필요해요';
+}
+
+// 영양성분 상세 테이블의 "100g당" 열 헤더 — 라벨의 실제 기준(reference_amount_
+// display_method)에 따라 기준량이 100g가 아닐 수 있어(예: 총내용량당/1회
+// 제공량당 라벨) scale_method + basis_amount_value로 동적으로 결정한다.
+// needs_review가 아니라 scale_method만으로 분기한다 — per_basis_with_total인데
+// serving_size_g만 없는 경우(needs_review=true)에도 기준량 자체는 알고 있으므로
+// (예: "100g당") 정확한 라벨을 보여줄 수 있다.
+function getBasisLabel(scaleMethod: OcrScaleMethod, basisAmountValue: number | null): string {
+  switch (scaleMethod) {
+    case 'per_basis_with_total':
+      return basisAmountValue != null ? `${basisAmountValue}g당` : '기준량당';
+    case 'total_content':
+      return basisAmountValue != null ? `총 내용량당 (${basisAmountValue}g)` : '총 내용량당';
+    case 'per_serving_with_count':
+      return basisAmountValue != null ? `1회 제공량당 (${basisAmountValue}g)` : '1회 제공량당';
+    case 'unknown':
+    default:
+      return '기준량 확인 필요';
+  }
 }
 
 type DraftRowProps = {
@@ -420,7 +442,17 @@ export default function FoodEntryOcrConfirmScreen() {
 
   const needsReview = scanResult?.needs_review ?? false;
   const scaleFactor = scanResult?.scale_factor_applied ?? null;
-  const basisAmountValue = scanResult?.basis_amount_value ?? null;
+  // 기준량(basis_amount_value)은 스캔 결과에서 온 초기값이지만, Gemini가 라벨을
+  // 잘못 읽었을 때(예: "100g당"을 "1000g당"으로 오독) 사용자가 고칠 수 있도록
+  // 편집 가능한 상태로 승격한다. 아래 basisAmountValue는 매 렌더마다 다시 계산되는
+  // 파생값이라 getBasisLabel/servingMultiplier 등 기존 소비처가 자동으로 최신값을 읽는다.
+  const [basisAmountValueText, setBasisAmountValueText] = useState(
+    scanResult?.basis_amount_value != null ? String(scanResult.basis_amount_value) : ''
+  );
+  const trimmedBasisAmountText = basisAmountValueText.trim();
+  const parsedBasisAmountValue = Number(trimmedBasisAmountText);
+  const basisAmountValue =
+    trimmedBasisAmountText === '' || Number.isNaN(parsedBasisAmountValue) ? null : parsedBasisAmountValue;
 
   // 라벨에서 1회 제공량을 확정하지 못했지만(needs_review) 기준량(예: 100g)은 알 때 —
   // 인분수를 가정할 수 없으니 실제 섭취량(g)을 직접 입력받도록 유도한다. 그 외에는
@@ -441,12 +473,6 @@ export default function FoodEntryOcrConfirmScreen() {
   // 이 화면에서 편집하지 않는 고정값 그대로 유지하고, 이 값만 상태로 승격한다.
   const [totalContentAmount, setTotalContentAmount] = useState(
     scanResult?.total_content_value != null ? String(scanResult.total_content_value) : ''
-  );
-  // 헤더의 kcal 필드 — 더 이상 어떤 행의 total과도 묶이지 않는 독립 상태(순수 참고용).
-  const [totalEnergyKcal, setTotalEnergyKcal] = useState(
-    scanResult?.nutrients?.energy?.total_value != null
-      ? String(scanResult.nutrients.energy.total_value)
-      : ''
   );
   // 100g당 값만 저장한다 — 총내용량 열은 더 이상 편집 상태가 아니라 매 렌더마다
   // basis에서 계산되는 값이라 별도로 들고 있지 않는다.
@@ -565,6 +591,10 @@ export default function FoodEntryOcrConfirmScreen() {
     setTotalContentAmount(sanitizeNonNegativeDecimal(text));
   };
 
+  const updateBasisAmountValue = (text: string) => {
+    setBasisAmountValueText(sanitizeNonNegativeDecimal(text));
+  };
+
   // 실제로 /food-log에 저장되는 값 — basis_value(사용자가 고친 라벨 값)에 스캔 시점의
   // (편집 불가) scale_factor를 다시 적용한다. backend의 scale_value()와 동일한 공식.
   // needs_review 모드에서는 scale_factor가 애초에 없어 basis 값 그대로 통과한다.
@@ -604,6 +634,26 @@ export default function FoodEntryOcrConfirmScreen() {
     }
     return truncate2(basis * servingMultiplier);
   };
+
+  // 헤더의 kcal 필드 — "총 내용물을 다 먹으면 총 몇 kcal인지" 보여주는 순수 참고용
+  // 값이다. energy의 기준량당 값에 (총내용량 ÷ 기준량) 비율을 곱하는 하나의 공식으로
+  // scale_method 전부(total_content/per_serving_with_count/per_basis_with_total)를
+  // 커버한다 — 저장되는 값(handleSave의 calories_kcal)과는 무관하다.
+  const headerKcal: number | null = (() => {
+    const totalNum = Number(totalContentAmount);
+    const energyBasisNum = Number(nutrientFields.energy);
+    if (
+      totalContentAmount.trim() === '' ||
+      Number.isNaN(totalNum) ||
+      nutrientFields.energy.trim() === '' ||
+      Number.isNaN(energyBasisNum) ||
+      basisAmountValue == null ||
+      basisAmountValue <= 0
+    ) {
+      return null;
+    }
+    return truncate2(energyBasisNum * (totalNum / basisAmountValue));
+  })();
 
   const hasServingMultiplier = servingMultiplier != null && !Number.isNaN(servingMultiplier);
   const detailColumnHeader = hasServingMultiplier
@@ -821,15 +871,19 @@ export default function FoodEntryOcrConfirmScreen() {
         </View>
 
         {/* 2. 오늘 섭취 안전도 — 단일 성분 헤드라인 + 원형 게이지 */}
-        <View style={styles.card}>
-          <View style={styles.sectionHeaderRow}>
-            <Text style={styles.fieldLabel}>오늘 섭취 안전도</Text>
-            <Pressable
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              onPress={() => setActiveInfo('safety')}>
-              <InformationIcon width={18} height={18} />
-            </Pressable>
-          </View>
+        <View style={styles.safetyCard}>
+          <LinearGradient
+            colors={['#FEF6F6', '#FEEBEA']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 0, y: 1 }}
+            style={StyleSheet.absoluteFillObject}
+          />
+          <Pressable
+            style={styles.safetyInfoButton}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            onPress={() => setActiveInfo('safety')}>
+            <InformationIcon width={18} height={18} />
+          </Pressable>
           <View style={styles.safetyRow}>
             <View style={styles.safetyTextGroup}>
               <Text
@@ -849,7 +903,7 @@ export default function FoodEntryOcrConfirmScreen() {
         {/* 3. 성분별 상태 — 7개 배지 그리드, 이전 라운드와 동일 */}
         <View style={styles.card}>
           <View style={styles.sectionHeaderRow}>
-            <Text style={styles.fieldLabel}>성분별 상태</Text>
+            <Text style={styles.fieldLabel}>영양소 섭취 분석</Text>
             <Pressable
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               onPress={() => setActiveInfo('nutrientStatus')}>
@@ -894,16 +948,31 @@ export default function FoodEntryOcrConfirmScreen() {
             />
             <Text style={styles.totalHeaderUnit}>g</Text>
             <Text style={styles.totalHeaderSeparator}>·</Text>
+            <View style={[styles.totalHeaderInput, styles.totalHeaderReadOnly]}>
+              <Text style={styles.totalHeaderReadOnlyText}>
+                {headerKcal != null ? String(headerKcal) : '-'}
+              </Text>
+            </View>
+            <Text style={styles.totalHeaderUnit}>kcal</Text>
+          </View>
+
+          <View style={styles.basisHeaderRow}>
+            <Text style={styles.totalHeaderLabel}>기준량</Text>
             <TextInput
               style={styles.totalHeaderInput}
-              value={totalEnergyKcal}
-              onChangeText={(text) => setTotalEnergyKcal(sanitizeNonNegativeDecimal(text))}
+              value={basisAmountValueText}
+              onChangeText={updateBasisAmountValue}
               placeholder="-"
               placeholderTextColor={authColors.gray}
               keyboardType="decimal-pad"
             />
-            <Text style={styles.totalHeaderUnit}>kcal</Text>
+            <Text style={styles.totalHeaderUnit}>g</Text>
           </View>
+          {scanResult.scale_method === 'per_basis_with_total' && !isWeightUnit && (
+            <Text style={styles.basisLimitationCaption}>
+              기준량 수정은 g 단위 입력에만 반영돼요
+            </Text>
+          )}
 
           <Text style={styles.transparencyText}>※ {totalConsumedCaption}</Text>
 
@@ -914,7 +983,9 @@ export default function FoodEntryOcrConfirmScreen() {
               </View>
               <View style={styles.columnDivider} />
               <View style={styles.pairedInputCol}>
-                <Text style={[styles.tableHeaderCell, styles.tableHeaderValueCell]}>100g당</Text>
+                <Text style={[styles.tableHeaderCell, styles.tableHeaderValueCell]}>
+                  {getBasisLabel(scanResult.scale_method, basisAmountValue)}
+                </Text>
               </View>
               <View style={styles.columnDivider} />
               <View style={styles.pairedInputCol}>
@@ -1090,6 +1161,26 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 0 },
     elevation: 3,
   },
+  safetyCard: {
+    overflow: 'hidden',
+    borderWidth: 0.7,
+    borderColor: '#FFEDEE',
+    borderRadius: 15,
+    paddingVertical: 13,
+    paddingHorizontal: 19,
+    marginTop: 12,
+    shadowColor: '#F47E8A',
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 3,
+  },
+  safetyInfoButton: {
+    position: 'absolute',
+    top: 14,
+    right: 14,
+    zIndex: 1,
+  },
   cardDivider: {
     height: 1,
     backgroundColor: authColors.border,
@@ -1260,7 +1351,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
-    marginTop: 10,
+    marginTop: 8,
   },
   safetyTextGroup: {
     flex: 1,
@@ -1296,7 +1387,7 @@ const styles = StyleSheet.create({
     fontFamily: fonts.regular,
     fontSize: 11,
     color: authColors.gray,
-    marginTop: 12,
+    marginTop: 8,
   },
   statusGrid: {
     flexDirection: 'row',
@@ -1343,6 +1434,27 @@ const styles = StyleSheet.create({
     color: authColors.gray,
     marginHorizontal: 2,
   },
+  basisHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 8,
+  },
+  totalHeaderReadOnly: {
+    backgroundColor: '#F7F7F7',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  totalHeaderReadOnlyText: {
+    fontSize: 12,
+    color: authColors.grayDark,
+  },
+  basisLimitationCaption: {
+    fontFamily: fonts.regular,
+    fontSize: 11,
+    color: authColors.gray,
+    marginTop: 6,
+  },
   // 헤더 행 + 데이터 행을 하나의 테두리 박스 안에 담아 실제 표처럼 보이게 한다 —
   // overflow:hidden이 안의 모서리를 컨테이너의 둥근 모서리에 맞춰 잘라준다.
   tableContainer: {
@@ -1356,7 +1468,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#FFF0F0',
-    paddingVertical: 8,
+    paddingVertical: 6,
     paddingHorizontal: 10,
     // 데이터 행과의 경계를 살짝 더 진하게 — authColors.pink도 이미 앱에서
     // 쓰이는 기존 토큰이라 새 색을 들여오지 않는다.
@@ -1367,6 +1479,7 @@ const styles = StyleSheet.create({
     fontFamily: nanumSquareRound.bold,
     fontSize: 11,
     color: authColors.pink,
+    textAlign: 'center',
   },
   tableHeaderValueCell: {
     textAlign: 'center',
