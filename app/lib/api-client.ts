@@ -437,6 +437,7 @@ export function createFoodLog(body: FoodLogCreateRequest): Promise<FoodLogCreate
 
 export interface OcrScanRequest {
   image: string; // base64, no data URI prefix
+  user_id: number;
 }
 
 export type OcrScaleMethod =
@@ -445,6 +446,29 @@ export type OcrScaleMethod =
   | 'per_serving_with_count'
   | 'unknown';
 
+export type OcrNutrientKey =
+  | 'carbohydrate'
+  | 'sugar'
+  | 'energy'
+  | 'fat'
+  | 'iron'
+  | 'protein'
+  | 'sodium';
+
+export interface OcrNutrientValue {
+  basis_value: number | null;
+  serving_value: number | null;
+  total_value: number | null;
+}
+
+export interface OcrNutrientStatus {
+  key: string;
+  label: string;
+  unit: string;
+  status: string;
+  status_label: string;
+}
+
 export interface OcrScanResponse {
   product_name: string | null;
   sugar_g: number | null;
@@ -452,11 +476,45 @@ export interface OcrScanResponse {
   scale_method: OcrScaleMethod;
   scale_factor_applied: number | null;
   basis_amount_value: number | null;
+  total_content_value: number | null;
   needs_review: boolean;
+  nutrients: Record<OcrNutrientKey, OcrNutrientValue>;
+  nutrient_statuses: OcrNutrientStatus[];
 }
 
 export function scanNutritionLabel(body: OcrScanRequest): Promise<OcrScanResponse> {
   return post('/ocr/scan', body);
+}
+
+export interface OcrAlternativesRequest {
+  user_id: number;
+  product_name?: string | null;
+  nutrients: Partial<Record<OcrNutrientKey, number | null>>;
+}
+
+export interface OcrAlternativeItem {
+  food_id: number;
+  food_name: string;
+  subcategory: string;
+  sugar_g: number | null;
+  sodium_mg: number | null;
+  fat_g: number | null;
+  iron_mg: number | null;
+  calories_kcal: number | null;
+}
+
+export interface OcrAlternativesResponse {
+  available: boolean;
+  trigger_nutrient: string | null;
+  category: string | null;
+  subcategory: string | null;
+  alternatives: OcrAlternativeItem[];
+}
+
+export function getOcrAlternatives(
+  body: OcrAlternativesRequest
+): Promise<OcrAlternativesResponse> {
+  return post('/ocr/alternatives', body);
 }
 
 export interface FoodLogDeleteResponse {

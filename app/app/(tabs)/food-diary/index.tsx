@@ -13,29 +13,13 @@ import { authColors } from '@/components/auth/colors';
 import AddFoodPopup from '@/components/home/AddFoodPopup';
 import Calendar from '@/components/home/Calendar';
 import { summaryStatusColors, DEFAULT_SUMMARY_STATUS_COLORS } from '@/components/home/summaryColors';
+import StatusChip from '@/components/common/StatusChip';
 import { fonts } from '@/constants/fonts';
 import { useAuth } from '@/context/auth-context';
 import { useFoodDiary } from '@/context/food-diary-context';
 import { ApiError, deleteFoodLog, FoodLogEntry } from '@/lib/api-client';
 
 const EXPAND_SPRING_CONFIG = { damping: 16, stiffness: 100, mass: 1 };
-
-function StatusChip({
-  label,
-  value,
-  colors,
-}: {
-  label: string;
-  value: string;
-  colors: { label: string; value: string; bg: string };
-}) {
-  return (
-    <View style={[styles.chip, { backgroundColor: colors.bg }]}>
-      <Text style={[styles.chipLabel, { color: colors.label }]}>{label}</Text>
-      <Text style={[styles.chipValue, { color: colors.value }]}>{value}</Text>
-    </View>
-  );
-}
 
 function FoodLogRow({ entry, onDelete }: { entry: FoodLogEntry; onDelete: (entry: FoodLogEntry) => void }) {
   return (
@@ -461,21 +445,6 @@ const styles = StyleSheet.create({
   },
   chipPressable: {
     flex: 1,
-  },
-  chip: {
-    flex: 1,
-    borderRadius: 12,
-    paddingVertical: 10,
-    alignItems: 'center',
-  },
-  chipLabel: {
-    fontFamily: fonts.regular,
-    fontSize: 11,
-  },
-  chipValue: {
-    fontFamily: fonts.bold,
-    fontSize: 13,
-    marginTop: 4,
   },
   premiumLink: {
     fontFamily: fonts.medium,

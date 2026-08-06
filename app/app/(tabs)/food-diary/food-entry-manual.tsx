@@ -37,19 +37,11 @@ import FatIcon from '@/assets/images/foodDiary/fat.svg';
 import IronIcon from '@/assets/images/foodDiary/iron.svg';
 import ProteinIcon from '@/assets/images/foodDiary/protein.svg';
 import { authColors } from '@/components/auth/colors';
-import BottomSheet from '@/components/common/BottomSheet';
+import AmountUnitPicker, { UNITS } from '@/components/food-diary/AmountUnitPicker';
 import { fonts, nanumSquareRound } from '@/constants/fonts';
 import { useAuth } from '@/context/auth-context';
 import { ApiError, createFoodLog, createPersonalFoodItem } from '@/lib/api-client';
 
-const UNITS = ['개', '인분', '접시', '컵', 'g', 'ml'];
-const AMOUNT_PRESETS = [
-  { label: '1/4', value: '0.25' },
-  { label: '1/3', value: '0.33' },
-  { label: '1/2', value: '0.5' },
-  { label: '1', value: '1' },
-  { label: '2', value: '2' },
-];
 const EXPAND_SPRING_CONFIG = { damping: 16, stiffness: 100, mass: 1 };
 
 function sanitizeNonNegativeDecimal(text: string) {
@@ -143,7 +135,6 @@ export default function FoodEntryManualScreen() {
   const [foodName, setFoodName] = useState(name ?? '');
   const [amount, setAmount] = useState('1');
   const [unit, setUnit] = useState(UNITS[0]);
-  const [unitSheetVisible, setUnitSheetVisible] = useState(false);
   const [time, setTime] = useState(new Date());
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [caffeineMg, setCaffeineMg] = useState('');
@@ -346,34 +337,7 @@ export default function FoodEntryManualScreen() {
           </View>
           <Text style={styles.fieldLabel}>섭취단위</Text>
         </View>
-        <View style={styles.presetRow}>
-          {AMOUNT_PRESETS.map((p) => (
-            <Pressable
-              key={p.label}
-              style={[styles.presetChip, amount === p.value && styles.presetChipSelected]}
-              onPress={() => setAmount(p.value)}>
-              <Text
-                style={[
-                  styles.presetChipText,
-                  amount === p.value && styles.presetChipTextSelected,
-                ]}>
-                {p.label}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-        <View style={styles.amountRow}>
-          <TextInput
-            style={styles.amountInput}
-            value={amount}
-            onChangeText={setAmount}
-            keyboardType="numeric"
-          />
-          <Pressable style={styles.unitTriggerPill} onPress={() => setUnitSheetVisible(true)}>
-            <Text style={styles.unitTriggerPillText}>{unit}</Text>
-            <ChevronDownIcon width={12} height={8} />
-          </Pressable>
-        </View>
+        <AmountUnitPicker amount={amount} unit={unit} onChangeAmount={setAmount} onChangeUnit={setUnit} />
       </View>
 
       {/* 섭취시간 */}
@@ -573,28 +537,6 @@ export default function FoodEntryManualScreen() {
         <Text style={styles.saveButtonText}>{saving ? '저장 중...' : '기록 저장'}</Text>
       </Pressable>
       </ScrollView>
-
-      <BottomSheet visible={unitSheetVisible} onClose={() => setUnitSheetVisible(false)}>
-        <View style={[styles.sheetContainer, { paddingBottom: styles.sheetContainer.paddingBottom + insets.bottom }]}>
-          <Text style={styles.sheetTitle}>섭취단위 선택</Text>
-          {UNITS.map((u) => (
-            <Pressable
-              key={u}
-              style={[styles.unitRow, unit === u && styles.unitRowSelected]}
-              onPress={() => {
-                setUnit(u);
-                setUnitSheetVisible(false);
-              }}>
-              <Text style={[styles.unitRowText, unit === u && styles.unitRowTextSelected]}>
-                {u}
-              </Text>
-            </Pressable>
-          ))}
-          <Pressable onPress={() => setUnitSheetVisible(false)}>
-            <Text style={styles.sheetCancelText}>닫기</Text>
-          </Pressable>
-        </View>
-      </BottomSheet>
     </KeyboardAvoidingView>
   );
 }
@@ -680,106 +622,6 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 13,
     color: '#000000',
-  },
-  amountRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 10,
-    gap: 8,
-  },
-  amountInput: {
-    backgroundColor: authColors.white,
-    borderWidth: 0.7,
-    borderColor: authColors.border,
-    borderRadius: 6,
-    height: 32,
-    flex: 1,
-    paddingHorizontal: 12,
-    fontSize: 12,
-    color: '#000000',
-  },
-  presetRow: {
-    flexDirection: 'row',
-    gap: 6,
-    marginTop: 10,
-  },
-  presetChip: {
-    borderWidth: 1,
-    borderColor: authColors.border,
-    borderRadius: 100,
-    paddingHorizontal: 16,
-    paddingVertical: 7,
-    backgroundColor: '#FFF5F3',
-  },
-  presetChipSelected: {
-    borderColor: authColors.pink,
-    backgroundColor: authColors.pink,
-  },
-  presetChipText: {
-    fontFamily: nanumSquareRound.bold,
-    fontSize: 11,
-    color: authColors.gray,
-  },
-  presetChipTextSelected: {
-    color: authColors.white,
-  },
-  unitTriggerPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    borderWidth: 0.7,
-    borderColor: authColors.border,
-    borderRadius: 6,
-    backgroundColor: '#FFF5F3',
-    flexShrink: 0,
-    height: 32,
-    paddingHorizontal: 12,
-  },
-  unitTriggerPillText: {
-    fontFamily: nanumSquareRound.bold,
-    fontSize: 12,
-    color: authColors.gray,
-  },
-  sheetContainer: {
-    backgroundColor: authColors.white,
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 30,
-    paddingTop: 36,
-    paddingHorizontal: 19,
-    paddingBottom: 40,
-  },
-  sheetTitle: {
-    fontFamily: fonts.medium,
-    fontSize: 18,
-    color: '#000000',
-    marginBottom: 8,
-  },
-  unitRow: {
-    paddingVertical: 14,
-    borderBottomWidth: 0.7,
-    borderBottomColor: authColors.border,
-  },
-  unitRowSelected: {
-    backgroundColor: '#FFF5F3',
-    borderRadius: 6,
-    paddingHorizontal: 8,
-  },
-  unitRowText: {
-    fontFamily: fonts.medium,
-    fontSize: 15,
-    color: authColors.grayDark,
-  },
-  unitRowTextSelected: {
-    color: authColors.pink,
-  },
-  sheetCancelText: {
-    fontFamily: nanumSquareRound.bold,
-    fontSize: 15,
-    color: authColors.gray,
-    textAlign: 'center',
-    marginTop: 16,
-    textDecorationLine: 'underline',
   },
   timeInput: {
     backgroundColor: authColors.white,

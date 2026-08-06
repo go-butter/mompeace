@@ -1,3 +1,4 @@
+import { useIsFocused } from '@react-navigation/native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useRef, useState } from 'react';
@@ -7,37 +8,32 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import PrevIcon from '@/assets/images/common/prev.svg';
 import { authColors } from '@/components/auth/colors';
 import { fonts, nanumSquareRound } from '@/constants/fonts';
+import { useAuth } from '@/context/auth-context';
 import { scanNutritionLabel } from '@/lib/api-client';
 
 export default function FoodEntryOcrCaptureScreen() {
   const insets = useSafeAreaInsets();
+  const isFocused = useIsFocused();
+  const { user } = useAuth();
   const { date } = useLocalSearchParams<{ date: string }>();
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef<CameraView>(null);
   const [analyzing, setAnalyzing] = useState(false);
 
   const handleCapture = async () => {
-    if (!cameraRef.current || analyzing) return;
+    if (!cameraRef.current || analyzing || !user?.user_id) return;
     setAnalyzing(true);
     try {
       const photo = await cameraRef.current.takePictureAsync({ base64: true, quality: 0.5 });
       if (!photo?.base64) throw new Error('사진을 처리하지 못했어요.');
 
-      const result = await scanNutritionLabel({ image: photo.base64 });
+      const result = await scanNutritionLabel({ image: photo.base64, user_id: user.user_id });
 
       router.push({
         pathname: '/(tabs)/food-diary/food-entry-ocr-confirm',
         params: {
           date,
-          product_name: result.product_name ?? '',
-          sugar_g: result.sugar_g != null ? String(result.sugar_g) : '',
-          sodium_mg: result.sodium_mg != null ? String(result.sodium_mg) : '',
-          scale_method: result.scale_method,
-          scale_factor_applied:
-            result.scale_factor_applied != null ? String(result.scale_factor_applied) : '',
-          basis_amount_value:
-            result.basis_amount_value != null ? String(result.basis_amount_value) : '',
-          needs_review: String(result.needs_review),
+          scan_result: JSON.stringify(result),
         },
       });
     } catch {
@@ -80,7 +76,11 @@ export default function FoodEntryOcrCaptureScreen() {
           </View>
         ) : (
           <>
-            <CameraView ref={cameraRef} style={styles.camera} facing="back" />
+            {/* expo-router's native-stack keeps this screen mounted after navigating
+                forward (for the iOS swipe-back gesture) — the camera preview's native
+                surface stays live underneath and can render above later screens' Modals
+                (e.g. the confirm screen's unit picker) unless unmounted on blur. */}
+            {isFocused && <CameraView ref={cameraRef} style={styles.camera} facing="back" />}
             <View pointerEvents="none" style={styles.frameOverlay}>
               <View style={styles.frameGuide} />
               <Text style={styles.frameCaption}>영양정보 표 전체가 보이도록 맞춰주세요</Text>

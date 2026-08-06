@@ -1,10 +1,11 @@
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { ReactNode, useEffect, useMemo, useState } from 'react';
 import Animated, {
   Easing,
   interpolate,
   runOnJS,
+  useAnimatedProps,
   useAnimatedStyle,
   useSharedValue,
   withSpring,
@@ -20,6 +21,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { Circle, Svg } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import ChevronDownIcon from '@/assets/images/common/chevron_down_plain.svg';
@@ -30,15 +32,54 @@ import SearchIcon from '@/assets/images/scan/search.svg';
 import CaffeineIcon from '@/assets/images/foodDiary/caffeine.svg';
 import SodiumIcon from '@/assets/images/foodDiary/sodium.svg';
 import SugarIcon from '@/assets/images/foodDiary/sugar.svg';
+import CaloriesIcon from '@/assets/images/foodDiary/calories.svg';
+import CarbohydrateIcon from '@/assets/images/foodDiary/carbohydrate.svg';
+import FatIcon from '@/assets/images/foodDiary/fat.svg';
+import IronIcon from '@/assets/images/foodDiary/iron.svg';
+import ProteinIcon from '@/assets/images/foodDiary/protein.svg';
 import { authColors } from '@/components/auth/colors';
+import StatusChip from '@/components/common/StatusChip';
+import AmountUnitPicker, { WEIGHT_UNITS } from '@/components/food-diary/AmountUnitPicker';
+import { summaryStatusColors, DEFAULT_SUMMARY_STATUS_COLORS } from '@/components/home/summaryColors';
 import { fonts, nanumSquareRound } from '@/constants/fonts';
+import { NUTRIENT_LABELS_KO, SELECTABLE_NUTRIENT_KEYS, SelectableNutrientKey } from '@/constants/nutrients';
 import { useAuth } from '@/context/auth-context';
-import { ApiError, createFoodLog, OcrScaleMethod } from '@/lib/api-client';
+import {
+  ApiError,
+  createFoodLog,
+  getOcrAlternatives,
+  OcrAlternativesResponse,
+  OcrNutrientStatus,
+  OcrScanResponse,
+  updateNutrientPreferences,
+} from '@/lib/api-client';
 
-const UNITS = ['개', 'g', 'ml', '인분'];
+const AnimatedCircle = Animated.createAnimatedComponent(Circle);
+
 const EXPAND_SPRING_CONFIG = { damping: 16, stiffness: 100, mass: 1 };
 const DRAFT_ROW_HEIGHT = 42;
 const TIME_PICKER_HEIGHT = 216;
+const ALTERNATIVES_DEBOUNCE_MS = 600;
+
+const NUTRIENT_ICONS: Record<SelectableNutrientKey, ReactNode> = {
+  carbohydrate: <CarbohydrateIcon width={17} height={17} />,
+  sugar: <SugarIcon width={17} height={17} />,
+  energy: <CaloriesIcon width={17} height={17} />,
+  fat: <FatIcon width={17} height={17} />,
+  iron: <IronIcon width={17} height={17} />,
+  protein: <ProteinIcon width={17} height={17} />,
+  sodium: <SodiumIcon width={18} height={18} />,
+};
+
+const NUTRIENT_UNITS: Record<SelectableNutrientKey, string> = {
+  carbohydrate: 'g',
+  sugar: 'g',
+  energy: 'kcal',
+  fat: 'g',
+  iron: 'mg',
+  protein: 'g',
+  sodium: 'mg',
+};
 
 function sanitizeNonNegativeDecimal(text: string) {
   const digitsAndDot = text.replace(/[^0-9.]/g, '');
@@ -65,18 +106,99 @@ function toEatenAt(date: string, time: Date) {
   return `${date} ${hh}:${min}:${ss}`;
 }
 
-function scaleTransparencyText(scaleMethod: OcrScaleMethod, scaleFactor: number | null) {
-  if (scaleFactor == null) return null;
-  if (scaleMethod === 'per_basis_with_total') {
-    return `라벨 기준량 대비 1회 제공량 비율을 적용해 1인분 기준으로 환산했어요 (×${scaleFactor.toFixed(2)})`;
-  }
-  // total_content / per_serving_with_count: 값이 이미 1회 제공량 기준이라 실제
-  // 스케일링이 일어나지 않음 (factor는 항상 1.0) — 설명할 변환이 없으므로 표시 안 함.
-  return null;
+// backend의 truncate_to_places(value, 2)와 동일하게 0 방향으로 절사한다 (반올림 아님).
+function truncate2(value: number) {
+  return Math.trunc(value * 100) / 100;
 }
 
-function sanitizeIntegerServings(text: string) {
-  return text.replace(/[^0-9]/g, '');
+// 한글 명사에 붙는 "은/는" 조사 — 마지막 글자에 받침이 있으면 "은", 없으면 "는".
+// 7개 영양소 이름 전부(탄수화물/당류/에너지/지방/철분/단백질/나트륨)에 대해
+// 문법적으로 맞는 헤드라인 문장을 만들기 위해 하드코딩 대신 규칙으로 계산한다.
+function attachEunNeun(word: string): string {
+  const lastChar = word.charCodeAt(word.length - 1);
+  const hasBatchim = lastChar >= 0xac00 && lastChar <= 0xd7a3 && (lastChar - 0xac00) % 28 !== 0;
+  return `${word}${hasBatchim ? '은' : '는'}`;
+}
+
+type Tier = 'avoid' | 'caution' | 'safe' | 'unknown';
+const TIER_ORDER: Tier[] = ['avoid', 'caution', 'safe', 'unknown'];
+
+// 'low'(band 타입 하한 미달, 예: 철분 부족)는 summaryColors.ts의 부족/안전 동색 처리와
+// 같은 이유로 caution과 같은 심각도로 묶는다.
+function tierOf(status: string): Tier {
+  if (status === 'avoid') return 'avoid';
+  if (status === 'caution' || status === 'low') return 'caution';
+  if (status === 'safe') return 'safe';
+  return 'unknown';
+}
+
+function pickRandomFrom<T>(arr: T[]): T {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+// 관심성분(사용자가 선택한 최대 3개) 우선 배지 선택 로직 — 위험→주의→안전→정보없음
+// 순서로, 각 단계에서 관심성분 먼저, 없으면 그 외 영양소 중에서 고른다(동률이면 랜덤).
+// backend가 이미 계산한 status 중에서 고르는 것뿐이라 새 판정 로직을 들여오지 않는다.
+function pickHeadlineNutrient(
+  statuses: OcrNutrientStatus[],
+  preferredKeys: SelectableNutrientKey[],
+  pickRandom: <T>(arr: T[]) => T
+): OcrNutrientStatus {
+  const preferredSet = new Set(preferredKeys);
+  for (const tier of TIER_ORDER) {
+    const atTier = statuses.filter((s) => tierOf(s.status) === tier);
+    if (atTier.length === 0) continue;
+    const preferred = atTier.filter((s) => preferredSet.has(s.key as SelectableNutrientKey));
+    return pickRandom(preferred.length > 0 ? preferred : atTier);
+  }
+  return statuses[0]; // unreachable — tierOf는 항상 TIER_ORDER 중 하나를 반환한다
+}
+
+// 헤드라인 문장 — mockup의 "지방은 주의가 필요해요"처럼 자연스러운 구어체를 쓴다.
+// 배지의 원문 그대로("위험")를 문장에 넣지 않는다 — 부드러운 표현이 목적이라
+// 굳이 같은 단어를 반복할 필요가 없다. 정보없음은 특정 성분 이름을 넣지 않는다
+// (판단 근거가 없다는 뜻이라 "이 성분이 문제"라는 느낌을 주면 오해의 소지가 있다).
+function buildHeadlineText(tier: Tier, nutrientLabel: string): string {
+  switch (tier) {
+    case 'avoid':
+      return `${attachEunNeun(nutrientLabel)} 주의가 필요해요`;
+    case 'caution':
+      return `${attachEunNeun(nutrientLabel)} 오늘 허용량에 가까워지고 있어요`;
+    case 'safe':
+      return `${attachEunNeun(nutrientLabel)} 여유있게 드실 수 있어요`;
+    case 'unknown':
+      return '라벨에서 확인 가능한 정보가 부족해요';
+  }
+}
+
+// 헤드라인 아래 2줄 설명 — 특정 성분이 아니라 단계 전체를 설명하는 문구라
+// 이전 라운드에 이미 승인된 카피(OVERALL_TIER_HEADLINE)를 그대로 재사용한다.
+const TIER_DESCRIPTION: Record<Tier, string> = {
+  avoid: '오늘 허용량을 넘길 수 있어요, 다른 메뉴도 고려해보세요',
+  caution: '오늘 허용량에 거의 다 찼어요, 적당히 조절해주세요',
+  safe: '오늘 허용량 안에서 여유있게 드실 수 있어요',
+  unknown: '라벨에서 확인 가능한 정보가 부족해요, 직접 수치를 확인해주세요',
+};
+
+// 원형 게이지 퍼센트 — 7개 중 상태를 아는 영양소만으로 계산하는 종합 점수.
+// 개별 성분의 실제 한도 대비 비율(옵션 a)은 이 화면에 한도 원값이 없어(백엔드가
+// 3단계 status만 내려줌) 새 백엔드 필드 없이는 계산 불가능하므로 채택하지 않았다.
+// unknown은 computeSafetyPercent()가 평균 계산 전에 걸러내므로 실제로 읽히지
+// 않지만, Record<Tier, number>가 4개 키 전부를 요구해 자리만 채워둔다.
+const TIER_SCORE: Record<Tier, number> = { safe: 100, caution: 55, avoid: 10, unknown: 0 };
+
+function computeSafetyPercent(statuses: OcrNutrientStatus[]): number | null {
+  const known = statuses.filter((s) => tierOf(s.status) !== 'unknown');
+  if (known.length === 0) return null;
+  const total = known.reduce((sum, s) => sum + TIER_SCORE[tierOf(s.status)], 0);
+  return Math.round(total / known.length);
+}
+
+function safetyBandLabel(percent: number | null): string {
+  if (percent == null) return '정보없음';
+  if (percent >= 70) return '양호해요';
+  if (percent >= 40) return '보통이에요';
+  return '주의가 필요해요';
 }
 
 type DraftRowProps = {
@@ -133,59 +255,205 @@ function DraftRow({ row, onRemove, onUpdate }: DraftRowProps) {
   );
 }
 
+function PairedNutrientField({
+  icon,
+  label,
+  unit,
+  basisValue,
+  detailValue,
+  onChangeBasis,
+  highlighted,
+}: {
+  icon: ReactNode;
+  label: string;
+  unit: string;
+  basisValue: string;
+  detailValue: string;
+  onChangeBasis: (text: string) => void;
+  // 오늘 섭취 안전도 헤드라인이 가리키는 성분과 같은 행일 때만 true — item B의
+  // headlineNutrient를 그대로 재사용해서 계산되고, 이 컴포넌트 안에서 새로
+  // 무언가를 판정하지 않는다.
+  highlighted?: boolean;
+}) {
+  // "100g당"/"총섭취량(...)" 라벨은 테이블 헤더 행(카드 상단, 핑크 배경)에서
+  // 한 번만 보여준다 — 여기서 행마다 반복하면 중복이라 카드가 불필요하게
+  // 길어진다. 이 행은 값만 보여준다.
+  return (
+    <View style={[styles.pairedRow, highlighted && styles.pairedRowHighlighted]}>
+      <View style={styles.pairedLabelGroup}>
+        {icon}
+        <Text
+          style={[styles.nutrientLabel, highlighted && styles.nutrientLabelHighlighted]}
+          numberOfLines={1}>
+          {label}({unit})
+        </Text>
+      </View>
+      <View style={styles.columnDivider} />
+      <View style={styles.pairedInputCol}>
+        <TextInput
+          style={styles.pairedInput}
+          value={basisValue}
+          onChangeText={onChangeBasis}
+          placeholder="-"
+          placeholderTextColor={authColors.gray}
+          keyboardType="decimal-pad"
+        />
+      </View>
+      <View style={styles.columnDivider} />
+      <View style={styles.pairedInputCol}>
+        <Text
+          style={[styles.pairedReadOnlyValue, highlighted && styles.pairedReadOnlyValueHighlighted]}>
+          {detailValue}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+function SafetyGauge({
+  percent,
+  bandLabel,
+  size = 96,
+}: {
+  percent: number | null;
+  bandLabel: string;
+  size?: number;
+}) {
+  const strokeWidth = 8;
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const clampedPercent = percent == null ? 0 : Math.max(0, Math.min(100, percent));
+  const progress = useSharedValue(0);
+
+  useEffect(() => {
+    progress.value = withTiming(clampedPercent, { duration: 600 });
+  }, [clampedPercent, progress]);
+
+  const animatedProps = useAnimatedProps(() => ({
+    strokeDashoffset: circumference * (1 - progress.value / 100),
+  }));
+
+  const ringColor =
+    percent == null
+      ? authColors.border
+      : percent >= 70
+        ? summaryStatusColors['여유'].value
+        : percent >= 40
+          ? summaryStatusColors['안전'].value
+          : summaryStatusColors['위험'].value;
+
+  return (
+    <View style={{ width: size, height: size }}>
+      <Svg width={size} height={size}>
+        <Circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          stroke={authColors.border}
+          strokeWidth={strokeWidth}
+          fill="none"
+        />
+        <AnimatedCircle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          stroke={ringColor}
+          strokeWidth={strokeWidth}
+          strokeLinecap="round"
+          strokeDasharray={`${circumference} ${circumference}`}
+          fill="none"
+          animatedProps={animatedProps}
+          transform={`rotate(-90 ${size / 2} ${size / 2})`}
+        />
+      </Svg>
+      <View style={styles.gaugeLabelOverlay} pointerEvents="none">
+        <Text style={styles.gaugePercentText}>{percent == null ? '-' : `${percent}%`}</Text>
+        <Text style={styles.gaugeBandText} numberOfLines={1}>
+          {bandLabel}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
 export default function FoodEntryOcrConfirmScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
-  const params = useLocalSearchParams<{
-    date: string;
-    product_name?: string;
-    sugar_g?: string;
-    sodium_mg?: string;
-    scale_method?: string;
-    scale_factor_applied?: string;
-    basis_amount_value?: string;
-    needs_review?: string;
-  }>();
+  const params = useLocalSearchParams<{ date: string; scan_result?: string }>();
 
-  const needsReview = params.needs_review === 'true';
-  const scaleMethod = (params.scale_method ?? 'unknown') as OcrScaleMethod;
-  const scaleFactor =
-    params.scale_factor_applied && params.scale_factor_applied !== ''
-      ? Number(params.scale_factor_applied)
-      : null;
-  const basisAmountValue =
-    params.basis_amount_value && params.basis_amount_value !== ''
-      ? Number(params.basis_amount_value)
-      : null;
-  const transparencyText = scaleTransparencyText(scaleMethod, scaleFactor);
+  const scanResult = useMemo<OcrScanResponse | null>(() => {
+    if (!params.scan_result) return null;
+    try {
+      return JSON.parse(params.scan_result) as OcrScanResponse;
+    } catch {
+      return null;
+    }
+  }, [params.scan_result]);
 
-  // 3-way input mode:
-  // - servings: 스케일이 확정됨 → 값은 이미 1회 제공량 기준, 인분수만 곱하면 됨.
-  // - grams: 기준량(예: 100g)은 알지만 1회 제공량을 몰라 인분수를 가정할 수 없음
-  //   → 실제 섭취량(g)을 직접 입력받아 기준량 대비 비율로 계산.
-  // - manual: 기준량조차 모름 → 오늘까지의 기존 동작대로 완전 수동 입력, 스케일 없음.
-  const inputMode: 'servings' | 'grams' | 'manual' = !needsReview
-    ? 'servings'
-    : basisAmountValue != null
-      ? 'grams'
-      : 'manual';
+  useEffect(() => {
+    if (!scanResult) {
+      router.replace({ pathname: '/(tabs)/food-diary/food-entry-ocr-failure', params: { date: params.date } });
+    }
+    // scanResult가 없으면(잘못된 딥링크 등) 캡처 화면의 기존 실패 흐름을 그대로 재사용한다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scanResult]);
 
-  const [foodName, setFoodName] = useState(params.product_name ?? '');
-  const [amount, setAmount] = useState(inputMode === 'grams' ? '' : '1');
-  const [unit, setUnit] = useState(
-    inputMode === 'grams' ? 'g' : inputMode === 'servings' ? '인분' : UNITS[0]
-  );
+  const needsReview = scanResult?.needs_review ?? false;
+  const scaleFactor = scanResult?.scale_factor_applied ?? null;
+  const basisAmountValue = scanResult?.basis_amount_value ?? null;
+
+  // 라벨에서 1회 제공량을 확정하지 못했지만(needs_review) 기준량(예: 100g)은 알 때 —
+  // 인분수를 가정할 수 없으니 실제 섭취량(g)을 직접 입력받도록 유도한다. 그 외에는
+  // 가장 흔한 단위인 인분/1을 기본값으로 시작한다.
+  const [foodName, setFoodName] = useState(scanResult?.product_name ?? '');
+  const [amount, setAmount] = useState(needsReview && basisAmountValue != null ? '' : '1');
+  const [unit, setUnit] = useState(needsReview && basisAmountValue != null ? 'g' : '인분');
   const [time, setTime] = useState(new Date());
   const [showTimePicker, setShowTimePicker] = useState(false);
+  // 병합 카드(상품명/섭취량/섭취시간)의 표시 모드 — "스캔 결과 확인"이 핵심 목적이라
+  // 도착 즉시 바로 검토/수정할 수 있도록 편집 모드로 시작한다(요약 모드는 검토가
+  // 끝난 뒤 접어두는 용도).
+  const [isEditingTopCard, setIsEditingTopCard] = useState(true);
   const [caffeineMg, setCaffeineMg] = useState('');
-  const [sugarG, setSugarG] = useState(params.sugar_g ?? '');
-  const [sodiumMg, setSodiumMg] = useState(params.sodium_mg ?? '');
   const [draftRows, setDraftRows] = useState<{ id: string; name: string; value: string }[]>([]);
+  // 총내용량(g) — 라벨 헤더처럼 편집 가능. basis_amount_value(기준량, 100g)는
+  // 이 화면에서 편집하지 않는 고정값 그대로 유지하고, 이 값만 상태로 승격한다.
+  const [totalContentAmount, setTotalContentAmount] = useState(
+    scanResult?.total_content_value != null ? String(scanResult.total_content_value) : ''
+  );
+  // 헤더의 kcal 필드 — 더 이상 어떤 행의 total과도 묶이지 않는 독립 상태(순수 참고용).
+  const [totalEnergyKcal, setTotalEnergyKcal] = useState(
+    scanResult?.nutrients?.energy?.total_value != null
+      ? String(scanResult.nutrients.energy.total_value)
+      : ''
+  );
+  // 100g당 값만 저장한다 — 총내용량 열은 더 이상 편집 상태가 아니라 매 렌더마다
+  // basis에서 계산되는 값이라 별도로 들고 있지 않는다.
+  const [nutrientFields, setNutrientFields] = useState<Record<SelectableNutrientKey, string>>(() => {
+    const initial = {} as Record<SelectableNutrientKey, string>;
+    for (const key of SELECTABLE_NUTRIENT_KEYS) {
+      const nv = scanResult?.nutrients?.[key];
+      initial[key] = nv?.basis_value != null ? String(nv.basis_value) : '';
+    }
+    return initial;
+  });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [alternatives, setAlternatives] = useState<OcrAlternativesResponse | null>(null);
+  // 관심성분(사용자가 마이페이지에서 고른 최대 3개) — null이면 아직 로딩 전.
+  // updateNutrientPreferences(userId, null)은 값을 바꾸지 않고 현재 선택을 그대로
+  // 조회하는 기존 read-as-write-null 패턴(마이페이지 화면과 동일)이다.
+  const [preferredNutrients, setPreferredNutrients] = useState<SelectableNutrientKey[] | null>(null);
   const chevronRotation = useSharedValue(0);
   const timePickerHeight = useSharedValue(0);
   const timePickerOpacity = useSharedValue(0);
+
+  useEffect(() => {
+    if (!user?.user_id) return;
+    updateNutrientPreferences(user.user_id, null)
+      .then((res) => setPreferredNutrients(res.selected_nutrients as SelectableNutrientKey[]))
+      .catch(() => setPreferredNutrients([]));
+  }, [user?.user_id]);
 
   const trimmedName = foodName.trim();
   // 인분(servings) 단위는 부분 인분 로깅을 지원하지 않음 — 소수/0 이하는 그램
@@ -197,6 +465,21 @@ export default function FoodEntryOcrConfirmScreen() {
     !Number.isNaN(parsedAmount) &&
     (isServingsUnit ? Number.isInteger(parsedAmount) && parsedAmount >= 1 : parsedAmount > 0);
   const isFormValid = trimmedName.length > 0 && isAmountValid;
+
+  // g/ml은 라벨 기준량(예: 100g) 대비 비율로 계산해야 하는 "무게형" 단위 — 그 외
+  // (인분/개/접시/컵)는 "선택한 개수 그대로가 배율"인 "개수형" 단위다. AmountUnitPicker가
+  // 제공하는 단위 목록과 어긋나지 않도록 WEIGHT_UNITS를 그 컴포넌트에서 그대로 가져온다.
+  const isWeightUnit = WEIGHT_UNITS.includes(unit);
+
+  // 서버가 각 영양소 값에 곱할 배율이자, 영양성분 상세의 총섭취량 열도 이 값을
+  // 그대로 재사용한다(handleSave에서 다시 계산하지 않음).
+  // - 개수형 단위(인분/개/접시/컵): 선택한 개수 그대로.
+  // - 무게형 단위(g/ml): 실제 섭취량 ÷ 라벨 기준량(예: 100g) — 기준량을 모르면 배율 없음.
+  const servingMultiplier: number | undefined = isWeightUnit
+    ? basisAmountValue != null && basisAmountValue > 0
+      ? parsedAmount / basisAmountValue
+      : undefined
+    : parsedAmount;
 
   const timeChevronAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ rotate: `${interpolate(chevronRotation.value, [0, 1], [0, 180])}deg` }],
@@ -252,25 +535,77 @@ export default function FoodEntryOcrConfirmScreen() {
     setDraftRows((prev) => prev.filter((r) => r.id !== id));
   };
 
+  const updateNutrientBasis = (key: SelectableNutrientKey, text: string) => {
+    const sanitized = sanitizeNonNegativeDecimal(text);
+    setNutrientFields((prev) => ({ ...prev, [key]: sanitized }));
+  };
+
+  const updateTotalContentAmount = (text: string) => {
+    setTotalContentAmount(sanitizeNonNegativeDecimal(text));
+  };
+
+  // 실제로 /food-log에 저장되는 값 — basis_value(사용자가 고친 라벨 값)에 스캔 시점의
+  // (편집 불가) scale_factor를 다시 적용한다. backend의 scale_value()와 동일한 공식.
+  // needs_review 모드에서는 scale_factor가 애초에 없어 basis 값 그대로 통과한다.
+  const submittedValue = (key: SelectableNutrientKey): number | null => {
+    const raw = nutrientFields[key].trim();
+    if (raw === '') return null;
+    const basisNum = Number(raw);
+    if (Number.isNaN(basisNum)) return null;
+    return scaleFactor != null ? truncate2(basisNum * scaleFactor) : basisNum;
+  };
+
+  // 영양성분 상세의 읽기 전용 "총섭취량" 열 — 실제 저장되는 값(submittedValue)에
+  // servingMultiplier를 곱한다. 총내용량(g)은 여기 관여하지 않는다 — 총내용량 kcal와
+  // 마찬가지로 순수 참고용 필드다(예전에는 totalScale까지 곱해 이중 계산되던 버그가
+  // 있었다). 저장된 state가 아니라 매 렌더마다 새로 계산되므로 재계산 걱정이 없다.
+  const detailColumnValue = (key: SelectableNutrientKey): number | null => {
+    const submitted = submittedValue(key);
+    if (submitted == null || servingMultiplier == null || Number.isNaN(servingMultiplier)) {
+      return null;
+    }
+    return truncate2(submitted * servingMultiplier);
+  };
+
+  const hasServingMultiplier = servingMultiplier != null && !Number.isNaN(servingMultiplier);
+  const detailColumnHeader = hasServingMultiplier
+    ? isWeightUnit
+      ? `총섭취량(${amount || 0}${unit} 기준)`
+      : `총섭취량(${parsedAmount || 0}${unit})`
+    : '총섭취량';
+
+  const totalConsumedCaption = hasServingMultiplier
+    ? isWeightUnit
+      ? `총 섭취량(${amount || 0}${unit}) 기준`
+      : `총 섭취량(${parsedAmount || 0}${unit}) 기준`
+    : '총 섭취량을 계산할 수 없어요';
+
+  // /ocr/alternatives는 마운트 시 스캔 초기값으로 한 번, 이후 100g당 편집값이 바뀔
+  // 때마다 디바운스로 재호출한다 — 실패는 항상 available:false로 조용히 수렴하도록
+  // 설계된 부가 기능이라(backend/routers/ocr.py), 저장 흐름을 막지 않는다.
+  useEffect(() => {
+    if (!user?.user_id || !trimmedName) {
+      setAlternatives(null);
+      return;
+    }
+    const handle = setTimeout(() => {
+      const nutrients: Partial<Record<SelectableNutrientKey, number | null>> = {};
+      for (const key of SELECTABLE_NUTRIENT_KEYS) {
+        nutrients[key] = submittedValue(key);
+      }
+      getOcrAlternatives({ user_id: user.user_id, product_name: trimmedName, nutrients })
+        .then((res) => setAlternatives(res))
+        .catch(() => setAlternatives(null));
+    }, ALTERNATIVES_DEBOUNCE_MS);
+    return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.user_id, trimmedName, JSON.stringify(SELECTABLE_NUTRIENT_KEYS.map((k) => nutrientFields[k]))]);
+
   const handleSave = () => {
     if (!isFormValid || !user?.user_id || !params.date || saving) return;
 
     const caffeine = caffeineMg.trim() === '' ? null : Number(caffeineMg);
-    const sugar = sugarG.trim() === '' ? null : Number(sugarG);
-    const sodium = sodiumMg.trim() === '' ? null : Number(sodiumMg);
     const eatenAt = toEatenAt(params.date, time);
-
-    // 서버가 sugar_g/sodium_mg(1회 제공량 기준 값)에 곱할 배율.
-    // - servings 모드: 인분수 그대로.
-    // - grams 모드: 실제 섭취 그램 ÷ 라벨 기준량(예: 100g) — 1회 제공량을 몰라도
-    //   기준량 대비 비율로 계산 가능.
-    // - manual 모드: 기준량조차 모르므로 배율 없음 (직접 입력한 값을 그대로 저장).
-    const servingMultiplier =
-      inputMode === 'servings'
-        ? parsedAmount
-        : inputMode === 'grams' && basisAmountValue != null
-          ? parsedAmount / basisAmountValue
-          : undefined;
 
     setSaving(true);
     setError(null);
@@ -282,9 +617,17 @@ export default function FoodEntryOcrConfirmScreen() {
       amount: parsedAmount || 1,
       unit,
       caffeine_mg: caffeine,
-      sugar_g: sugar,
-      sodium_mg: sodium,
-      calories_kcal: 0,
+      sugar_g: submittedValue('sugar'),
+      sodium_mg: submittedValue('sodium'),
+      carbohydrate_g: submittedValue('carbohydrate'),
+      protein_g: submittedValue('protein'),
+      fat_g: submittedValue('fat'),
+      iron_mg: submittedValue('iron'),
+      // calories_kcal은 다른 필드와 달리 null을 허용하지 않는 필드라(백엔드 컨벤션),
+      // 정보없음일 때만 0으로 폴백한다 — 값이 있으면 항상 실제 값을 보낸다. 헤더의
+      // kcal 필드(totalEnergyKcal)와는 무관 — 저장되는 값은 항상 에너지 행의
+      // 100g당(basis)에서 계산한다.
+      calories_kcal: submittedValue('energy') ?? 0,
       needs_review: needsReview,
       serving_multiplier: servingMultiplier,
       eaten_at: eatenAt,
@@ -301,6 +644,24 @@ export default function FoodEntryOcrConfirmScreen() {
       })
       .finally(() => setSaving(false));
   };
+
+  // 오늘 섭취 안전도 헤드라인 — nutrient_statuses 스냅샷(스캔 시점 고정) + 관심성분
+  // 목록으로 한 번만 고른다. deps가 [scanResult, preferredNutrients]뿐이라 다른
+  // 필드 편집으로는 재계산되지 않는다 — 관심성분 로딩이 끝나 preferredNutrients가
+  // null→배열로 바뀔 때 한 번 더 계산되는 것은 의도된 "업그레이드"다.
+  const headlineNutrient = useMemo(
+    () => pickHeadlineNutrient(scanResult?.nutrient_statuses ?? [], preferredNutrients ?? [], pickRandomFrom),
+    [scanResult, preferredNutrients]
+  );
+  const headlineTier = tierOf(headlineNutrient?.status ?? 'unknown');
+  const safetyPercent = useMemo(
+    () => computeSafetyPercent(scanResult?.nutrient_statuses ?? []),
+    [scanResult]
+  );
+
+  if (!scanResult) {
+    return null;
+  }
 
   return (
     <KeyboardAvoidingView
@@ -325,113 +686,200 @@ export default function FoodEntryOcrConfirmScreen() {
           <View style={styles.warningBanner}>
             <CautionIcon width={16} height={16} />
             <Text style={styles.warningBannerText}>
-              {inputMode === 'grams'
-                ? '1회 제공량 정보가 없어요. 실제로 드신 양을 그램(g)으로 입력해주세요.'
-                : '라벨 환산 방식을 정확히 파악하지 못했어요. 당류·나트륨 수치를 직접 확인해 입력해주세요.'}
+              라벨 환산 방식을 정확히 파악하지 못했어요. 섭취량과 각 영양성분 수치를 직접 확인해 입력해주세요.
             </Text>
           </View>
         )}
 
-        {/* 상품명 */}
+        {/* 1. 음식명 + 섭취량 + 섭취시간 (병합 카드) — 기본은 편집 모드로 시작한다.
+             "스캔 결과 확인"이 이 화면의 핵심 목적이라 도착하자마자 바로 검토/수정할
+             수 있어야 하고, 요약 모드는 검토가 끝난 뒤 다시 접어두는 용도다. */}
         <View style={styles.card}>
-          <Text style={styles.fieldLabel}>상품명</Text>
-          <View style={styles.nameInputRow}>
-            <SearchIcon width={16} height={16} color={authColors.gray} />
-            <TextInput
-              style={styles.nameTextInput}
-              value={foodName}
-              onChangeText={setFoodName}
-              placeholder="예: 감자깡"
-              placeholderTextColor={authColors.gray}
-            />
-          </View>
-        </View>
-
-        {/* 섭취량 */}
-        <View style={styles.card}>
-          <Text style={styles.fieldLabel}>
-            {inputMode === 'grams' ? '실제 섭취량 (g)' : '섭취량'}
-          </Text>
-          <View style={styles.amountRow}>
-            <TextInput
-              style={styles.amountInput}
-              value={amount}
-              onChangeText={(text) =>
-                setAmount(isServingsUnit ? sanitizeIntegerServings(text) : sanitizeNonNegativeDecimal(text))
-              }
-              placeholder={inputMode === 'grams' ? '예: 150' : undefined}
-              placeholderTextColor={authColors.gray}
-              keyboardType={isServingsUnit ? 'number-pad' : 'decimal-pad'}
-            />
-            {inputMode === 'manual' ? (
-              <View style={styles.unitPillRow}>
-                {UNITS.map((u) => (
-                  <Pressable
-                    key={u}
-                    style={[styles.unitPill, unit === u && styles.unitPillSelected]}
-                    onPress={() => {
-                      setUnit(u);
-                      if (u === '인분') {
-                        const current = Number(amount);
-                        setAmount(
-                          Number.isInteger(current) && current >= 1 ? String(current) : '1'
-                        );
-                      }
-                    }}>
-                    <Text style={[styles.unitPillText, unit === u && styles.unitPillTextSelected]}>
-                      {u}
-                    </Text>
-                  </Pressable>
-                ))}
+          {isEditingTopCard ? (
+            <>
+              <Text style={styles.fieldLabel}>상품명</Text>
+              <View style={styles.nameEditRow}>
+                <View style={[styles.nameInputRow, styles.flexOne]}>
+                  <SearchIcon width={16} height={16} color={authColors.gray} />
+                  <TextInput
+                    style={styles.nameTextInput}
+                    value={foodName}
+                    onChangeText={setFoodName}
+                    placeholder="예: 감자깡"
+                    placeholderTextColor={authColors.gray}
+                  />
+                </View>
+                <Pressable
+                  style={styles.editTogglePill}
+                  onPress={() => setIsEditingTopCard((v) => !v)}>
+                  <Text style={styles.editTogglePillText}>완료</Text>
+                </Pressable>
               </View>
-            ) : (
-              <Text style={styles.fixedUnitText}>{unit}</Text>
-            )}
-          </View>
-        </View>
 
-        {/* 섭취시간 */}
-        <View style={styles.card}>
-          <Text style={styles.fieldLabel}>섭취시간</Text>
-          <Pressable style={styles.timeInput} onPress={toggleTimePicker}>
-            <ClockIcon width={15} height={15} style={styles.timeInputClock} />
-            <Text style={styles.timeInputText}>{formatTimeLabel(time)}</Text>
-            <Animated.View style={[styles.timeInputChevron, timeChevronAnimatedStyle]}>
-              <ChevronDownIcon width={12} height={8} />
-            </Animated.View>
-          </Pressable>
-          {showTimePicker && (
-            <Animated.View
-              style={[
-                Platform.OS === 'ios' ? styles.timePickerContainer : undefined,
-                timePickerAnimatedStyle,
-              ]}>
-              <DateTimePicker
-                value={time}
-                mode="time"
-                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                themeVariant="light"
-                onChange={(_, selected) => {
-                  const nextVisible = Platform.OS === 'ios';
-                  if (!nextVisible) closeTimePicker();
-                  if (selected) setTime(selected);
-                }}
-              />
-            </Animated.View>
+              <View style={styles.cardDivider} />
+
+              <Text style={styles.fieldLabel}>
+                {isWeightUnit ? `실제 섭취량 (${unit})` : '섭취량'}
+              </Text>
+              <AmountUnitPicker amount={amount} unit={unit} onChangeAmount={setAmount} onChangeUnit={setUnit} />
+
+              <View style={styles.cardDivider} />
+
+              <Text style={styles.fieldLabel}>섭취시간</Text>
+              <Pressable style={styles.timeInput} onPress={toggleTimePicker}>
+                <ClockIcon width={15} height={15} style={styles.timeInputClock} />
+                <Text style={styles.timeInputText}>{formatTimeLabel(time)}</Text>
+                <Animated.View style={[styles.timeInputChevron, timeChevronAnimatedStyle]}>
+                  <ChevronDownIcon width={12} height={8} />
+                </Animated.View>
+              </Pressable>
+              {showTimePicker && (
+                <Animated.View
+                  style={[
+                    Platform.OS === 'ios' ? styles.timePickerContainer : undefined,
+                    timePickerAnimatedStyle,
+                  ]}>
+                  <DateTimePicker
+                    value={time}
+                    mode="time"
+                    display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                    themeVariant="light"
+                    onChange={(_, selected) => {
+                      const nextVisible = Platform.OS === 'ios';
+                      if (!nextVisible) closeTimePicker();
+                      if (selected) setTime(selected);
+                    }}
+                  />
+                </Animated.View>
+              )}
+            </>
+          ) : (
+            <>
+              <View style={styles.summaryHeaderRow}>
+                <Text style={[styles.summaryProductName, styles.flexOne]}>
+                  {trimmedName || '음식명을 입력해주세요'}
+                </Text>
+                <Pressable
+                  style={styles.editTogglePill}
+                  onPress={() => setIsEditingTopCard((v) => !v)}>
+                  <Text style={styles.editTogglePillText}>수정</Text>
+                </Pressable>
+              </View>
+              <View style={styles.summaryPillRow}>
+                <View style={styles.summaryPill}>
+                  <Text style={styles.summaryPillText}>
+                    섭취량 {isAmountValid ? `${amount}${unit}` : '입력 필요'}
+                  </Text>
+                </View>
+                <View style={styles.summaryPill}>
+                  <ClockIcon width={13} height={13} />
+                  <Text style={styles.summaryPillText}>섭취시간 {formatTimeLabel(time)}</Text>
+                </View>
+              </View>
+            </>
           )}
         </View>
 
-        {/* 주요 성분 */}
+        {/* 2. 오늘 섭취 안전도 — 단일 성분 헤드라인 + 원형 게이지 */}
         <View style={styles.card}>
-          <View style={styles.nutrientHeaderRow}>
-            <View>
-              <Text style={styles.fieldLabel}>주요 성분</Text>
+          <Text style={styles.fieldLabel}>오늘 섭취 안전도</Text>
+          <View style={styles.safetyRow}>
+            <View style={styles.safetyTextGroup}>
+              <Text
+                style={[
+                  styles.safetyHeadline,
+                  { color: (summaryStatusColors[headlineNutrient.status_label] ?? DEFAULT_SUMMARY_STATUS_COLORS).label },
+                ]}>
+                {buildHeadlineText(headlineTier, headlineNutrient.label)}
+              </Text>
+              <Text style={styles.safetyDescription}>{TIER_DESCRIPTION[headlineTier]}</Text>
             </View>
-            <Pressable style={styles.addNutrientPill} onPress={addDraftRow}>
-              <Text style={styles.addNutrientPillText}>+ 성분 추가</Text>
-            </Pressable>
+            <SafetyGauge percent={safetyPercent} bandLabel={safetyBandLabel(safetyPercent)} />
+          </View>
+          <Text style={styles.statusCaption}>※ 스캔한 라벨 기준 상태예요</Text>
+        </View>
+
+        {/* 3. 성분별 상태 — 7개 배지 그리드, 이전 라운드와 동일 */}
+        <View style={styles.card}>
+          <Text style={styles.fieldLabel}>성분별 상태</Text>
+          <View style={styles.statusGrid}>
+            {scanResult.nutrient_statuses.map((item) => (
+              <StatusChip
+                key={item.key}
+                label={item.label}
+                value={item.status_label}
+                colors={summaryStatusColors[item.status_label] ?? DEFAULT_SUMMARY_STATUS_COLORS}
+                style={styles.statusChipItem}
+              />
+            ))}
+          </View>
+        </View>
+
+        {/* 4. 영양성분 상세 (100g당 / 총섭취량(N인분)) */}
+        <View style={styles.card}>
+          <Text style={styles.fieldLabel}>영양성분 상세</Text>
+
+          {/* 총 내용량 헤더 — 실제 라벨의 "총 내용량(1포장) 당" 줄과 같은 형태.
+              kcal 필드는 이제 독립 상태다 — 저장되는 값에 영향을 주지 않는 참고용 숫자. */}
+          <View style={styles.totalHeaderRow}>
+            <Text style={styles.totalHeaderLabel}>총 내용량</Text>
+            <TextInput
+              style={styles.totalHeaderInput}
+              value={totalContentAmount}
+              onChangeText={updateTotalContentAmount}
+              placeholder="-"
+              placeholderTextColor={authColors.gray}
+              keyboardType="decimal-pad"
+            />
+            <Text style={styles.totalHeaderUnit}>g</Text>
+            <Text style={styles.totalHeaderSeparator}>·</Text>
+            <TextInput
+              style={styles.totalHeaderInput}
+              value={totalEnergyKcal}
+              onChangeText={(text) => setTotalEnergyKcal(sanitizeNonNegativeDecimal(text))}
+              placeholder="-"
+              placeholderTextColor={authColors.gray}
+              keyboardType="decimal-pad"
+            />
+            <Text style={styles.totalHeaderUnit}>kcal</Text>
           </View>
 
+          <Text style={styles.transparencyText}>※ {totalConsumedCaption}</Text>
+
+          <View style={styles.tableContainer}>
+            <View style={styles.tableHeaderRow}>
+              <View style={styles.pairedLabelGroup}>
+                <Text style={styles.tableHeaderCell}>영양성분</Text>
+              </View>
+              <View style={styles.columnDivider} />
+              <View style={styles.pairedInputCol}>
+                <Text style={[styles.tableHeaderCell, styles.tableHeaderValueCell]}>100g당</Text>
+              </View>
+              <View style={styles.columnDivider} />
+              <View style={styles.pairedInputCol}>
+                <Text style={[styles.tableHeaderCell, styles.tableHeaderValueCell]}>
+                  {detailColumnHeader}
+                </Text>
+              </View>
+            </View>
+            {SELECTABLE_NUTRIENT_KEYS.map((key) => {
+              const detail = detailColumnValue(key);
+              return (
+                <PairedNutrientField
+                  key={key}
+                  icon={NUTRIENT_ICONS[key]}
+                  label={NUTRIENT_LABELS_KO[key]}
+                  unit={NUTRIENT_UNITS[key]}
+                  basisValue={nutrientFields[key]}
+                  detailValue={detail != null ? String(detail) : '-'}
+                  onChangeBasis={(text) => updateNutrientBasis(key, text)}
+                  highlighted={key === headlineNutrient.key}
+                />
+              );
+            })}
+          </View>
+
+          <View style={styles.cardDivider} />
           <View style={styles.nutrientInputRow}>
             <View style={styles.nutrientLabelGroup}>
               <CaffeineIcon width={17} height={17} />
@@ -446,42 +894,17 @@ export default function FoodEntryOcrConfirmScreen() {
               keyboardType="decimal-pad"
             />
           </View>
+        </View>
 
-          {transparencyText ? (
-            <Text style={styles.transparencyText}>※ {transparencyText}</Text>
-          ) : (
-            inputMode === 'servings' && (
-              <Text style={styles.transparencyText}>※ 1회 제공량(1인분) 기준 값이에요</Text>
-            )
-          )}
-
-          <View style={styles.nutrientInputRow}>
-            <View style={styles.nutrientLabelGroup}>
-              <SugarIcon width={17} height={17} />
-              <Text style={styles.nutrientLabel}>당류(g)</Text>
+        {/* 5. 추가 성분 입력 */}
+        <View style={styles.card}>
+          <View style={styles.nutrientHeaderRow}>
+            <View>
+              <Text style={styles.fieldLabel}>추가 성분</Text>
             </View>
-            <TextInput
-              style={styles.nutrientInput}
-              value={sugarG}
-              onChangeText={(text) => setSugarG(sanitizeNonNegativeDecimal(text))}
-              placeholder="예: 8"
-              placeholderTextColor={authColors.gray}
-              keyboardType="decimal-pad"
-            />
-          </View>
-          <View style={styles.nutrientInputRow}>
-            <View style={styles.nutrientLabelGroup}>
-              <SodiumIcon width={18} height={18} />
-              <Text style={styles.nutrientLabel}>나트륨(mg)</Text>
-            </View>
-            <TextInput
-              style={styles.nutrientInput}
-              value={sodiumMg}
-              onChangeText={(text) => setSodiumMg(sanitizeNonNegativeDecimal(text))}
-              placeholder="예: 420"
-              placeholderTextColor={authColors.gray}
-              keyboardType="decimal-pad"
-            />
+            <Pressable style={styles.addNutrientPill} onPress={addDraftRow}>
+              <Text style={styles.addNutrientPillText}>+ 성분 추가</Text>
+            </Pressable>
           </View>
 
           <View>
@@ -497,6 +920,26 @@ export default function FoodEntryOcrConfirmScreen() {
         </View>
 
         {error && <Text style={styles.errorText}>{error}</Text>}
+
+        {/* 6. 대체 메뉴 보기 — avoid 상태 영양소가 있고 같은 subcategory 대체 후보가 있을 때만 */}
+        {alternatives?.available && (
+          <Pressable
+            style={styles.alternativesButton}
+            onPress={() =>
+              router.push({
+                pathname: '/food-alternatives',
+                params: {
+                  trigger_nutrient: alternatives.trigger_nutrient ?? '',
+                  category: alternatives.category ?? '',
+                  subcategory: alternatives.subcategory ?? '',
+                  product_name: trimmedName,
+                  alternatives: JSON.stringify(alternatives.alternatives),
+                },
+              })
+            }>
+            <Text style={styles.alternativesButtonText}>대체 메뉴 보기</Text>
+          </Pressable>
+        )}
 
         <Pressable
           style={[styles.saveButton, (!isFormValid || saving) && styles.saveButtonDisabled]}
@@ -569,6 +1012,11 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 0 },
     elevation: 3,
   },
+  cardDivider: {
+    height: 1,
+    backgroundColor: authColors.border,
+    marginVertical: 16,
+  },
   fieldLabel: {
     fontFamily: fonts.medium,
     fontSize: 14,
@@ -583,58 +1031,62 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     paddingHorizontal: 12,
     height: 42,
+  },
+  nameEditRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
     marginTop: 10,
+  },
+  flexOne: {
+    flex: 1,
   },
   nameTextInput: {
     flex: 1,
     fontSize: 13,
     color: '#000000',
   },
-  amountRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 10,
-    gap: 8,
-  },
-  amountInput: {
-    backgroundColor: authColors.white,
-    borderWidth: 0.7,
-    borderColor: authColors.border,
-    borderRadius: 6,
-    height: 32,
-    width: 170,
-    paddingHorizontal: 12,
-    fontSize: 12,
-    color: '#000000',
-  },
-  unitPillRow: {
-    flexDirection: 'row',
-    gap: 6,
-  },
-  unitPill: {
+  editTogglePill: {
+    flexShrink: 0,
     borderWidth: 1,
-    borderColor: authColors.border,
+    borderColor: authColors.pink,
     borderRadius: 100,
-    paddingHorizontal: 5,
+    paddingHorizontal: 12,
     paddingVertical: 5,
   },
-  unitPillSelected: {
-    borderColor: authColors.pink,
-    backgroundColor: '#FFF5F3',
-  },
-  unitPillText: {
+  editTogglePillText: {
     fontFamily: nanumSquareRound.bold,
     fontSize: 11,
-    color: authColors.gray,
-  },
-  unitPillTextSelected: {
     color: authColors.pink,
   },
-  fixedUnitText: {
-    fontFamily: nanumSquareRound.bold,
-    fontSize: 13,
-    color: authColors.gray,
+  summaryHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  summaryProductName: {
+    fontFamily: fonts.bold,
+    fontSize: 16,
+    color: '#000000',
+  },
+  summaryPillRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 10,
+  },
+  summaryPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#FFF5F3',
+    borderRadius: 100,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  summaryPillText: {
+    fontFamily: fonts.regular,
+    fontSize: 11,
+    color: authColors.grayDark,
   },
   timeInput: {
     backgroundColor: authColors.white,
@@ -706,6 +1158,10 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#000000',
   },
+  nutrientLabelHighlighted: {
+    fontFamily: nanumSquareRound.bold,
+    color: authColors.pink,
+  },
   nutrientInput: {
     backgroundColor: authColors.white,
     borderWidth: 0.7,
@@ -716,6 +1172,177 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     fontSize: 12,
     color: '#000000',
+  },
+  safetyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    marginTop: 10,
+  },
+  safetyTextGroup: {
+    flex: 1,
+  },
+  safetyHeadline: {
+    fontFamily: fonts.bold,
+    fontSize: 18,
+  },
+  safetyDescription: {
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    color: authColors.grayDark,
+    lineHeight: 18,
+    marginTop: 6,
+  },
+  gaugeLabelOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  gaugePercentText: {
+    fontFamily: fonts.bold,
+    fontSize: 20,
+    color: authColors.brown,
+  },
+  gaugeBandText: {
+    fontFamily: fonts.regular,
+    fontSize: 10,
+    color: authColors.gray,
+    marginTop: 2,
+  },
+  statusCaption: {
+    fontFamily: fonts.regular,
+    fontSize: 11,
+    color: authColors.gray,
+    marginTop: 12,
+  },
+  statusGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    rowGap: 10,
+    marginTop: 12,
+  },
+  statusChipItem: {
+    flex: 0,
+    width: '31%',
+  },
+  totalHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 10,
+  },
+  totalHeaderLabel: {
+    fontFamily: fonts.medium,
+    fontSize: 12,
+    color: '#000000',
+    marginRight: 4,
+  },
+  totalHeaderInput: {
+    backgroundColor: authColors.white,
+    borderWidth: 0.7,
+    borderColor: authColors.border,
+    borderRadius: 6,
+    height: 27,
+    width: 70,
+    paddingHorizontal: 8,
+    fontSize: 12,
+    color: '#000000',
+    textAlign: 'center',
+  },
+  totalHeaderUnit: {
+    fontFamily: nanumSquareRound.bold,
+    fontSize: 11,
+    color: authColors.gray,
+  },
+  totalHeaderSeparator: {
+    fontSize: 12,
+    color: authColors.gray,
+    marginHorizontal: 2,
+  },
+  // 헤더 행 + 데이터 행을 하나의 테두리 박스 안에 담아 실제 표처럼 보이게 한다 —
+  // overflow:hidden이 안의 모서리를 컨테이너의 둥근 모서리에 맞춰 잘라준다.
+  tableContainer: {
+    borderWidth: 1,
+    borderColor: authColors.border,
+    borderRadius: 10,
+    overflow: 'hidden',
+    marginTop: 12,
+  },
+  tableHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFF0F0',
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    // 데이터 행과의 경계를 살짝 더 진하게 — authColors.pink도 이미 앱에서
+    // 쓰이는 기존 토큰이라 새 색을 들여오지 않는다.
+    borderBottomWidth: 1.5,
+    borderBottomColor: authColors.pink,
+  },
+  tableHeaderCell: {
+    fontFamily: nanumSquareRound.bold,
+    fontSize: 11,
+    color: authColors.pink,
+  },
+  tableHeaderValueCell: {
+    textAlign: 'center',
+  },
+  // 열 사이 세로 구분선 — 성분명/100g당/총섭취량 세 칸 사이에 공통으로 쓴다
+  // (헤더 행과 데이터 행이 완전히 같은 자리에 넣어 정렬이 항상 맞는다).
+  columnDivider: {
+    width: 1,
+    alignSelf: 'stretch',
+    backgroundColor: authColors.border,
+    marginHorizontal: 8,
+  },
+  pairedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: authColors.border,
+  },
+  pairedRowHighlighted: {
+    backgroundColor: '#FFF0F0',
+  },
+  pairedLabelGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flex: 1,
+  },
+  pairedInputCol: {
+    alignItems: 'center',
+    width: 84,
+  },
+  pairedInput: {
+    backgroundColor: authColors.white,
+    borderWidth: 0.7,
+    borderColor: authColors.border,
+    borderRadius: 6,
+    height: 27,
+    width: 76,
+    paddingHorizontal: 8,
+    // Android TextInput은 기본 내부 padding이 있어 height를 맞춰도 옆의 Text와
+    // 세로 중심이 어긋난다 — paddingVertical:0 + textAlignVertical로 맞춘다.
+    paddingVertical: 0,
+    fontSize: 12,
+    color: '#000000',
+    textAlign: 'center',
+    textAlignVertical: 'center',
+  },
+  pairedReadOnlyValue: {
+    fontFamily: fonts.medium,
+    fontSize: 12,
+    color: authColors.grayDark,
+    height: 27,
+    textAlignVertical: 'center',
+  },
+  pairedReadOnlyValueHighlighted: {
+    fontFamily: nanumSquareRound.bold,
+    color: authColors.pink,
   },
   extraInputRow: {
     flexDirection: 'row',
@@ -768,8 +1395,22 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 16,
   },
-  saveButton: {
+  alternativesButton: {
     marginTop: 20,
+    borderWidth: 1,
+    borderColor: authColors.pink,
+    borderRadius: 100,
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  alternativesButtonText: {
+    fontFamily: nanumSquareRound.bold,
+    fontSize: 15,
+    color: authColors.pink,
+  },
+  saveButton: {
+    marginTop: 12,
     backgroundColor: authColors.pink,
     borderRadius: 100,
     height: 51,
