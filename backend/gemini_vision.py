@@ -24,7 +24,7 @@ load_dotenv()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-MODEL_NAME = "gemini-2.5-flash"
+MODEL_NAME = "gemini-3.6-flash"
 
 # 개발/테스트 중 실수로 반복 호출돼 과금되는 걸 막기 위한 하루 호출 상한.
 # 서버 프로세스가 살아있는 동안만 유지되는 메모리 카운터 — 재시작하면 초기화된다
