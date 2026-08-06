@@ -1,6 +1,6 @@
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { router, useLocalSearchParams } from 'expo-router';
-import { ReactNode, useEffect, useMemo, useState } from 'react';
+import { ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import Animated, {
   Easing,
   interpolate,
@@ -13,6 +13,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import {
   KeyboardAvoidingView,
+  LayoutChangeEvent,
   Platform,
   Pressable,
   ScrollView,
@@ -21,7 +22,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { Circle, Svg } from 'react-native-svg';
+import { Circle, Path, Svg } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 
@@ -43,6 +44,7 @@ import { authColors } from '@/components/auth/colors';
 import BottomSheet from '@/components/common/BottomSheet';
 import StatusChip from '@/components/common/StatusChip';
 import AmountUnitPicker, { WEIGHT_UNITS } from '@/components/food-diary/AmountUnitPicker';
+import { homeColors } from '@/components/home/colors';
 import { summaryStatusColors, DEFAULT_SUMMARY_STATUS_COLORS } from '@/components/home/summaryColors';
 import { fonts, nanumSquareRound } from '@/constants/fonts';
 import { NUTRIENT_LABELS_KO, SELECTABLE_NUTRIENT_KEYS, SelectableNutrientKey } from '@/constants/nutrients';
@@ -64,6 +66,14 @@ const EXPAND_SPRING_CONFIG = { damping: 16, stiffness: 100, mass: 1 };
 const DRAFT_ROW_HEIGHT = 42;
 const TIME_PICKER_HEIGHT = 216;
 const ALTERNATIVES_DEBOUNCE_MS = 600;
+// 7행 영양성분 테이블의 펼침 애니메이션 목표 높이 — 실제 콘텐츠 높이의 근사치일 뿐이다.
+// 애니메이션이 끝나면 height를 undefined(auto)로 전환해 실제 높이에 맞추므로, 이 값이
+// 다소 넉넉해도(잘림보다 여백이 나는 쪽이 안전) 정지 상태의 표시에는 영향이 없다.
+const NUTRIENT_TABLE_HEIGHT = 400;
+// 기준량 배지에 쓸 파란색 — 팔레트에 채도 있는 파란색 토큰이 없어 새로 추가한다.
+// waterColors.waveFront(#C2E1F5) 계열 색상군과 어울리도록 고른 값.
+const BASIS_BADGE_BLUE = '#5B9BD1';
+const BASIS_BADGE_BLUE_BG = '#EAF3FA';
 
 const NUTRIENT_ICONS: Record<SelectableNutrientKey, ReactNode> = {
   carbohydrate: <CarbohydrateIcon width={17} height={17} />,
@@ -418,6 +428,50 @@ function SafetyGauge({
   );
 }
 
+// 앱 내에 연필/편집 아이콘 에셋이 없어 인라인 SVG로 직접 그린다 — 총내용량/기준량
+// 카드의 편집 토글 버튼 전용.
+function PencilIcon({ size = 12, color = authColors.pink }: { size?: number; color?: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M12 20h9" stroke={color} strokeWidth={2} strokeLinecap="round" />
+      <Path
+        d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5Z"
+        stroke={color}
+        strokeWidth={2}
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+    </Svg>
+  );
+}
+
+// 총내용량 배지 아이콘 — 상자(택배박스) 모양의 최소 선화. 마찬가지로 에셋이 없어
+// react-native-svg Path로 직접 그린다.
+function PackageGlyph({ size = 14, color = '#FFFFFF' }: { size?: number; color?: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3Z" stroke={color} strokeWidth={1.8} strokeLinejoin="round" />
+      <Path d="M4 7.5 12 12l8-4.5" stroke={color} strokeWidth={1.8} strokeLinejoin="round" />
+      <Path d="M12 12v9" stroke={color} strokeWidth={1.8} />
+    </Svg>
+  );
+}
+
+// 기준량 배지 아이콘 — 저울(balance) 모양의 최소 선화.
+function BalanceGlyph({ size = 14, color = '#FFFFFF' }: { size?: number; color?: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M12 3v18M7 7h10M4 7l3-4 3 4-3 5-3-5Zm10 0 3-4 3 4-3 5-3-5Z"
+        stroke={color}
+        strokeWidth={1.6}
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+    </Svg>
+  );
+}
+
 export default function FoodEntryOcrConfirmScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
@@ -466,6 +520,8 @@ export default function FoodEntryOcrConfirmScreen() {
   // 도착 즉시 바로 검토/수정할 수 있도록 편집 모드로 시작한다(요약 모드는 검토가
   // 끝난 뒤 접어두는 용도).
   const [isEditingTopCard, setIsEditingTopCard] = useState(true);
+  // 총내용량/기준량 카드 — 기본은 읽기 전용 배지 표시, 연필 버튼으로 기존 입력 행을 드러낸다.
+  const [isEditingAmountCard, setIsEditingAmountCard] = useState(false);
   const [activeInfo, setActiveInfo] = useState<InfoKey | null>(null);
   const [caffeineMg, setCaffeineMg] = useState('');
   const [draftRows, setDraftRows] = useState<{ id: string; name: string; value: string }[]>([]);
@@ -494,6 +550,23 @@ export default function FoodEntryOcrConfirmScreen() {
   const chevronRotation = useSharedValue(0);
   const timePickerHeight = useSharedValue(0);
   const timePickerOpacity = useSharedValue(0);
+  // 7행 영양성분 테이블 펼침/접힘 — 기본은 접힘. NUTRIENT_TABLE_HEIGHT는 전환 중에만
+  // 쓰는 근사 목표값이고, 펼침 애니메이션이 끝나면 tableHeightSettled를 true로 바꿔
+  // 실제 콘텐츠 높이(undefined/auto)로 전환한다 — 추정치가 부정확해도 정지 상태에서는
+  // 잘리거나 여백이 남지 않는다. measuredTableHeightRef는 그 실측 높이를 담아두었다가
+  // 접을 때 애니메이션 시작점으로 써서(추정치로 스냅되는 시각적 튐 없이) 정확히
+  // 그 지점부터 0으로 줄어들게 한다.
+  const [tableExpanded, setTableExpanded] = useState(false);
+  const [tableHeightSettled, setTableHeightSettled] = useState(false);
+  const tableChevronRotation = useSharedValue(0);
+  const tableBodyHeight = useSharedValue(0);
+  const tableBodyOpacity = useSharedValue(0);
+  const measuredTableHeightRef = useRef(NUTRIENT_TABLE_HEIGHT);
+
+  const handleTableBodyLayout = (e: LayoutChangeEvent) => {
+    const height = e.nativeEvent.layout.height;
+    if (height > 0) measuredTableHeightRef.current = height;
+  };
 
   useEffect(() => {
     if (!user?.user_id) return;
@@ -538,6 +611,16 @@ export default function FoodEntryOcrConfirmScreen() {
     overflow: 'hidden',
   }));
 
+  const tableChevronAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${interpolate(tableChevronRotation.value, [0, 1], [0, 180])}deg` }],
+  }));
+
+  const tableBodyAnimatedStyle = useAnimatedStyle(() => ({
+    height: tableHeightSettled ? undefined : tableBodyHeight.value,
+    opacity: tableBodyOpacity.value,
+    overflow: 'hidden',
+  }));
+
   const openTimePicker = () => {
     setShowTimePicker(true);
     chevronRotation.value = withSpring(1, EXPAND_SPRING_CONFIG);
@@ -564,6 +647,43 @@ export default function FoodEntryOcrConfirmScreen() {
       closeTimePicker();
     } else {
       openTimePicker();
+    }
+  };
+
+  const openNutrientTable = () => {
+    setTableExpanded(true);
+    setTableHeightSettled(false);
+    tableChevronRotation.value = withSpring(1, EXPAND_SPRING_CONFIG);
+    tableBodyHeight.value = withTiming(
+      NUTRIENT_TABLE_HEIGHT,
+      { duration: 400, easing: Easing.out(Easing.cubic) },
+      (finished) => {
+        if (finished) runOnJS(setTableHeightSettled)(true);
+      }
+    );
+    tableBodyOpacity.value = withTiming(1, { duration: 400 });
+  };
+
+  const closeNutrientTable = () => {
+    setTableHeightSettled(false);
+    // 정지 상태(auto)에서 실측한 높이로 먼저 동기화한 뒤 0으로 줄인다 — 추정치로
+    // 순간 스냅되는 시각적 튐 없이 실제 위치에서부터 자연스럽게 접힌다.
+    tableBodyHeight.value = measuredTableHeightRef.current;
+    tableChevronRotation.value = withSpring(0, EXPAND_SPRING_CONFIG);
+    tableBodyHeight.value = withTiming(0, {
+      duration: 400,
+      easing: Easing.out(Easing.cubic),
+    });
+    tableBodyOpacity.value = withTiming(0, { duration: 300 }, (finished) => {
+      if (finished) runOnJS(setTableExpanded)(false);
+    });
+  };
+
+  const toggleNutrientTable = () => {
+    if (tableExpanded) {
+      closeNutrientTable();
+    } else {
+      openNutrientTable();
     }
   };
 
@@ -926,7 +1046,15 @@ export default function FoodEntryOcrConfirmScreen() {
         {/* 4. 영양성분 상세 (100g당 / 총섭취량(N인분)) */}
         <View style={styles.card}>
           <View style={styles.sectionHeaderRow}>
-            <Text style={styles.fieldLabel}>영양성분 상세</Text>
+            <Pressable
+              style={styles.sectionHeaderToggle}
+              onPress={toggleNutrientTable}
+              hitSlop={{ top: 8, bottom: 8 }}>
+              <Text style={styles.fieldLabel}>영양성분 상세</Text>
+              <Animated.View style={tableChevronAnimatedStyle}>
+                <ChevronDownIcon width={12} height={8} />
+              </Animated.View>
+            </Pressable>
             <Pressable
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               onPress={() => setActiveInfo('nutrientDetail')}>
@@ -934,82 +1062,122 @@ export default function FoodEntryOcrConfirmScreen() {
             </Pressable>
           </View>
 
-          {/* 총 내용량 헤더 — 실제 라벨의 "총 내용량(1포장) 당" 줄과 같은 형태.
-              kcal 필드는 이제 독립 상태다 — 저장되는 값에 영향을 주지 않는 참고용 숫자. */}
-          <View style={styles.totalHeaderRow}>
-            <Text style={styles.totalHeaderLabel}>총 내용량</Text>
-            <TextInput
-              style={styles.totalHeaderInput}
-              value={totalContentAmount}
-              onChangeText={updateTotalContentAmount}
-              placeholder="-"
-              placeholderTextColor={authColors.gray}
-              keyboardType="decimal-pad"
-            />
-            <Text style={styles.totalHeaderUnit}>g</Text>
-            <Text style={styles.totalHeaderSeparator}>·</Text>
-            <View style={[styles.totalHeaderInput, styles.totalHeaderReadOnly]}>
-              <Text style={styles.totalHeaderReadOnlyText}>
-                {headerKcal != null ? String(headerKcal) : '-'}
-              </Text>
+          {/* 총내용량/기준량 카드 — 기본은 읽기 전용 배지 표시, 연필 버튼으로 기존
+              입력 행(총내용량/기준량 TextInput)을 그대로 드러낸다. kcal 필드는
+              헤더에서 파생되는 참고용 숫자로 저장 값과 무관하다. */}
+          <View style={styles.amountCard}>
+            <View style={styles.amountCardHeaderRow}>
+              <Pressable
+                style={styles.amountCardEditButton}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                onPress={() => setIsEditingAmountCard((v) => !v)}>
+                <PencilIcon />
+              </Pressable>
             </View>
-            <Text style={styles.totalHeaderUnit}>kcal</Text>
-          </View>
+            {isEditingAmountCard ? (
+              <View style={styles.amountCardEditRow}>
+                <View style={styles.totalHeaderRow}>
+                  <Text style={styles.totalHeaderLabel}>총 내용량</Text>
+                  <TextInput
+                    style={styles.totalHeaderInput}
+                    value={totalContentAmount}
+                    onChangeText={updateTotalContentAmount}
+                    placeholder="-"
+                    placeholderTextColor={authColors.gray}
+                    keyboardType="decimal-pad"
+                  />
+                  <Text style={styles.totalHeaderUnit}>g</Text>
+                  <Text style={styles.totalHeaderSeparator}>·</Text>
+                  <View style={[styles.totalHeaderInput, styles.totalHeaderReadOnly]}>
+                    <Text style={styles.totalHeaderReadOnlyText}>
+                      {headerKcal != null ? String(headerKcal) : '-'}
+                    </Text>
+                  </View>
+                  <Text style={styles.totalHeaderUnit}>kcal</Text>
+                </View>
 
-          <View style={styles.basisHeaderRow}>
-            <Text style={styles.totalHeaderLabel}>기준량</Text>
-            <TextInput
-              style={styles.totalHeaderInput}
-              value={basisAmountValueText}
-              onChangeText={updateBasisAmountValue}
-              placeholder="-"
-              placeholderTextColor={authColors.gray}
-              keyboardType="decimal-pad"
-            />
-            <Text style={styles.totalHeaderUnit}>g</Text>
+                <View style={styles.basisHeaderRow}>
+                  <Text style={styles.totalHeaderLabel}>기준량</Text>
+                  <TextInput
+                    style={styles.totalHeaderInput}
+                    value={basisAmountValueText}
+                    onChangeText={updateBasisAmountValue}
+                    placeholder="-"
+                    placeholderTextColor={authColors.gray}
+                    keyboardType="decimal-pad"
+                  />
+                  <Text style={styles.totalHeaderUnit}>g</Text>
+                </View>
+                {scanResult.scale_method === 'per_basis_with_total' && !isWeightUnit && (
+                  <Text style={styles.basisLimitationCaption}>
+                    기준량 수정은 g 단위 입력에만 반영돼요
+                  </Text>
+                )}
+              </View>
+            ) : (
+              <View style={styles.amountCardDisplayRow}>
+                <View style={styles.amountCardItem}>
+                  <View style={[styles.amountCardIconCircle, styles.amountCardIconCircleGreen]}>
+                    <PackageGlyph color={homeColors.sugar.value} />
+                  </View>
+                  <Text style={styles.amountCardItemLabel}>총 내용량</Text>
+                  <Text style={styles.amountCardItemValue}>{totalContentAmount || '-'} g</Text>
+                  {headerKcal != null && (
+                    <Text style={styles.amountCardKcalSubtext}>{headerKcal} kcal</Text>
+                  )}
+                </View>
+                <View style={styles.amountCardDivider} />
+                <View style={styles.amountCardItem}>
+                  <View style={[styles.amountCardIconCircle, styles.amountCardIconCircleBlue]}>
+                    <BalanceGlyph color={BASIS_BADGE_BLUE} />
+                  </View>
+                  <Text style={styles.amountCardItemLabel}>기준량</Text>
+                  <Text style={styles.amountCardItemValue}>{basisAmountValueText || '-'} g</Text>
+                </View>
+              </View>
+            )}
           </View>
-          {scanResult.scale_method === 'per_basis_with_total' && !isWeightUnit && (
-            <Text style={styles.basisLimitationCaption}>
-              기준량 수정은 g 단위 입력에만 반영돼요
-            </Text>
-          )}
 
           <Text style={styles.transparencyText}>※ {totalConsumedCaption}</Text>
 
-          <View style={styles.tableContainer}>
-            <View style={styles.tableHeaderRow}>
-              <View style={styles.pairedLabelGroup}>
-                <Text style={styles.tableHeaderCell}>영양성분</Text>
+          {tableExpanded && (
+            <Animated.View style={tableBodyAnimatedStyle}>
+              <View style={styles.tableContainer} onLayout={handleTableBodyLayout}>
+                <View style={styles.tableHeaderRow}>
+                  <View style={styles.pairedLabelGroup}>
+                    <Text style={styles.tableHeaderCell}>영양성분</Text>
+                  </View>
+                  <View style={styles.columnDivider} />
+                  <View style={styles.pairedInputCol}>
+                    <Text style={[styles.tableHeaderCell, styles.tableHeaderValueCell]}>
+                      {getBasisLabel(scanResult.scale_method, basisAmountValue)}
+                    </Text>
+                  </View>
+                  <View style={styles.columnDivider} />
+                  <View style={styles.pairedInputCol}>
+                    <Text style={[styles.tableHeaderCell, styles.tableHeaderValueCell]}>
+                      {detailColumnHeader}
+                    </Text>
+                  </View>
+                </View>
+                {SELECTABLE_NUTRIENT_KEYS.map((key) => {
+                  const detail = detailColumnValue(key);
+                  return (
+                    <PairedNutrientField
+                      key={key}
+                      icon={NUTRIENT_ICONS[key]}
+                      label={NUTRIENT_LABELS_KO[key]}
+                      unit={NUTRIENT_UNITS[key]}
+                      basisValue={nutrientFields[key]}
+                      detailValue={detail != null ? String(detail) : '-'}
+                      onChangeBasis={(text) => updateNutrientBasis(key, text)}
+                      highlighted={key === headlineNutrient.key}
+                    />
+                  );
+                })}
               </View>
-              <View style={styles.columnDivider} />
-              <View style={styles.pairedInputCol}>
-                <Text style={[styles.tableHeaderCell, styles.tableHeaderValueCell]}>
-                  {getBasisLabel(scanResult.scale_method, basisAmountValue)}
-                </Text>
-              </View>
-              <View style={styles.columnDivider} />
-              <View style={styles.pairedInputCol}>
-                <Text style={[styles.tableHeaderCell, styles.tableHeaderValueCell]}>
-                  {detailColumnHeader}
-                </Text>
-              </View>
-            </View>
-            {SELECTABLE_NUTRIENT_KEYS.map((key) => {
-              const detail = detailColumnValue(key);
-              return (
-                <PairedNutrientField
-                  key={key}
-                  icon={NUTRIENT_ICONS[key]}
-                  label={NUTRIENT_LABELS_KO[key]}
-                  unit={NUTRIENT_UNITS[key]}
-                  basisValue={nutrientFields[key]}
-                  detailValue={detail != null ? String(detail) : '-'}
-                  onChangeBasis={(text) => updateNutrientBasis(key, text)}
-                  highlighted={key === headlineNutrient.key}
-                />
-              );
-            })}
-          </View>
+            </Animated.View>
+          )}
 
           <View style={styles.cardDivider} />
           <View style={styles.nutrientInputRow}>
@@ -1195,6 +1363,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+  },
+  sectionHeaderToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   nameInputRow: {
     flexDirection: 'row',
@@ -1454,6 +1627,73 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: authColors.gray,
     marginTop: 6,
+  },
+  amountCard: {
+    borderWidth: 0.7,
+    borderColor: authColors.border,
+    borderRadius: 12,
+    padding: 14,
+    marginTop: 10,
+  },
+  amountCardHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginBottom: 4,
+  },
+  amountCardEditButton: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    borderWidth: 1,
+    borderColor: authColors.pink,
+    backgroundColor: authColors.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  amountCardEditRow: {},
+  amountCardDisplayRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  amountCardItem: {
+    flex: 1,
+  },
+  amountCardDivider: {
+    width: 1,
+    alignSelf: 'stretch',
+    backgroundColor: authColors.border,
+    marginHorizontal: 14,
+  },
+  amountCardIconCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  amountCardIconCircleGreen: {
+    backgroundColor: homeColors.sugar.bg,
+  },
+  amountCardIconCircleBlue: {
+    backgroundColor: BASIS_BADGE_BLUE_BG,
+  },
+  amountCardItemLabel: {
+    fontFamily: fonts.medium,
+    fontSize: 12,
+    color: authColors.grayDark,
+    marginTop: 8,
+  },
+  amountCardItemValue: {
+    fontFamily: fonts.bold,
+    fontSize: 18,
+    color: '#000000',
+    marginTop: 2,
+  },
+  amountCardKcalSubtext: {
+    fontFamily: fonts.medium,
+    fontSize: 12,
+    color: homeColors.sugar.value,
+    marginTop: 2,
   },
   // 헤더 행 + 데이터 행을 하나의 테두리 박스 안에 담아 실제 표처럼 보이게 한다 —
   // overflow:hidden이 안의 모서리를 컨테이너의 둥근 모서리에 맞춰 잘라준다.
