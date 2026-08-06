@@ -7,15 +7,25 @@ backend/gemini_vision.py 테스트.
   허용되지 않은 값이면 검증에 실패한다
 - 잘못된 형식의 JSON 문자열은 검증 실패로 처리된다 (네트워크 호출 없이 확인 가능)
 - GEMINI_API_KEY가 설정되어 있지 않으면 call_gemini_vision()은 실제 API를
-  호출하기 전에 즉시 실패한다 (네트워크 호출 없음)
+  호출하기 전에 즉시 실패한다 (네트워크 호출 없음), 그것도 다른 실패와 구분되는
+  GeminiNotConfiguredError로 실패한다
+- OCR_RAW_LOG_PATH가 설정된 경우 Gemini 응답 원문이 파싱 "전에" 기록되므로,
+  스키마 검증 실패(ValidationError)로 502가 되는 응답도 원문이 파일에 남는다
 """
+import json
 from datetime import date
+from types import SimpleNamespace
 
 import pytest
 from pydantic import ValidationError
 
 from backend import gemini_vision
-from backend.gemini_vision import GeminiDailyLimitExceededError, _parse_response, call_gemini_vision
+from backend.gemini_vision import (
+    GeminiDailyLimitExceededError,
+    GeminiNotConfiguredError,
+    _parse_response,
+    call_gemini_vision,
+)
 
 
 # ── _parse_response: 정상 케이스 ─────────────────────────────────
@@ -103,9 +113,11 @@ def test_parse_response_malformed_json_raises():
 
 # ── call_gemini_vision: API 키 미설정 시 네트워크 호출 없이 즉시 실패 ──
 
-def test_call_gemini_vision_without_api_key_raises_before_network_call(monkeypatch):
+def test_call_gemini_vision_without_api_key_raises_not_configured(monkeypatch):
+    # ValueError가 아니라 전용 예외여야 한다 — routers/ocr.py가 "설정이 안 됨"(503)과
+    # "호출이 실패함"(502)을 구분해 응답하려면 타입으로 구분 가능해야 한다.
     monkeypatch.setattr(gemini_vision, "GEMINI_API_KEY", None)
-    with pytest.raises(ValueError):
+    with pytest.raises(GeminiNotConfiguredError):
         call_gemini_vision("ZmFrZS1iYXNlNjQ=")
 
 
@@ -150,3 +162,108 @@ def test_record_call_increments_todays_count(monkeypatch):
     gemini_vision._record_call()
     today = date.today().isoformat()
     assert gemini_vision._call_count_by_day[today] == 2
+
+
+# ── Gemini 응답 원문 기록(_append_raw_log) ───────────────────────
+
+def _use_fake_gemini(monkeypatch, raw_text: str) -> None:
+    """genai.Client를 "정해진 텍스트만 돌려주는" 가짜로 바꾼다.
+
+    새 의존성 없이 monkeypatch만 쓴다. 이 가짜 덕분에 call_gemini_vision()의
+    응답 처리 경로(기록 -> 파싱)를 네트워크 없이 그대로 통과시켜 볼 수 있다.
+    """
+    class _FakeModels:
+        def generate_content(self, **kwargs):
+            return SimpleNamespace(text=raw_text)
+
+    class _FakeClient:
+        def __init__(self, api_key=None):
+            self.models = _FakeModels()
+
+    monkeypatch.setattr(gemini_vision, "GEMINI_API_KEY", "fake-key-for-test")
+    monkeypatch.setattr(gemini_vision, "_call_count_by_day", {})
+    monkeypatch.setattr(gemini_vision.genai, "Client", _FakeClient)
+
+
+def _use_raw_log(monkeypatch, path, max_lines: int = 10) -> None:
+    monkeypatch.setattr(gemini_vision, "OCR_RAW_LOG_PATH", str(path))
+    monkeypatch.setattr(gemini_vision, "OCR_RAW_LOG_MAX", max_lines)
+    monkeypatch.setattr(gemini_vision, "_raw_log_count", 0)
+
+
+def test_append_raw_log_noop_when_path_unset(monkeypatch, tmp_path):
+    target = tmp_path / "raw.jsonl"
+    monkeypatch.setattr(gemini_vision, "OCR_RAW_LOG_PATH", None)
+    monkeypatch.setattr(gemini_vision, "_raw_log_count", 0)
+
+    gemini_vision._append_raw_log('{"a": 1}')
+
+    assert not target.exists()
+    assert gemini_vision._raw_log_count == 0
+
+
+def test_append_raw_log_writes_one_jsonl_line(monkeypatch, tmp_path):
+    target = tmp_path / "raw.jsonl"
+    _use_raw_log(monkeypatch, target)
+    raw = '{"product_name": "테스트 과자"}'
+
+    gemini_vision._append_raw_log(raw)
+
+    lines = target.read_text(encoding="utf-8").strip().splitlines()
+    assert len(lines) == 1
+    record = json.loads(lines[0])
+    # 원문을 파싱하지 않고 문자열 그대로 담는다 — 파싱할 수 없는 응답이야말로
+    # 남겨야 하는 대상이라, 여기서 구조를 강제하면 목적이 어긋난다.
+    assert record["raw_text"] == raw
+    assert record["model"] == gemini_vision.MODEL_NAME
+    assert "ts" in record
+
+
+def test_append_raw_log_stops_at_max(monkeypatch, tmp_path):
+    target = tmp_path / "raw.jsonl"
+    _use_raw_log(monkeypatch, target, max_lines=2)
+
+    for i in range(5):
+        gemini_vision._append_raw_log(f'{{"n": {i}}}')
+
+    lines = target.read_text(encoding="utf-8").strip().splitlines()
+    assert len(lines) == 2
+
+
+def test_append_raw_log_swallows_write_failure(monkeypatch, tmp_path):
+    # 존재하지 않는 디렉터리 아래 경로 — 기록은 실패하지만 예외가 올라오면 안 된다
+    # (관찰용 부가 기능이 스캔 자체를 막아서는 안 된다).
+    _use_raw_log(monkeypatch, tmp_path / "nonexistent-dir" / "raw.jsonl")
+
+    gemini_vision._append_raw_log('{"a": 1}')
+
+    assert gemini_vision._raw_log_count == 0
+
+
+def test_call_gemini_vision_logs_raw_text_on_success(monkeypatch, tmp_path):
+    target = tmp_path / "raw.jsonl"
+    raw = '{"nutrition_table_found": true, "sugar_g_per_basis": 12.0}'
+    _use_fake_gemini(monkeypatch, raw)
+    _use_raw_log(monkeypatch, target)
+
+    result = call_gemini_vision("ZmFrZQ==")
+
+    assert result["sugar_g_per_basis"] == 12.0
+    record = json.loads(target.read_text(encoding="utf-8").strip())
+    assert record["raw_text"] == raw
+
+
+def test_call_gemini_vision_logs_raw_text_even_when_parse_fails(monkeypatch, tmp_path):
+    # 이 테스트가 T1의 핵심이다: 스키마 검증에 실패하면 지금까지는 응답 본문이
+    # 그대로 사라졌는데(라우터에서 502로 바뀌며), 실제 오독 패턴을 보려면 바로 그
+    # 응답이 필요하다. 기록은 _parse_response 호출 "전에" 일어나야 한다.
+    target = tmp_path / "raw.jsonl"
+    malformed = '{"nutrition_table_found": true, "sugar_g_per_basis": "많음"}'
+    _use_fake_gemini(monkeypatch, malformed)
+    _use_raw_log(monkeypatch, target)
+
+    with pytest.raises(ValidationError):
+        call_gemini_vision("ZmFrZQ==")
+
+    record = json.loads(target.read_text(encoding="utf-8").strip())
+    assert record["raw_text"] == malformed

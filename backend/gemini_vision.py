@@ -7,12 +7,19 @@ Gemini Vision 기반 영양성분표 OCR 추출.
 
 이미지 바이트는 이 모듈 함수 안에서만 잠깐 메모리에 존재하고, 디스크에 쓰거나
 로그에 남기지 않는다 (최소 보유 원칙).
+
+예외적으로, OCR_RAW_LOG_PATH가 설정된 경우에 한해 Gemini가 돌려준 JSON 응답
+"원문 텍스트"는 파일에 남긴다 (기본값 없음 = 꺼짐). 이미지 바이트는 여전히 남기지
+않으며, 남는 것은 추출된 텍스트뿐이다 — 다만 제품명이 디스크에 기록되므로
+운영 환경에서 켜둘 용도가 아니라, 실제 오독 패턴을 관찰하기 위한 한시적 수단이다
+(OCR_RAW_LOG_MAX회까지만 기록하고 그 뒤로는 조용히 멈춘다).
 """
 from __future__ import annotations
 
 import base64
+import json
 import os
-from datetime import date
+from datetime import date, datetime
 from typing import Literal, Optional
 
 from dotenv import load_dotenv
@@ -32,6 +39,15 @@ MODEL_NAME = "gemini-3.6-flash"
 GEMINI_DAILY_CALL_LIMIT = int(os.getenv("GEMINI_DAILY_CALL_LIMIT", "30"))
 
 _call_count_by_day: dict[str, int] = {}
+
+# Gemini 응답 원문(JSON 텍스트) 기록 — 실제 라벨에서 어떤 식으로 잘못 읽는지
+# 관찰하기 위한 한시적 수단이다. 경로가 없으면 아무것도 하지 않는다(기본 꺼짐).
+# DB 테이블을 만들지 않는 이유: 이 데이터는 스키마를 정하기 위한 관찰용이지
+# 앱이 읽는 상태가 아니라서, 스키마를 먼저 고정하면 순서가 뒤바뀐다.
+OCR_RAW_LOG_PATH = os.getenv("OCR_RAW_LOG_PATH")
+OCR_RAW_LOG_MAX = int(os.getenv("OCR_RAW_LOG_MAX", "10"))
+
+_raw_log_count = 0
 
 _PROMPT = """\
 당신은 한국 포장식품 영양성분표 이미지를 읽고 구조화된 데이터를 추출하는 도구입니다.
@@ -90,6 +106,14 @@ class LabelNotDetectedError(Exception):
     ("찾았지만 환산 방식이 불명확함"과는 다른 케이스 — 그쪽은 needs_review로 처리)"""
 
 
+class GeminiNotConfiguredError(Exception):
+    """GEMINI_API_KEY가 설정되어 있지 않은 경우.
+
+    "우리 쪽 설정이 안 되어 있다"와 "Gemini 호출이 실패했다"는 사용자가 할 수 있는
+    행동이 전혀 다르다(전자는 재촬영해도 소용없다) — routers/ocr.py가 502가 아닌
+    503으로 구분해 응답한다."""
+
+
 class GeminiDailyLimitExceededError(Exception):
     """하루 Gemini 호출 상한(GEMINI_DAILY_CALL_LIMIT)을 초과한 경우.
     개발/테스트 중 반복 호출로 인한 의도치 않은 과금을 막기 위한 안전장치 —
@@ -104,6 +128,31 @@ def _under_daily_limit() -> bool:
 def _record_call() -> None:
     today = date.today().isoformat()
     _call_count_by_day[today] = _call_count_by_day.get(today, 0) + 1
+
+
+def _append_raw_log(raw_text: str) -> None:
+    """Gemini 응답 원문을 JSONL 한 줄로 덧붙인다. OCR_RAW_LOG_PATH가 없으면 no-op.
+
+    기록 실패(경로 없음/권한 없음 등)는 조용히 삼킨다 — 관찰용 부가 기능이 스캔
+    자체를 막아서는 안 된다. 상한(OCR_RAW_LOG_MAX)은 실제로 기록에 성공한 횟수로만
+    센다. 프로세스 메모리 카운터이므로 재시작하면 다시 0부터 센다 — 하루 호출
+    상한(_call_count_by_day)과 같은 수준의 장치이며, 그 이상의 영속성이 필요할
+    근거가 없다.
+    """
+    global _raw_log_count
+    if not OCR_RAW_LOG_PATH or _raw_log_count >= OCR_RAW_LOG_MAX:
+        return
+    record = {
+        "ts": datetime.now().isoformat(timespec="seconds"),
+        "model": MODEL_NAME,
+        "raw_text": raw_text,
+    }
+    try:
+        with open(OCR_RAW_LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except OSError:
+        return
+    _raw_log_count += 1
 
 
 def _strip_data_uri_prefix(image_base64: str) -> str:
@@ -133,7 +182,7 @@ def call_gemini_vision(image_base64: str) -> dict:
     nutrition_table_found가 False면 LabelNotDetectedError를 발생시킨다.
     """
     if not GEMINI_API_KEY:
-        raise ValueError("GEMINI_API_KEY가 .env 파일에 설정되어 있지 않습니다.")
+        raise GeminiNotConfiguredError("GEMINI_API_KEY가 .env 파일에 설정되어 있지 않습니다.")
     if not _under_daily_limit():
         raise GeminiDailyLimitExceededError(
             f"하루 Gemini 호출 상한({GEMINI_DAILY_CALL_LIMIT}회)을 초과했습니다."
@@ -150,7 +199,13 @@ def call_gemini_vision(image_base64: str) -> dict:
         ),
     )
 
-    extraction = _parse_response(response.text)
+    # 파싱 "전에" 원문을 남긴다. _parse_response가 ValidationError를 던지면
+    # (routers/ocr.py에서 502가 되며) 응답 본문이 그대로 사라지는데, 실제 오독
+    # 패턴을 보려면 바로 그 케이스가 가장 필요하다. _append_raw_log는 내부에서
+    # 예외를 삼키므로 기록 실패가 스캔을 막지 않는다.
+    raw_text = response.text
+    _append_raw_log(raw_text)
+    extraction = _parse_response(raw_text)
 
     if not extraction.get("nutrition_table_found"):
         raise LabelNotDetectedError("이미지에서 영양성분표를 찾지 못했습니다.")

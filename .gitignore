@@ -40,3 +40,6 @@ Thumbs.db
 .claude/
 backend/scripts/test_real_gemini_scan.py
 backend/test_fixture/
+
+# OCR_RAW_LOG_PATH가 가리키는 Gemini 응답 원문 기록 (관찰용, 제품명이 들어간다)
+backend/ocr_raw_log.jsonl
