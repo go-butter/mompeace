@@ -89,7 +89,7 @@ export default function AmountUnitPicker({
         />
         <Pressable style={styles.unitTriggerPill} onPress={() => setUnitSheetVisible(true)}>
           <Text style={styles.unitTriggerPillText}>{unit}</Text>
-          <ChevronDownIcon width={12} height={8} />
+          <ChevronDownIcon width={12} height={8} color="#848484" />
         </Pressable>
       </View>
 

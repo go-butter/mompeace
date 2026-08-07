@@ -397,7 +397,7 @@ export default function FoodEntryCoffeeScreen() {
             <ClockIcon width={15} height={15} style={styles.timeInputClock} />
             <Text style={styles.timeInputText}>{formatTimeLabel(time)}</Text>
             <Animated.View style={[styles.timeInputChevron, timeChevronAnimatedStyle]}>
-              <ChevronDownIcon width={12} height={8} />
+              <ChevronDownIcon width={12} height={8} color="#848484" />
             </Animated.View>
           </Pressable>
           {showTimePicker && (
