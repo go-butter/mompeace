@@ -1,5 +1,6 @@
 import sqlite3
 from datetime import date
+from backend.intake_totals import TRIMESTER_LABELS, get_trimester_limits, resolve_user_nutrition_context
 
 from fastapi import APIRouter, HTTPException, Depends
 
@@ -184,3 +185,37 @@ def recalculate_user_sensitivity(
 
     updated_adj = recalculate_sensitivity(user_id, db)
     return {"user_id": user_id, "sensitivity_adj": updated_adj}
+
+@router.get("/users/{user_id}/nutrition-limits")
+def get_nutrition_limits(
+    user_id: int,
+    db: sqlite3.Connection = Depends(get_db)
+):
+    """마이페이지 '초/중/후기별 제한사항' 화면용 — 3개 트라이메스터 기준을 한 번에 반환.
+
+    각 트라이메스터의 대표 주차(초기 8주/중기 20주/후기 32주)로 get_trimester_limits()를
+    호출해 3개 구간 값을 모두 계산한다. current_trimester는 사용자의 실제 임신 주차 기준.
+    """
+    cursor = db.cursor()
+    cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
+    user = cursor.fetchone()
+    if not user:
+        raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
+    user = dict(user)
+
+    week, age_bracket = resolve_user_nutrition_context(user)
+    current_trimester, _ = get_trimester_limits(week, age_bracket)
+
+    representative_weeks = {"early": 8, "middle": 20, "late": 32}
+    trimesters = {}
+    for key, rep_week in representative_weeks.items():
+        trimester_key, limits = get_trimester_limits(rep_week, age_bracket)
+        trimesters[key] = {
+            "label": TRIMESTER_LABELS[trimester_key],
+            **limits,
+        }
+
+    return {
+        "current_trimester": current_trimester,
+        "trimesters": trimesters,
+    }

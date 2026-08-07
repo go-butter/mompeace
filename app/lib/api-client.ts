@@ -157,7 +157,7 @@ export interface FoodLogCreateRequest {
   caffeine_mg?: number | null;
   sugar_g?: number | null;
   sodium_mg?: number | null;
-  calories_kcal?: number;
+  calories_kcal?: number | null;
   carbohydrate_g?: number | null;
   protein_g?: number | null;
   fat_g?: number | null;
@@ -461,13 +461,38 @@ export interface OcrNutrientValue {
   total_value: number | null;
 }
 
+// 일일 투영 판정에 포함되는 8개 키. OcrNutrientKey(7개)와 의도적으로 다르다 —
+// 카페인은 라벨에서 추출할 수 없어 nutrients(basis/serving/total 3종 값)에는
+// 등장하지 않지만, "오늘 누적" 판정에는 반드시 포함된다.
+export type OcrProjectionNutrientKey = OcrNutrientKey | 'caffeine';
+
+// 심각도 등급. 'neutral'은 하한 미달(탄수화물/단백질/에너지, 그리고 지방/철분의
+// 하한 쪽)이며 경고가 아니다 — 아침에 스캔하면 하루 목표 미달은 당연하기 때문에
+// 결핍처럼 보여주지 않는다. 헤드라인 후보도 되지 않는다.
+export type OcrStatusTier = 'avoid' | 'caution' | 'safe' | 'neutral' | 'unknown';
+
 export interface OcrNutrientStatus {
   key: string;
   label: string;
   unit: string;
+  /** "오늘 누적 + 확인 중인 품목" 투영값. 값이 하나도 확인되지 않았으면 null (정보 없음 ≠ 0). */
+  value: number | null;
+  /** 경고 기준선. 하한형은 목표치, 밴드형(지방/철분)은 상한. 계산 불가 시 null. */
+  limit: number | null;
+  percent: number | null;
   status: string;
   status_label: string;
+  tier: OcrStatusTier;
 }
+
+/** 안전도 카드가 이름을 내거는 영양소 하나. 판정 가능한 상한형이 없으면 null. */
+export interface OcrHeadline {
+  key: string;
+  tier: OcrStatusTier;
+  label: string;
+}
+
+export type OcrAmountUnit = 'g' | 'ml';
 
 export interface OcrScanResponse {
   product_name: string | null;
@@ -476,14 +501,43 @@ export interface OcrScanResponse {
   scale_method: OcrScaleMethod;
   scale_factor_applied: number | null;
   basis_amount_value: number | null;
+  basis_amount_unit: OcrAmountUnit;
   total_content_value: number | null;
+  total_content_unit: OcrAmountUnit;
+  serving_size_unit: OcrAmountUnit;
   needs_review: boolean;
   nutrients: Record<OcrNutrientKey, OcrNutrientValue>;
+  /** 8개(카페인 포함). "이 품목 단독"이 아니라 "오늘 누적 + 이 품목" 기준 판정이다. */
   nutrient_statuses: OcrNutrientStatus[];
+  headline: OcrHeadline | null;
 }
 
 export function scanNutritionLabel(body: OcrScanRequest): Promise<OcrScanResponse> {
   return post('/ocr/scan', body);
+}
+
+/** 확인 화면 한 칸의 현재 상태. 비어 있으면 value=null (정보 없음 ≠ 0). */
+export interface OcrRecomputeNutrientInput {
+  value: number | null;
+  /** 이 값의 출처. 판정에는 쓰이지 않고 이후 스냅샷 저장에서 둘을 구분하기 위한 것. */
+  source: 'ocr' | 'manual';
+}
+
+export interface OcrRecomputeRequest {
+  user_id: number;
+  /** 화면에 보이는 8칸 전부를 보낸다 — 비워둔 칸도 value:null로 포함해야 unknown으로 남는다. */
+  nutrients: Record<OcrProjectionNutrientKey, OcrRecomputeNutrientInput>;
+}
+
+export interface OcrRecomputeResponse {
+  nutrient_statuses: OcrNutrientStatus[];
+  headline: OcrHeadline | null;
+}
+
+export function recomputeOcrStatuses(
+  body: OcrRecomputeRequest
+): Promise<OcrRecomputeResponse> {
+  return post('/ocr/recompute', body);
 }
 
 export interface OcrAlternativesRequest {
@@ -715,4 +769,40 @@ export interface TipsTodayResponse {
 
 export function getTipsToday(userId: number, date?: string): Promise<TipsTodayResponse> {
   return get(`/tips/today/${userId}${date ? `?date=${date}` : ''}`);
+}
+
+export interface AccountDeleteResponse {
+  message: string;
+}
+
+export function deleteAccount(userId: number): Promise<AccountDeleteResponse> {
+  return del(`/users/${userId}`);
+}
+
+export interface TrimesterLimits {
+  label: string;
+  caffeine_mg: number;
+  sugar_g: number;
+  sodium_mg: number;
+  carbohydrate_g: number;
+  protein_g: number;
+  energy_kcal: number;
+  fat_ratio_min: number;
+  fat_ratio_max: number;
+  saturated_fat_ratio_max: number;
+  trans_fat_ratio_max: number;
+  note: string;
+}
+
+export interface NutritionLimitsResponse {
+  current_trimester: 'early' | 'middle' | 'late';
+  trimesters: {
+    early: TrimesterLimits;
+    middle: TrimesterLimits;
+    late: TrimesterLimits;
+  };
+}
+
+export function getNutritionLimits(userId: number): Promise<NutritionLimitsResponse> {
+  return get(`/users/${userId}/nutrition-limits`);
 }
