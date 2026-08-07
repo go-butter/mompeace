@@ -60,8 +60,8 @@ IRON_UPPER_LIMIT_MG = 45.0
 
 # 홈 화면 요약에 표시할 수 있는 선택형 영양소 (카페인/물은 항상 표시되므로 선택지에서 제외)
 SELECTABLE_NUTRIENT_KEYS = ("carbohydrate", "sugar", "energy", "fat", "iron", "protein", "sodium")
-DEFAULT_SELECTED_NUTRIENTS = ("carbohydrate", "sugar")
-MAX_SELECTED_NUTRIENTS = 4
+DEFAULT_SELECTED_NUTRIENTS = ("carbohydrate", "sugar", "sodium")
+MAX_SELECTED_NUTRIENTS = 3
 
 # app/constants/nutrients.ts의 NUTRIENT_LABELS_KO와 값을 맞춰서 유지한다
 # (두 언어 간 공유 코드젠이 없어 수동 동기화 — 파일 상단 주석 참고).
