@@ -13,11 +13,73 @@ from backend.intake_totals import (
     get_status,
     get_trimester_limits,
     resolve_user_nutrition_context,
+    simplified_status_label,
+    tier_of_status,
 )
 
 router = APIRouter()
 
 WEEKDAY_LABELS = ["월", "화", "수", "목", "금", "토", "일"]
+
+# 응답의 status 키 → 판정 방식. tier_of_status()/simplified_status_label()가 요구하는
+# nutrient_type이며, /intake/today의 status_label 블록과 같은 배정을 쓴다.
+# "status"는 chart 항목의 종합 판정 키다(compute_overall_status 결과 = ceiling 어휘).
+_PREMIUM_STATUS_TYPES = {
+    "overall_status":       "ceiling",
+    "caffeine_status":      "ceiling",
+    "sugar_status":         "ceiling",
+    "sodium_status":        "ceiling",
+    "saturated_fat_status": "ceiling",
+    "trans_fat_status":     "ceiling",
+    "energy_status":        "floor",
+    "carbohydrate_status":  "floor",
+    "protein_status":       "floor",
+    "fat_status":           "band",
+    "iron_status":          "band",
+    "status":               "ceiling",
+}
+
+# tier_of_status()는 nutrient_type을 bare 조회하고 simplified_status_label()은
+# 알 수 없는 값에 ValueError를 던지므로, 둘 다 이 셋 안의 값으로만 호출한다.
+_MAPPABLE_STATUS_TYPES = ("ceiling", "floor", "band")
+
+
+def _tier_fields(source: dict) -> dict:
+    """source의 status 키들에 대응하는 tier/status_label 형제 키를 계산해 돌려준다.
+
+    _PREMIUM_STATUS_TYPES에 없는 키, 알 수 없는 nutrient_type, 문자열이 아닌 값은
+    건너뛴다 — 최상위 응답의 "status"는 dict(컨테이너)이고 chart 항목의 "status"는
+    판정 문자열이라 같은 이름이 두 가지 뜻으로 쓰이기 때문이다.
+    """
+    added = {}
+    for key, status in list(source.items()):
+        nutrient_type = _PREMIUM_STATUS_TYPES.get(key)
+        if nutrient_type not in _MAPPABLE_STATUS_TYPES:
+            continue
+        if not isinstance(status, str):
+            continue
+        prefix = "" if key == "status" else f"{key[:-len('_status')]}_"
+        added[f"{prefix}tier"] = tier_of_status(nutrient_type, status)
+        added[f"{prefix}status_label"] = simplified_status_label(nutrient_type, status)
+    return added
+
+
+def _attach_tiers(response: dict) -> dict:
+    """조립이 끝난 응답에 tier/status_label을 덧붙인다(기존 status 값은 그대로 둔다).
+
+    status 블록과 chart.items[]만 대상으로 하며 재귀하지 않는다.
+    """
+    status_block = response.get("status")
+    if isinstance(status_block, dict):
+        status_block.update(_tier_fields(status_block))
+
+    chart = response.get("chart")
+    items = chart.get("items") if isinstance(chart, dict) else None
+    for item in items or ():
+        if isinstance(item, dict):
+            item.update(_tier_fields(item))
+
+    return response
 
 
 def _aggregate_week(cursor, user_id: int, monday: date_type, sunday: date_type) -> tuple[list[dict], int]:
@@ -416,7 +478,7 @@ def get_premium_report(
         extra_block = _build_extra_nutrient_report_block(extra_totals, limits, divisor=1)
 
         formatted_date = target_date.strftime("%Y.%m.%d")
-        return {
+        return _attach_tiers({
             "user_id":        user_id,
             "period":         "daily",
             "date":           date_str,
@@ -461,7 +523,7 @@ def get_premium_report(
             "ai_summary": _build_daily_ai_summary(
                 caffeine_pct, sugar_pct, sodium_pct, slot_scores
             ),
-        }
+        })
 
     # ── 주간 리포트 ──────────────────────────────────────
     monday = target_date - timedelta(days=target_date.weekday())
@@ -569,7 +631,7 @@ def get_premium_report(
     extra_block = _build_extra_nutrient_report_block(extra_totals, limits, divisor=divisor)
 
     date_range_str = f"{monday.strftime('%Y.%m.%d.')} ~ {sunday.strftime('%m.%d.')}"
-    return {
+    return _attach_tiers({
         "user_id":        user_id,
         "period":         "weekly",
         "date_range": {
@@ -632,4 +694,4 @@ def get_premium_report(
         "ai_summary": _build_weekly_ai_summary(
             caffeine_avg_pct, sugar_avg_pct, sodium_avg_pct, day_scores
         ),
-    }
+    })

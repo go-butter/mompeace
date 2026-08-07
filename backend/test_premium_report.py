@@ -202,6 +202,8 @@ class TestGetPremiumReportWeekly:
         tuesday = self._item(result, "화")
         assert tuesday["caffeine_status"] == "unknown"
         assert result["status"]["caffeine_status"] == "unknown"
+        assert tuesday["caffeine_tier"] == "unknown"
+        assert result["status"]["caffeine_tier"] == "unknown"
 
     def test_daily_average_divides_by_days_with_data(self, db):
         # 7일 중 3일(월/수/금)에만 기록이 있으면 daily_average는 3으로 나눈다 (7로 나누지 않는다)
@@ -296,3 +298,69 @@ class TestGetPremiumReportWeekly:
         assert result["comparison"]["sodium_vs_previous_pct"] is not None
         assert result["comparison"]["caffeine_vs_previous_pct"] == 25.0  # 50% - 25%
         assert result["comparison"]["sodium_vs_previous_pct"] == 3.4     # 6.7% - 3.3% (limit 1500mg)
+
+
+class TestGetPremiumReportTiers:
+    """raw status 옆에 붙는 tier/status_label 형제 키 (OCR 확인 화면과 같은 어휘)."""
+
+    def _item(self, result, label):
+        return next(i for i in result["chart"]["items"] if i["label"] == label)
+
+    def test_floor_shortfall_is_neutral_tier_but_deficient_label(self, db):
+        user_id = make_user(db, pregnancy_week=20)
+
+        result = get_premium_report(user_id=user_id, period="daily", date="2030-01-10", db=db)
+
+        assert result["status"]["carbohydrate_status"] == "insufficient"
+        assert result["status"]["carbohydrate_tier"] == "neutral"
+        assert result["status"]["carbohydrate_status_label"] == "부족"
+
+    def test_chart_item_gains_tier_and_status_label(self, db):
+        user_id = make_user(db, pregnancy_week=20)
+        make_food_log(db, user_id, caffeine_mg=30, sugar_g=5, sodium_mg=100,
+                       eaten_at="2030-01-10 08:00:00")   # 오전
+
+        result = get_premium_report(user_id=user_id, period="daily", date="2030-01-10", db=db)
+
+        morning = self._item(result, "오전")
+        assert morning["status"] == "safe"
+        assert morning["tier"] == "safe"
+        assert morning["status_label"] == "여유"
+        assert morning["caffeine_tier"] == "safe"
+        assert morning["caffeine_status_label"] == "여유"
+
+    def test_raw_status_values_are_unchanged(self, db):
+        user_id = make_user(db, pregnancy_week=20)
+        make_food_log(db, user_id, caffeine_mg=250, sugar_g=5, sodium_mg=100,
+                       eaten_at="2030-01-10 08:00:00")
+
+        result = get_premium_report(user_id=user_id, period="daily", date="2030-01-10", db=db)
+
+        assert result["status"]["caffeine_status"] == "avoid"
+        assert result["status"]["caffeine_tier"] == "avoid"
+        assert result["status"]["caffeine_status_label"] == "위험"
+        assert result["status"]["overall_status"] == "avoid"
+        assert result["status"]["overall_tier"] == "avoid"
+
+    def test_weekly_report_also_carries_tiers(self, db):
+        user_id = make_user(db, pregnancy_week=20)
+        make_food_log(db, user_id, caffeine_mg=100, sugar_g=10, sodium_mg=300,
+                       eaten_at="2030-01-07 09:00:00")   # 월요일
+
+        result = get_premium_report(user_id=user_id, period="weekly", date="2030-01-07", db=db)
+
+        assert result["status"]["sugar_tier"] == "safe"
+        assert result["status"]["sugar_status_label"] == "여유"
+        assert self._item(result, "월")["tier"] == "safe"
+
+    def test_non_status_keys_are_left_alone(self, db):
+        user_id = make_user(db, pregnancy_week=20)
+
+        result = get_premium_report(user_id=user_id, period="weekly", date="2030-01-07", db=db)
+
+        assert "tier" not in result
+        assert "status_label" not in result
+        assert set(result["daily_average"]) == {
+            "caffeine_mg", "sugar_g", "sodium_mg",
+            "energy_kcal", "carbohydrate_g", "protein_g",
+        }
