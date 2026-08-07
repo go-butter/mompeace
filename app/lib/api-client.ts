@@ -616,7 +616,57 @@ export function deleteWaterLog(logId: number, userId: number): Promise<WaterLogD
   return del(`/water-log/${logId}?user_id=${userId}`);
 }
 
-// TODO: getReport() — added in a separate task, wires report.tsx to live data.
+export type ReportPeriod = 'daily' | 'weekly';
+
+export interface ReportSummaryCard {
+  title: string;
+  subtitle: string;
+  /** 이미 포맷된 표시용 문자열 ("2030.01.10" 또는 "2030.01.07. ~ 01.13."). */
+  date_range: string;
+}
+
+export interface ReportAiSummary {
+  title: string;
+  messages: string[];
+}
+
+/** 카페인은 항상 포함되고, nutrients는 users.selected_nutrients에 저장된 순서를 따른다. */
+export interface ReportNutrientItems {
+  caffeine: NutrientSummaryItem;
+  nutrients: NutrientSummaryItem[];
+}
+
+// 응답에는 여기 타입에 없는 블록(totals/limits/percentages/status/chart/comparison)도 함께 온다.
+interface ReportResponseBase {
+  user_id: number;
+  pregnancy_week: number;
+  trimester: string;
+  title: string;
+  summary_card: ReportSummaryCard;
+  nutrient_items: ReportNutrientItems;
+  ai_summary: ReportAiSummary;
+}
+
+export interface DailyReportResponse extends ReportResponseBase {
+  period: 'daily';
+  date: string;
+}
+
+export interface WeeklyReportResponse extends ReportResponseBase {
+  period: 'weekly';
+  date_range: { start: string; end: string };
+}
+
+/** period로 좁혀지는 유니언 — daily는 date를, weekly는 date_range를 가진다(서로 배타적). */
+export type ReportResponse = DailyReportResponse | WeeklyReportResponse;
+
+export function getReport(
+  userId: number,
+  period: ReportPeriod,
+  date?: string
+): Promise<ReportResponse> {
+  return get(`/report/${userId}?period=${period}${date ? `&date=${date}` : ''}`);
+}
 
 export function createPersonalFoodItem(
   body: UserFoodItemCreateRequest
