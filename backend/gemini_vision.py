@@ -25,7 +25,7 @@ from typing import Literal, Optional
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
-from pydantic import BaseModel
+from pydantic import AliasChoices, BaseModel, Field, field_validator
 
 load_dotenv()
 
@@ -65,11 +65,16 @@ _PROMPT = """\
     (예: "1회 제공량 30g(총 3회 제공량)")
   - "unknown": 위 세 가지 중 어느 것인지 판단할 수 없는 경우
 - basis_amount_value: 기준량 숫자 (예: "100g" → 100). 없으면 null
+- basis_amount_unit: 기준량의 단위, "g" 또는 "ml" 중 하나로만 응답하세요 (예: "100g" → "g",
+  "100ml" → "ml"). 확인할 수 없으면 "g"
 - total_content_value: 총 내용량 숫자 (예: "355g" → 355). 없으면 null
+- total_content_unit: 총 내용량의 단위, "g" 또는 "ml" 중 하나로만 응답하세요. 확인할 수 없으면 "g"
 - servings_per_container: 총 제공 횟수 (예: "총 3회 제공량" → 3). 없으면 null
-- serving_size_g: 1회 제공량이 그램(g)/밀리리터(ml)로 별도 표기되어 있으면 그 숫자
+- serving_size_value: 1회 제공량이 그램(g)/밀리리터(ml)로 별도 표기되어 있으면 그 숫자
   (영양성분표의 기준이 100g/100ml이더라도, 라벨 어딘가에 "1회 제공량: 30g"처럼
   별도로 적혀 있으면 그 값). 없으면 null (0으로 추측하지 말 것)
+- serving_size_unit: serving_size_value의 단위, "g" 또는 "ml" 중 하나로만 응답하세요.
+  확인할 수 없으면 "g"
 - carbohydrate_g_per_basis: 기준량 당 탄수화물(g). 읽을 수 없으면 null (0으로 추측하지 말 것)
 - sugar_g_per_basis: 기준량 당 당류(g). 읽을 수 없으면 null (0으로 추측하지 말 것)
 - energy_kcal_per_basis: 기준량 당 에너지/열량(kcal). 읽을 수 없으면 null (0으로 추측하지 말 것)
@@ -82,6 +87,20 @@ _PROMPT = """\
 """
 
 
+# Gemini의 단위 표기는 대소문자/한글 표기가 일정하지 않다("mL"/"ML"/"밀리리터" 등) —
+# Literal["g","ml"] 검증에 그대로 맡기면 스키마 검증 실패(502)로 스캔 전체가 죽는다.
+# mode="before" 검증기로 알려진 변형을 정규화하고, 모르는 값은 예외를 던지는 대신
+# "g"로 폴백한다 — 단위 오인식이 스캔 자체를 막아서는 안 된다는 원칙(라벨 값 자체의
+# None-preserving 원칙과는 별개로, 단위는 항상 값이 있어야 하는 표시 전용 필드라
+# "정보 없음"을 표현할 다른 방법이 없다).
+_UNIT_NORMALIZATION = {
+    "g": "g",
+    "그램": "g",
+    "ml": "ml",
+    "밀리리터": "ml",
+}
+
+
 class GeminiLabelExtraction(BaseModel):
     product_name: Optional[str] = None
     nutrition_table_found: bool
@@ -89,9 +108,19 @@ class GeminiLabelExtraction(BaseModel):
         "total_content", "per_basis_with_total", "per_serving_with_count", "unknown"
     ] = "unknown"
     basis_amount_value: Optional[float] = None
+    basis_amount_unit: Literal["g", "ml"] = "g"
     total_content_value: Optional[float] = None
+    total_content_unit: Literal["g", "ml"] = "g"
     servings_per_container: Optional[float] = None
-    serving_size_g: Optional[float] = None
+    # AliasChoices: 스키마 변경 전 이름(serving_size_g)으로 응답이 와도 같은 속성에
+    # 매핑한다 — Gemini가 옛 이름을 계속 내보내면 이 필드가 조용히 None이 되고,
+    # 그 결과 needs_review=True가 되어 7개 배지 전부가 "정보없음"으로 보인다(실제
+    # OCR 실패와 시각적으로 구분되지 않음). 코드/프롬프트의 정식 이름은 항상
+    # serving_size_value다.
+    serving_size_value: Optional[float] = Field(
+        default=None, validation_alias=AliasChoices("serving_size_value", "serving_size_g")
+    )
+    serving_size_unit: Literal["g", "ml"] = "g"
     carbohydrate_g_per_basis: Optional[float] = None
     sugar_g_per_basis: Optional[float] = None
     energy_kcal_per_basis: Optional[float] = None
@@ -99,6 +128,13 @@ class GeminiLabelExtraction(BaseModel):
     iron_mg_per_basis: Optional[float] = None
     protein_g_per_basis: Optional[float] = None
     sodium_mg_per_basis: Optional[float] = None
+
+    @field_validator("basis_amount_unit", "total_content_unit", "serving_size_unit", mode="before")
+    @classmethod
+    def _normalize_unit(cls, value):
+        if value is None:
+            return "g"
+        return _UNIT_NORMALIZATION.get(str(value).strip().lower(), "g")
 
 
 class LabelNotDetectedError(Exception):

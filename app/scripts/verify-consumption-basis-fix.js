@@ -55,10 +55,10 @@ function check(label, actual, expected) {
   if (!pass) failures += 1;
 }
 
-console.log('== 감자깡 fixture (per_basis_with_total, basis=100, serving_size_g=30, scale_factor=0.3) ==');
+console.log('== 감자깡 fixture (per_basis_with_total, basis=100, serving_size_value=30, scale_factor=0.3) ==');
 {
   const basisAmountValue = 100;
-  const scaleFactor = 0.3; // serving_size_g(30) / basis_amount(100), from ocr_nutrition_parser test fixture
+  const scaleFactor = 0.3; // serving_size_value(30) / basis_amount(100), from ocr_nutrition_parser test fixture
   const sugarPerBasis = 12.0; // sugar_g_per_basis in the same fixture
 
   // THE BUG: weight-unit mode, ate 50g (not a whole multiple of the 30g serving).
@@ -91,7 +91,7 @@ console.log('\n== total_content method (scale_factor always 1.0) — must be a n
 
 console.log('\n== per_serving_with_count method (scale_factor always 1.0) — must be a no-op vs. old behavior ==');
 {
-  const basisAmountValue = 18.5; // basis_amount_value == serving_size_g for this method
+  const basisAmountValue = 18.5; // basis_amount_value == serving_size_value for this method
   const scaleFactor = 1.0;
   const sugarPerBasis = 2.0; // from real sample_label2.jpg scan
 

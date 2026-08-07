@@ -65,7 +65,11 @@ const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 const EXPAND_SPRING_CONFIG = { damping: 16, stiffness: 100, mass: 1 };
 const DRAFT_ROW_HEIGHT = 42;
 const TIME_PICKER_HEIGHT = 216;
-const ALTERNATIVES_DEBOUNCE_MS = 600;
+// /ocr/alternatives는 제품명 분류를 위해 Gemini를 최대 2회 호출한다
+// (backend/ocr_category_classifier.py). 그 호출은 GEMINI_CLASSIFY_DAILY_CALL_LIMIT
+// (기본 30회/일)을 소모하므로, 실제 Gemini를 켠 뒤에는 이 화면에서 몇 번만 재호출해도
+// 하루치 분류 예산이 조용히 바닥난다 — 그래서 디바운스를 넉넉히 잡는다.
+const ALTERNATIVES_DEBOUNCE_MS = 1500;
 // 7행 영양성분 테이블의 펼침 애니메이션 목표 높이 — 실제 콘텐츠 높이의 근사치일 뿐이다.
 // 애니메이션이 끝나면 height를 undefined(auto)로 전환해 실제 높이에 맞추므로, 이 값이
 // 다소 넉넉해도(잘림보다 여백이 나는 쪽이 안전) 정지 상태의 표시에는 영향이 없다.
@@ -212,6 +216,16 @@ const TIER_DESCRIPTION: Record<Tier, string> = {
   unknown: '라벨에서 확인 가능한 정보가 부족해요, 직접 수치를 확인해주세요',
 };
 
+// 판정(배지/게이지/헤드라인)이 현재 입력값과 어긋났을 때 쓰는 문구.
+// nutrient_statuses는 스캔 시점 스냅샷이라 사용자가 수치를 고쳐도 다시 계산되지
+// 않는다 — 흐리게만 처리하면 "지방은 주의가 필요해요" 같은 확정적인 문장을 그대로
+// 읽게 되므로, 문장 자체를 중립적인 안내로 교체한다.
+const STALE_VERDICT_HEADLINE = '수정한 내용이 아직 판정에 반영되지 않았어요';
+const STALE_VERDICT_DESCRIPTION =
+  '아래 배지와 게이지는 스캔 직후 수치 기준이에요. 다시 계산되기 전까지는 참고하지 말아주세요.';
+const STALE_VERDICT_CAPTION = '※ 판정만 이전 기준이고, 저장되는 수치는 수정한 값 그대로예요';
+const STALE_GAUGE_BAND_LABEL = '재계산 필요';
+
 // 원형 게이지 퍼센트 — 7개 중 상태를 아는 영양소만으로 계산하는 종합 점수.
 // 개별 성분의 실제 한도 대비 비율(옵션 a)은 이 화면에 한도 원값이 없어(백엔드가
 // 3단계 status만 내려줌) 새 백엔드 필드 없이는 계산 불가능하므로 채택하지 않았다.
@@ -237,16 +251,22 @@ function safetyBandLabel(percent: number | null): string {
 // display_method)에 따라 기준량이 100g가 아닐 수 있어(예: 총내용량당/1회
 // 제공량당 라벨) scale_method + basis_amount_value로 동적으로 결정한다.
 // needs_review가 아니라 scale_method만으로 분기한다 — per_basis_with_total인데
-// serving_size_g만 없는 경우(needs_review=true)에도 기준량 자체는 알고 있으므로
+// serving_size_value만 없는 경우(needs_review=true)에도 기준량 자체는 알고 있으므로
 // (예: "100g당") 정확한 라벨을 보여줄 수 있다.
-function getBasisLabel(scaleMethod: OcrScaleMethod, basisAmountValue: number | null): string {
+// basisUnit은 scanResult.basis_amount_unit을 그대로 받는다 — 200ml 우유팩처럼
+// 기준량이 ml인 라벨을 "200g당"으로 잘못 표시하지 않기 위해서다.
+function getBasisLabel(
+  scaleMethod: OcrScaleMethod,
+  basisAmountValue: number | null,
+  basisUnit: string
+): string {
   switch (scaleMethod) {
     case 'per_basis_with_total':
-      return basisAmountValue != null ? `${basisAmountValue}g당` : '기준량당';
+      return basisAmountValue != null ? `${basisAmountValue}${basisUnit}당` : '기준량당';
     case 'total_content':
-      return basisAmountValue != null ? `총 내용량당 (${basisAmountValue}g)` : '총 내용량당';
+      return basisAmountValue != null ? `총 내용량당 (${basisAmountValue}${basisUnit})` : '총 내용량당';
     case 'per_serving_with_count':
-      return basisAmountValue != null ? `1회 제공량당 (${basisAmountValue}g)` : '1회 제공량당';
+      return basisAmountValue != null ? `1회 제공량당 (${basisAmountValue}${basisUnit})` : '1회 제공량당';
     case 'unknown':
     default:
       return '기준량 확인 필요';
@@ -366,15 +386,21 @@ function SafetyGauge({
   percent,
   bandLabel,
   size = 96,
+  // 표시 중인 판정이 낡았을 때(verdictFreshness==='stale') 링을 비우고 퍼센트를
+  // 감춘다. percent==null("정보없음" — 라벨에 값 자체가 없음)과는 의미가 달라
+  // 별도 플래그로 받는다. 둘을 같은 표현으로 합치면 "값이 없다"와 "다시 계산해야
+  // 한다"를 구분할 수 없다.
+  stale = false,
 }: {
   percent: number | null;
   bandLabel: string;
   size?: number;
+  stale?: boolean;
 }) {
   const strokeWidth = 8;
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
-  const clampedPercent = percent == null ? 0 : Math.max(0, Math.min(100, percent));
+  const clampedPercent = stale || percent == null ? 0 : Math.max(0, Math.min(100, percent));
   const progress = useSharedValue(0);
 
   useEffect(() => {
@@ -386,7 +412,7 @@ function SafetyGauge({
   }));
 
   const ringColor =
-    percent == null
+    stale || percent == null
       ? authColors.border
       : percent >= 70
         ? summaryStatusColors['여유'].value
@@ -419,7 +445,9 @@ function SafetyGauge({
         />
       </Svg>
       <View style={styles.gaugeLabelOverlay} pointerEvents="none">
-        <Text style={styles.gaugePercentText}>{percent == null ? '-' : `${percent}%`}</Text>
+        <Text style={[styles.gaugePercentText, stale && styles.gaugePercentTextStale]}>
+          {stale ? '–' : percent == null ? '-' : `${percent}%`}
+        </Text>
         <Text style={styles.gaugeBandText} numberOfLines={1}>
           {bandLabel}
         </Text>
@@ -513,7 +541,9 @@ export default function FoodEntryOcrConfirmScreen() {
   // 가장 흔한 단위인 인분/1을 기본값으로 시작한다.
   const [foodName, setFoodName] = useState(scanResult?.product_name ?? '');
   const [amount, setAmount] = useState(needsReview && basisAmountValue != null ? '' : '1');
-  const [unit, setUnit] = useState(needsReview && basisAmountValue != null ? 'g' : '인분');
+  const [unit, setUnit] = useState(
+    needsReview && basisAmountValue != null ? (scanResult?.basis_amount_unit ?? 'g') : '인분'
+  );
   const [time, setTime] = useState(new Date());
   const [showTimePicker, setShowTimePicker] = useState(false);
   // 병합 카드(상품명/섭취량/섭취시간)의 표시 모드 — "스캔 결과 확인"이 핵심 목적이라
@@ -540,6 +570,23 @@ export default function FoodEntryOcrConfirmScreen() {
     }
     return initial;
   });
+  // 화면에 보이는 판정(nutrient_statuses 배지 + 안전도 게이지 + 헤드라인)이 지금
+  // 입력값과 일치하는지. 이 값들은 스캔 시점 스냅샷이고 편집으로 다시 계산되지
+  // 않으므로, 어긋난 순간 'stale'로 바꿔 화면에 드러낸다 — 저장되는 수치는 편집
+  // 결과를 그대로 따라가는데 판정만 예전 것을 보여주면 사용자가 잘못된 근거로
+  // 저장하게 된다.
+  //
+  // T8에서 /ocr/recompute 응답이 도착하면 setVerdictFreshness('fresh')로 되돌리고
+  // 이 유니온에 'pending'/'error'를 추가한다 — 표시 분기(isVerdictStale)와 스타일은
+  // 그대로 재사용할 수 있도록 상태 하나로 모아둔다.
+  const [verdictFreshness, setVerdictFreshness] = useState<'fresh' | 'stale'>('fresh');
+  const isVerdictStale = verdictFreshness === 'stale';
+
+  // 판정에 입력되는 값이 바뀌었음을 표시한다. 판정에 관여하지 않는 필드(상품명/
+  // 카페인/섭취시간/추가 성분)를 고칠 때는 호출하지 않는다 — 그때까지 판정을
+  // 가리면 근거 없이 정보를 숨기는 셈이 된다.
+  const markVerdictStale = () => setVerdictFreshness('stale');
+
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [alternatives, setAlternatives] = useState<OcrAlternativesResponse | null>(null);
@@ -705,14 +752,30 @@ export default function FoodEntryOcrConfirmScreen() {
   const updateNutrientBasis = (key: SelectableNutrientKey, text: string) => {
     const sanitized = sanitizeNonNegativeDecimal(text);
     setNutrientFields((prev) => ({ ...prev, [key]: sanitized }));
+    markVerdictStale();
   };
 
   const updateTotalContentAmount = (text: string) => {
     setTotalContentAmount(sanitizeNonNegativeDecimal(text));
+    markVerdictStale();
   };
 
   const updateBasisAmountValue = (text: string) => {
     setBasisAmountValueText(sanitizeNonNegativeDecimal(text));
+    markVerdictStale();
+  };
+
+  // 섭취량/단위도 판정 입력이다 — 지금은 배지가 1회 제공량 기준이라 화면상 즉시
+  // 달라지지 않지만, T8에서 판정 기준이 "실제 섭취량"으로 바뀌면 이 두 값이 직접
+  // 판정을 움직인다. 그때 빠뜨리지 않도록 지금부터 같은 경로로 묶어둔다.
+  const updateAmount = (text: string) => {
+    setAmount(text);
+    markVerdictStale();
+  };
+
+  const updateUnit = (nextUnit: string) => {
+    setUnit(nextUnit);
+    markVerdictStale();
   };
 
   // 실제로 /food-log에 저장되는 값 — basis_value(사용자가 고친 라벨 값)에 스캔 시점의
@@ -788,9 +851,20 @@ export default function FoodEntryOcrConfirmScreen() {
       : `총 섭취량(${parsedAmount || 0}${unit}) 기준`
     : '총 섭취량을 계산할 수 없어요';
 
-  // /ocr/alternatives는 마운트 시 스캔 초기값으로 한 번, 이후 100g당 편집값이 바뀔
-  // 때마다 디바운스로 재호출한다 — 실패는 항상 available:false로 조용히 수렴하도록
-  // 설계된 부가 기능이라(backend/routers/ocr.py), 저장 흐름을 막지 않는다.
+  // /ocr/alternatives는 마운트 시 한 번, 이후 "상품명이 바뀔 때만" 디바운스로
+  // 재호출한다 — 실패는 항상 available:false로 조용히 수렴하도록 설계된 부가
+  // 기능이라(backend/routers/ocr.py), 저장 흐름을 막지 않는다.
+  //
+  // 영양소 편집값은 의존성에서 뺐다. 분류(category/subcategory)는 상품명만으로
+  // 결정되는데, 값이 바뀔 때마다 재호출하면 분류 예산(최대 2회/호출)만 태우기
+  // 때문이다. 대신 알려진 한계가 하나 생긴다: 상품명을 그대로 둔 채 수치만 고쳐
+  // avoid가 된 경우(예: 나트륨 178 -> 3000) "대체 메뉴 보기" 버튼이 나타나지 않는다.
+  // 지금은 판정 자체가 스캔 시점 스냅샷이라 어차피 갱신되지 않으므로 새로 생긴
+  // 격차는 아니고, 판정이 실제로 다시 계산되는 시점(recompute 도입)에 그 결과에
+  // 맞춰 다시 호출하도록 묶는 것이 맞는 자리다.
+  //
+  // 호출 시점에 보내는 nutrients 값 자체는 여전히 최신이다 — 이펙트 본문이 실행될
+  // 때 현재 nutrientFields를 읽기 때문에, 의존성에서 뺀 것은 "언제 다시 부를지"뿐이다.
   useEffect(() => {
     if (!user?.user_id || !trimmedName) {
       setAlternatives(null);
@@ -807,7 +881,7 @@ export default function FoodEntryOcrConfirmScreen() {
     }, ALTERNATIVES_DEBOUNCE_MS);
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.user_id, trimmedName, JSON.stringify(SELECTABLE_NUTRIENT_KEYS.map((k) => nutrientFields[k]))]);
+  }, [user?.user_id, trimmedName]);
 
   const handleSave = () => {
     if (!isFormValid || !user?.user_id || !params.date || saving) return;
@@ -931,7 +1005,12 @@ export default function FoodEntryOcrConfirmScreen() {
               <Text style={styles.fieldLabel}>
                 {isWeightUnit ? `실제 섭취량 (${unit})` : '섭취량'}
               </Text>
-              <AmountUnitPicker amount={amount} unit={unit} onChangeAmount={setAmount} onChangeUnit={setUnit} />
+              <AmountUnitPicker
+                amount={amount}
+                unit={unit}
+                onChangeAmount={updateAmount}
+                onChangeUnit={updateUnit}
+              />
 
               <View style={styles.cardDivider} />
 
@@ -1009,15 +1088,27 @@ export default function FoodEntryOcrConfirmScreen() {
               <Text
                 style={[
                   styles.safetyHeadline,
-                  { color: (summaryStatusColors[headlineNutrient.status_label] ?? DEFAULT_SUMMARY_STATUS_COLORS).label },
+                  isVerdictStale
+                    ? styles.safetyHeadlineStale
+                    : { color: (summaryStatusColors[headlineNutrient.status_label] ?? DEFAULT_SUMMARY_STATUS_COLORS).label },
                 ]}>
-                {buildHeadlineText(headlineTier, headlineNutrient.label)}
+                {isVerdictStale
+                  ? STALE_VERDICT_HEADLINE
+                  : buildHeadlineText(headlineTier, headlineNutrient.label)}
               </Text>
-              <Text style={styles.safetyDescription}>{TIER_DESCRIPTION[headlineTier]}</Text>
+              <Text style={styles.safetyDescription}>
+                {isVerdictStale ? STALE_VERDICT_DESCRIPTION : TIER_DESCRIPTION[headlineTier]}
+              </Text>
             </View>
-            <SafetyGauge percent={safetyPercent} bandLabel={safetyBandLabel(safetyPercent)} />
+            <SafetyGauge
+              percent={safetyPercent}
+              bandLabel={isVerdictStale ? STALE_GAUGE_BAND_LABEL : safetyBandLabel(safetyPercent)}
+              stale={isVerdictStale}
+            />
           </View>
-          <Text style={styles.statusCaption}>※ 스캔한 라벨 기준 상태예요</Text>
+          <Text style={styles.statusCaption}>
+            {isVerdictStale ? STALE_VERDICT_CAPTION : '※ 스캔한 라벨 기준 상태예요'}
+          </Text>
         </View>
 
         {/* 3. 성분별 상태 — 7개 배지 그리드, 이전 라운드와 동일 */}
@@ -1037,10 +1128,13 @@ export default function FoodEntryOcrConfirmScreen() {
                 label={item.label}
                 value={item.status_label}
                 colors={summaryStatusColors[item.status_label] ?? DEFAULT_SUMMARY_STATUS_COLORS}
-                style={styles.statusChipItem}
+                style={[styles.statusChipItem, isVerdictStale && styles.statusChipItemStale]}
               />
             ))}
           </View>
+          {/* 배지 그리드는 안전도 카드와 별도 카드라, 흐려진 이유를 여기서도 한 번 밝힌다
+              — 스크롤 위치에 따라 안전도 카드의 안내를 못 볼 수 있다. */}
+          {isVerdictStale && <Text style={styles.statusCaption}>{STALE_VERDICT_CAPTION}</Text>}
         </View>
 
         {/* 4. 영양성분 상세 (100g당 / 총섭취량(N인분)) */}
@@ -1086,7 +1180,7 @@ export default function FoodEntryOcrConfirmScreen() {
                     placeholderTextColor={authColors.gray}
                     keyboardType="decimal-pad"
                   />
-                  <Text style={styles.totalHeaderUnit}>g</Text>
+                  <Text style={styles.totalHeaderUnit}>{scanResult.total_content_unit}</Text>
                   <Text style={styles.totalHeaderSeparator}>·</Text>
                   <View style={[styles.totalHeaderInput, styles.totalHeaderReadOnly]}>
                     <Text style={styles.totalHeaderReadOnlyText}>
@@ -1106,11 +1200,11 @@ export default function FoodEntryOcrConfirmScreen() {
                     placeholderTextColor={authColors.gray}
                     keyboardType="decimal-pad"
                   />
-                  <Text style={styles.totalHeaderUnit}>g</Text>
+                  <Text style={styles.totalHeaderUnit}>{scanResult.basis_amount_unit}</Text>
                 </View>
                 {scanResult.scale_method === 'per_basis_with_total' && !isWeightUnit && (
                   <Text style={styles.basisLimitationCaption}>
-                    기준량 수정은 g 단위 입력에만 반영돼요
+                    기준량 수정은 {scanResult.basis_amount_unit} 단위 입력에만 반영돼요
                   </Text>
                 )}
               </View>
@@ -1121,7 +1215,9 @@ export default function FoodEntryOcrConfirmScreen() {
                     <PackageGlyph color={homeColors.sugar.value} />
                   </View>
                   <Text style={styles.amountCardItemLabel}>총 내용량</Text>
-                  <Text style={styles.amountCardItemValue}>{totalContentAmount || '-'} g</Text>
+                  <Text style={styles.amountCardItemValue}>
+                    {totalContentAmount || '-'} {scanResult.total_content_unit}
+                  </Text>
                   {headerKcal != null && (
                     <Text style={styles.amountCardKcalSubtext}>{headerKcal} kcal</Text>
                   )}
@@ -1132,7 +1228,9 @@ export default function FoodEntryOcrConfirmScreen() {
                     <BalanceGlyph color={BASIS_BADGE_BLUE} />
                   </View>
                   <Text style={styles.amountCardItemLabel}>기준량</Text>
-                  <Text style={styles.amountCardItemValue}>{basisAmountValueText || '-'} g</Text>
+                  <Text style={styles.amountCardItemValue}>
+                    {basisAmountValueText || '-'} {scanResult.basis_amount_unit}
+                  </Text>
                 </View>
               </View>
             )}
@@ -1150,7 +1248,7 @@ export default function FoodEntryOcrConfirmScreen() {
                   <View style={styles.columnDivider} />
                   <View style={styles.pairedInputCol}>
                     <Text style={[styles.tableHeaderCell, styles.tableHeaderValueCell]}>
-                      {getBasisLabel(scanResult.scale_method, basisAmountValue)}
+                      {getBasisLabel(scanResult.scale_method, basisAmountValue, scanResult.basis_amount_unit)}
                     </Text>
                   </View>
                   <View style={styles.columnDivider} />
@@ -1171,7 +1269,10 @@ export default function FoodEntryOcrConfirmScreen() {
                       basisValue={nutrientFields[key]}
                       detailValue={detail != null ? String(detail) : '-'}
                       onChangeBasis={(text) => updateNutrientBasis(key, text)}
-                      highlighted={key === headlineNutrient.key}
+                      // 안전도 헤드라인이 가리키는 성분을 표에서 짚어주는 강조다 —
+                      // 판정이 낡아 헤드라인에서 성분 이름을 감춘 동안에는 가리킬
+                      // 대상이 없으므로 함께 끈다.
+                      highlighted={!isVerdictStale && key === headlineNutrient.key}
                     />
                   );
                 })}
@@ -1533,6 +1634,11 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bold,
     fontSize: 18,
   },
+  // 판정이 낡은 동안의 헤드라인 — 상태색(위험/안전/여유)을 쓰지 않는다. 색이 남아
+  // 있으면 문구를 중립으로 바꿔도 색만으로 판정을 읽게 된다.
+  safetyHeadlineStale: {
+    color: authColors.grayDark,
+  },
   safetyDescription: {
     fontFamily: fonts.regular,
     fontSize: 12,
@@ -1549,6 +1655,9 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bold,
     fontSize: 20,
     color: authColors.brown,
+  },
+  gaugePercentTextStale: {
+    color: authColors.gray,
   },
   gaugeBandText: {
     fontFamily: fonts.regular,
@@ -1572,6 +1681,11 @@ const styles = StyleSheet.create({
   statusChipItem: {
     flex: 0,
     width: '31%',
+  },
+  // 낡은 판정 배지 — 지우지 않고 흐리게 남긴다. 아예 비우면 화면이 크게 흔들리고,
+  // "값이 없다"(정보없음 배지)와도 헷갈린다.
+  statusChipItemStale: {
+    opacity: 0.35,
   },
   totalHeaderRow: {
     flexDirection: 'row',

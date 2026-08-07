@@ -37,9 +37,12 @@ def test_parse_response_well_formed_json_all_fields():
       "nutrition_table_found": true,
       "reference_amount_display_method": "per_basis_with_total",
       "basis_amount_value": 100.0,
+      "basis_amount_unit": "g",
       "total_content_value": 355.0,
+      "total_content_unit": "g",
       "servings_per_container": null,
-      "serving_size_g": 30.0,
+      "serving_size_value": 30.0,
+      "serving_size_unit": "g",
       "carbohydrate_g_per_basis": 70.0,
       "sugar_g_per_basis": 12.0,
       "energy_kcal_per_basis": 450.0,
@@ -54,8 +57,11 @@ def test_parse_response_well_formed_json_all_fields():
     assert result["nutrition_table_found"] is True
     assert result["reference_amount_display_method"] == "per_basis_with_total"
     assert result["basis_amount_value"] == 100.0
+    assert result["basis_amount_unit"] == "g"
     assert result["total_content_value"] == 355.0
-    assert result["serving_size_g"] == 30.0
+    assert result["total_content_unit"] == "g"
+    assert result["serving_size_value"] == 30.0
+    assert result["serving_size_unit"] == "g"
     assert result["carbohydrate_g_per_basis"] == 70.0
     assert result["sugar_g_per_basis"] == 12.0
     assert result["energy_kcal_per_basis"] == 450.0
@@ -70,7 +76,7 @@ def test_parse_response_missing_optional_fields_default_to_none_or_unknown():
     result = _parse_response(raw)
     assert result["product_name"] is None
     assert result["reference_amount_display_method"] == "unknown"
-    assert result["serving_size_g"] is None
+    assert result["serving_size_value"] is None
     assert result["carbohydrate_g_per_basis"] is None
     assert result["sugar_g_per_basis"] is None
     assert result["energy_kcal_per_basis"] is None
@@ -78,6 +84,56 @@ def test_parse_response_missing_optional_fields_default_to_none_or_unknown():
     assert result["iron_mg_per_basis"] is None
     assert result["protein_g_per_basis"] is None
     assert result["sodium_mg_per_basis"] is None
+
+
+# ── 단위 필드: 정규화 / 폴백 (AMENDMENT 1) ───────────────────────
+
+def test_parse_response_missing_unit_fields_default_to_g():
+    raw = '{"nutrition_table_found": true}'
+    result = _parse_response(raw)
+    assert result["basis_amount_unit"] == "g"
+    assert result["total_content_unit"] == "g"
+    assert result["serving_size_unit"] == "g"
+
+
+@pytest.mark.parametrize(
+    "raw_value,expected",
+    [
+        ("g", "g"),
+        ("그램", "g"),
+        ("ml", "ml"),
+        ("mL", "ml"),
+        ("ML", "ml"),
+        ("  ml  ", "ml"),
+        ("밀리리터", "ml"),
+    ],
+)
+def test_parse_response_normalizes_known_unit_variants(raw_value, expected):
+    raw = json.dumps({"nutrition_table_found": True, "basis_amount_unit": raw_value})
+    result = _parse_response(raw)
+    assert result["basis_amount_unit"] == expected
+
+
+def test_parse_response_unrecognized_unit_falls_back_to_g_without_raising():
+    raw = json.dumps({"nutrition_table_found": True, "total_content_unit": "oz"})
+    result = _parse_response(raw)
+    assert result["total_content_unit"] == "g"
+
+
+# ── serving_size_value: 옛 이름(serving_size_g) 호환 (AMENDMENT 2) ──
+
+def test_parse_response_accepts_old_serving_size_g_key():
+    raw = json.dumps({"nutrition_table_found": True, "serving_size_g": 108.0})
+    result = _parse_response(raw)
+    assert result["serving_size_value"] == 108.0
+
+
+def test_parse_response_new_key_takes_precedence_over_old_if_both_present():
+    raw = json.dumps(
+        {"nutrition_table_found": True, "serving_size_value": 30.0, "serving_size_g": 999.0}
+    )
+    result = _parse_response(raw)
+    assert result["serving_size_value"] == 30.0
 
 
 def test_parse_response_label_not_found():

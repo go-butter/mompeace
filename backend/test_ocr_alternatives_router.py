@@ -14,11 +14,11 @@ test_ocr_router.py와 동일하게 FastAPI TestClient가 아니라 라우터 함
   200(available=false)으로 응답한다 — 대체 메뉴는 부가 기능이라 실패가
   스캔 흐름을 막으면 안 된다는 설계 결정을 라우터 레벨에서 확인
 - user_id가 없으면 404 (기존 패턴)
-- USE_MOCK_GEMINI=True(기본값)면 classify_food()를 아예 호출하지 않고 고정된
-  목 분류 결과를 쓴다 — /ocr/scan의 기존 목 경로와 동일한 이유(확인된 키 없이도
-  개발/기기 테스트가 실제 Gemini 호출(및 GEMINI_CLASSIFY_DAILY_CALL_LIMIT)을
-  소모하지 않도록). classify_food()의 실제 동작을 검증하는 테스트들은 이
-  플래그를 False로 monkeypatch해 실제 경로를 강제한다.
+- USE_MOCK_GEMINI=True면 classify_food()를 아예 호출하지 않고 고정된 목 분류
+  결과를 쓴다 — 개발/기기 테스트가 실제 Gemini 호출(및
+  GEMINI_CLASSIFY_DAILY_CALL_LIMIT)을 소모하지 않도록. classify_food()의 실제
+  동작을 검증하는 테스트들은 이 플래그를 False로 monkeypatch해 실제 경로를
+  강제한다.
 """
 import pytest
 from fastapi import HTTPException
@@ -29,6 +29,13 @@ from backend.routers import ocr as ocr_router
 from backend.routers.ocr import OcrAlternativesRequest, get_ocr_alternatives
 
 from .conftest import make_food_item, make_user
+
+
+@pytest.fixture(autouse=True)
+def force_mock_gemini(monkeypatch):
+    """test_ocr_router.py의 같은 이름 fixture와 동일한 이유 — USE_MOCK_GEMINI가
+    환경변수(기본 false)로 바뀌었으므로 테스트에서 명시적으로 목을 고정한다."""
+    monkeypatch.setattr(ocr_router, "USE_MOCK_GEMINI", True)
 
 _ALL_KEYS = ("carbohydrate", "sugar", "energy", "fat", "iron", "protein", "sodium")
 
@@ -156,12 +163,14 @@ def test_gemini_daily_limit_during_classification_degrades_to_unavailable_not_42
     assert result["category"] is None
 
 
-def test_mock_gemini_default_skips_real_classification(db, monkeypatch):
-    """USE_MOCK_GEMINI 기본값(True)에서는 classify_food()를 한 번도 호출하지
-    않고, 고정된 목 분류 결과("면 및 만두류"/"라면")로 실제 DB 후보를 조회한다 —
-    /ocr/scan의 기존 목 경로와 동일하게, 확인된 키 없이도(그리고 실제 키가
-    있어도) 개발/기기 테스트가 GEMINI_CLASSIFY_DAILY_CALL_LIMIT을 소모하지
-    않아야 한다."""
+def test_mock_gemini_skips_real_classification(db, monkeypatch):
+    """USE_MOCK_GEMINI가 켜져 있으면 classify_food()를 한 번도 호출하지 않고,
+    고정된 목 분류 결과("면 및 만두류"/"라면")로 실제 DB 후보를 조회한다 —
+    실제 키가 있어도 개발/기기 테스트가 GEMINI_CLASSIFY_DAILY_CALL_LIMIT을
+    소모하지 않아야 한다.
+
+    (이 플래그의 기본값은 이제 환경변수 OCR_USE_MOCK_GEMINI이며 기본 false다 —
+    "켜져 있으면"을 만드는 것은 이 파일의 autouse fixture다.)"""
     user_id = make_user(db)
     make_food_item(db, food_name="라면_라면만 (100g)", subcategory="라면", sodium_mg=306.0)
     classify_calls = []

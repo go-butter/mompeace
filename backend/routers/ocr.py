@@ -1,3 +1,4 @@
+import os
 import sqlite3
 from typing import Optional
 
@@ -6,17 +7,57 @@ from pydantic import BaseModel
 
 from backend.alternative_food_query import determine_trigger_nutrient, find_subcategory_alternatives
 from backend.database import get_db
-from backend.gemini_vision import GeminiDailyLimitExceededError, LabelNotDetectedError, call_gemini_vision
+from backend.gemini_vision import (
+    GeminiDailyLimitExceededError,
+    GeminiNotConfiguredError,
+    LabelNotDetectedError,
+    call_gemini_vision,
+)
 from backend.intake_totals import build_item_nutrient_statuses, get_trimester_limits, resolve_user_nutrition_context
 from backend.ocr_category_classifier import classify_food
 from backend.ocr_nutrition_parser import resolve_ocr_nutrients
 
 router = APIRouter()
 
-# TEMPORARY: no Gemini API key has been confirmed working yet, and frontend
-# work on the capture/confirm/failure screens shouldn't block on that.
-# Set this back to False once GEMINI_API_KEY is confirmed working.
-USE_MOCK_GEMINI = True
+# 실제 Gemini 호출을 건너뛰고 고정된 목 데이터를 쓸지 여부. 기본값은 False(실제 호출)이며,
+# 오프라인으로 화면을 만지거나 테스트를 돌릴 때만 OCR_USE_MOCK_GEMINI=true로 켠다.
+# 소스 상수가 아니라 환경변수인 이유: 상수였을 때 "실제 키가 확인되면 되돌리기"가
+# 코드 수정에 묶여 있어, 켜둔 채로 잊히면 모든 스캔이 조용히 같은 과자 하나를
+# 돌려준다 — 그 상태가 실제로 한동안 지속됐다.
+USE_MOCK_GEMINI = os.getenv("OCR_USE_MOCK_GEMINI", "false").lower() == "true"
+
+
+def _mock_extraction() -> dict:
+    """call_gemini_vision()이 돌려주는 것과 정확히 같은 모양의 고정 추출 결과.
+
+    resolve_ocr_nutrients() 이후 경로를 실제 호출과 동일하게 통과시키기 위한 것이라,
+    필드를 빼거나 더하지 않는다.
+
+    --- 스케일 방식별 케이스를 시험할 때 여기를 바꾼다 ---
+    serving_size_value를 None으로 두면(reference_amount_display_method는 계속
+    "per_basis_with_total") "기준량은 알지만 1회 제공량은 모름" needs_review 경로를
+    탈 수 있다 — 라벨에 "100g당"만 있고 "1회 제공량" 표기가 따로 없는 경우라,
+    확인 화면은 인분수를 가정하지 말고 섭취 그램을 직접 받아야 한다.
+    """
+    return {
+        "product_name": "목 테스트 과자",
+        "nutrition_table_found": True,
+        "reference_amount_display_method": "per_basis_with_total",
+        "basis_amount_value": 100.0,
+        "basis_amount_unit": "g",
+        "total_content_value": 355.0,
+        "total_content_unit": "g",
+        "servings_per_container": None,
+        "serving_size_value": 30.0,
+        "serving_size_unit": "g",
+        "carbohydrate_g_per_basis": 70.0,
+        "sugar_g_per_basis": 12.0,
+        "energy_kcal_per_basis": 450.0,
+        "fat_g_per_basis": 18.0,
+        "iron_mg_per_basis": 1.2,
+        "protein_g_per_basis": 6.0,
+        "sodium_mg_per_basis": 178.0,
+    }
 
 
 class OcrScanRequest(BaseModel):
@@ -45,33 +86,7 @@ def scan_nutrition_label(req: OcrScanRequest, db: sqlite3.Connection = Depends(g
     user = dict(user)
 
     if USE_MOCK_GEMINI:
-        # Mock path: skip the real Gemini Vision call entirely and build an
-        # extraction dict in the exact shape call_gemini_vision() returns, so
-        # resolve_ocr_nutrients() below runs unchanged.
-        # --- Tweak these to test the scale-method cases ---
-        # Set serving_size_g to None (with reference_amount_display_method still
-        # "per_basis_with_total") to exercise the "basis known, serving size
-        # unknown" needs_review path — the label has "100g당" but no separate
-        # "1회 제공량" breakdown, so the confirm screen should fall back to
-        # asking for grams eaten directly instead of assuming a serving size.
-        mock_extraction = {
-            "product_name": "목 테스트 과자",
-            "nutrition_table_found": True,
-            "reference_amount_display_method": "per_basis_with_total",
-            "basis_amount_value": 100.0,
-            "total_content_value": 355.0,
-            "servings_per_container": None,
-            "serving_size_g": 30.0,
-            "carbohydrate_g_per_basis": 70.0,
-            "sugar_g_per_basis": 12.0,
-            "energy_kcal_per_basis": 450.0,
-            "fat_g_per_basis": 18.0,
-            "iron_mg_per_basis": 1.2,
-            "protein_g_per_basis": 6.0,
-            "sodium_mg_per_basis": 178.0,
-        }
-        # ---------------------------------------------------------------
-        extraction = mock_extraction
+        extraction = _mock_extraction()
     else:
         try:
             extraction = call_gemini_vision(req.image)
@@ -79,6 +94,16 @@ def scan_nutrition_label(req: OcrScanRequest, db: sqlite3.Connection = Depends(g
             raise HTTPException(
                 status_code=422,
                 detail=str(e) or "영양성분표를 인식하지 못했어요. 라벨이 잘 보이도록 다시 촬영해주세요.",
+            )
+        except GeminiNotConfiguredError:
+            # 502(호출 실패)와 구분한다 — 서버 설정 문제라 다시 촬영해도 해결되지
+            # 않으므로, 화면이 "다시 촬영" 대신 다른 안내를 보여줄 수 있어야 한다.
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "error_code": "OCR_UNAVAILABLE",
+                    "message": "OCR 기능을 지금 사용할 수 없어요. 검색이나 직접 입력으로 등록해주세요.",
+                },
             )
         except GeminiDailyLimitExceededError:
             raise HTTPException(
@@ -167,11 +192,11 @@ def get_ocr_alternatives(req: OcrAlternativesRequest, db: sqlite3.Connection = D
         return _empty_alternatives_response(trigger_nutrient)
 
     if USE_MOCK_GEMINI:
-        # Mock path: skip the real Gemini classification calls entirely, same
-        # reasoning as /ocr/scan's mock block above (no confirmed-working key yet).
-        # --- Tweak this to test the match / no-match paths ---
-        # Set to (None, None) to exercise the "classification failed" ->
-        # available=false path without needing a real product Gemini can't classify.
+        # 목 경로: 실제 분류 호출(최대 2회)을 건너뛴다. /ocr/scan과 같은 플래그를
+        # 공유하므로 오프라인 작업 시 두 엔드포인트가 함께 목으로 동작한다.
+        # --- 매칭/미매칭 경로를 시험할 때 여기를 바꾼다 ---
+        # (None, None)으로 두면 실제로 분류 불가능한 제품을 찾지 않고도
+        # "분류 실패 -> available=false" 경로를 탈 수 있다.
         category, subcategory = ("면 및 만두류", "라면")
         # ---------------------------------------------------------------
     else:

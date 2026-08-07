@@ -469,6 +469,8 @@ export interface OcrNutrientStatus {
   status_label: string;
 }
 
+export type OcrAmountUnit = 'g' | 'ml';
+
 export interface OcrScanResponse {
   product_name: string | null;
   sugar_g: number | null;
@@ -476,7 +478,10 @@ export interface OcrScanResponse {
   scale_method: OcrScaleMethod;
   scale_factor_applied: number | null;
   basis_amount_value: number | null;
+  basis_amount_unit: OcrAmountUnit;
   total_content_value: number | null;
+  total_content_unit: OcrAmountUnit;
+  serving_size_unit: OcrAmountUnit;
   needs_review: boolean;
   nutrients: Record<OcrNutrientKey, OcrNutrientValue>;
   nutrient_statuses: OcrNutrientStatus[];

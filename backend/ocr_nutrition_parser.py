@@ -127,7 +127,7 @@ def resolve_ocr_nutrients(extraction: dict) -> dict:
 
     Gemini가 스스로 분류한 reference_amount_display_method를 신뢰하되,
     그 방식을 계산하는 데 필요한 값이 실제로는 빠져 있으면(예: per_basis_with_total로
-    분류했는데 serving_size_g가 없음) scale_factor를 None으로 남긴다 — 라벨을
+    분류했는데 serving_size_value가 없음) scale_factor를 None으로 남긴다 — 라벨을
     읽었어도 1회 제공량이 실제로는 확정되지 않은 경우이기 때문. 이 경우
     needs_review=True이고, basis_amount_value는 있을 수 있으므로(예: "100g당") 확인
     화면에서 그램 직접 입력 대체 흐름을 제공할 수 있다.
@@ -139,16 +139,28 @@ def resolve_ocr_nutrients(extraction: dict) -> dict:
     total_content_value만으로 계산되므로 needs_review=True여도 항상 계산된다.
 
     반환: {product_name, sugar_g, sodium_mg, scale_method, scale_factor_applied,
-           basis_amount_value, total_content_value, needs_review, nutrients}
+           basis_amount_value, basis_amount_unit, total_content_value,
+           total_content_unit, serving_size_unit, needs_review, nutrients}
     기존 sugar_g/sodium_mg 필드는 nutrients["sugar"/"sodium"]["serving_value"]와
     동일한 값을 그대로 유지한다 (기존 소비자와의 하위 호환 — additive 변경).
+
+    basis_amount_unit/total_content_unit/serving_size_unit: extraction에 없으면
+    "g"로 기본값을 채운다 — GeminiLabelExtraction 쪽에도 동일한 기본값(Field
+    default="g")이 있지만, 이 함수는 테스트 등에서 raw dict를 직접 받기도 하므로
+    여기서도 방어적으로 채운다. serving_size_value 자체는 스케일 계산에만 쓰이고
+    응답에 노출되지 않는 것과 달리, serving_size_unit은 그대로 반환한다(값 없이
+    단위만 있는 것이 어색해 보일 수 있으나, 상위 계층 전체에 단위 필드를 일관되게
+    통과시킨다는 이번 변경의 목적에 따른 것이다).
     """
     declared_method = extraction.get("reference_amount_display_method")
     if declared_method not in _VALID_METHODS:
         declared_method = "unknown"
 
     basis_amount = extraction.get("basis_amount_value")
+    basis_amount_unit = extraction.get("basis_amount_unit") or "g"
     total_content_amount = extraction.get("total_content_value")
+    total_content_unit = extraction.get("total_content_unit") or "g"
+    serving_size_unit = extraction.get("serving_size_unit") or "g"
 
     scale_method = declared_method
     scale_factor: float | None = None
@@ -161,8 +173,8 @@ def resolve_ocr_nutrients(extraction: dict) -> dict:
         # 총 제공 횟수 표시용일 뿐, 스케일 계산에는 쓰이지 않는다).
         scale_factor = 1.0
     elif declared_method == "per_basis_with_total":
-        serving_size_g = extraction.get("serving_size_g")
-        scale_factor = compute_total_content_scale(basis_amount, serving_size_g)
+        serving_size_value = extraction.get("serving_size_value")
+        scale_factor = compute_total_content_scale(basis_amount, serving_size_value)
     # declared_method == "unknown" → scale_factor stays None
 
     needs_review = scale_factor is None
@@ -183,7 +195,10 @@ def resolve_ocr_nutrients(extraction: dict) -> dict:
         "scale_method": scale_method,
         "scale_factor_applied": scale_factor,
         "basis_amount_value": basis_amount,
+        "basis_amount_unit": basis_amount_unit,
         "total_content_value": total_content_amount,
+        "total_content_unit": total_content_unit,
+        "serving_size_unit": serving_size_unit,
         "needs_review": needs_review,
         "nutrients": nutrients,
     }
