@@ -1,19 +1,17 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
-import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useState } from 'react';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import NextIcon from '@/assets/images/common/next.svg';
-import CrownIcon from '@/assets/images/mypage/crown.svg';
-import MilkIcon from '@/assets/images/mypage/milk.svg';
 import CalendarIcon from '@/assets/images/mypage/mypage_calendar.svg';
 import { authColors } from '@/components/auth/colors';
 import { fonts, nanumSquareRound } from '@/constants/fonts';
 import { useAuth } from '@/context/auth-context';
 import { useIntake } from '@/context/intake-context';
-import { deleteAccount, getPremiumStatus } from '@/lib/api-client';
+import { deleteAccount } from '@/lib/api-client';
 
 const CARD_GRADIENT_COLORS = ['#fef4f3', '#fff8f8', '#fff2f1'] as const;
 const CARD_GRADIENT_LOCATIONS = [0, 0.68755, 1] as const;
@@ -51,25 +49,12 @@ export default function MyPageScreen() {
   const insets = useSafeAreaInsets();
   const { user, logout } = useAuth();
   const { intake, refresh } = useIntake();
-  const [isPremium, setIsPremium] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
-
-  const loadPremiumStatus = useCallback(() => {
-    if (!user?.user_id) return;
-    getPremiumStatus(user.user_id)
-      .then((res) => setIsPremium(res.is_premium))
-      .catch((err) => console.warn('[mypage] failed to load premium status', err));
-  }, [user?.user_id]);
-
-  useEffect(() => {
-    loadPremiumStatus();
-  }, [loadPremiumStatus]);
 
   useFocusEffect(
     useCallback(() => {
       refresh();
-      loadPremiumStatus();
-    }, [refresh, loadPremiumStatus])
+    }, [refresh])
   );
 
   const handleLogout = () => {
@@ -101,13 +86,6 @@ export default function MyPageScreen() {
     ]);
   };
 
-  const allergyList = user?.allergy_info
-    ? user.allergy_info
-        .split(',')
-        .map((item) => item.trim())
-        .filter(Boolean)
-    : [];
-
   return (
     <ScrollView
       style={styles.container}
@@ -124,7 +102,6 @@ export default function MyPageScreen() {
         style={styles.banner}>
         <View style={styles.bannerGreetingRow}>
           <Text style={styles.bannerGreeting}>{user?.nickname}님👶🏻</Text>
-          {isPremium && <CrownIcon width={18} height={18} style={styles.bannerCrown} />}
         </View>
         {intake && (
           <Text style={styles.bannerWeek}>
@@ -144,62 +121,12 @@ export default function MyPageScreen() {
         />
         <View style={styles.menuDivider} />
         <MenuRow
-          icon={<MilkIcon width={24} height={24} />}
-          title="알레르기 정보"
-          subtitle={allergyList.length > 0 ? allergyList.join(', ') : '설정된 알레르기 없음'}
-          onPress={() => router.push('/(tabs)/mypage/edit-allergy')}
-        />
-        <View style={styles.menuDivider} />
-        <MenuRow
           icon={<Ionicons name="nutrition-outline" size={22} color={authColors.pink} />}
           title="초/중/후기별 제한사항"
           subtitle="현재 시기 기준 1일 영양 기준값"
           onPress={() => router.push('/(tabs)/mypage/nutrition-limits')}
         />
       </View>
-
-      <LinearGradient
-        colors={CARD_GRADIENT_COLORS}
-        locations={CARD_GRADIENT_LOCATIONS}
-        start={CARD_GRADIENT_START}
-        end={CARD_GRADIENT_END}
-        style={styles.premiumCard}>
-        <Image
-          source={require('@/assets/images/premium/premium.png')}
-          style={styles.premiumIllustration}
-          resizeMode="contain"
-        />
-        <View style={styles.premiumTitleRow}>
-          <Text style={styles.premiumTitle}>Premium</Text>
-          <CrownIcon width={18} height={18} />
-        </View>
-        <View style={styles.premiumFeatures}>
-          <View style={styles.premiumFeatureRow}>
-            <View style={styles.premiumFeatureIcon}>
-              <Ionicons name="sparkles-outline" size={14} color="#E8536B" />
-            </View>
-            <View>
-              <Text style={styles.premiumFeatureTitle}>AI 성분 분석</Text>
-              <Text style={styles.premiumFeatureSubtitle}>식품 성분을 분석해드려요</Text>
-            </View>
-          </View>
-          <View style={styles.premiumFeatureRow}>
-            <View style={styles.premiumFeatureIcon}>
-              <Ionicons name="bar-chart-outline" size={14} color="#E8536B" />
-            </View>
-            <View>
-              <Text style={styles.premiumFeatureTitle}>주간 리포트</Text>
-              <Text style={styles.premiumFeatureSubtitle}>섭취 리포트를 제공해요</Text>
-            </View>
-          </View>
-        </View>
-        <Pressable
-          style={styles.premiumCta}
-          onPress={() => router.push('/(tabs)/mypage/premium-payment')}>
-          <Text style={styles.premiumCtaText}>프리미엄 시작하기</Text>
-          <Ionicons name="chevron-forward" size={13} color={authColors.pink} />
-        </Pressable>
-      </LinearGradient>
 
       <Text style={styles.sectionLabel}>기타</Text>
       <View style={styles.card}>
@@ -283,9 +210,6 @@ const styles = StyleSheet.create({
     fontSize: 20,
     color: authColors.brown,
   },
-  bannerCrown: {
-    marginTop: -2,
-  },
   bannerWeek: {
     fontFamily: nanumSquareRound.regular,
     fontSize: 15,
@@ -326,79 +250,5 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: authColors.gray,
     marginTop: 2,
-  },
-  premiumCard: {
-    borderRadius: 15,
-    marginTop: 20,
-    padding: 20,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: authColors.border,
-  },
-  premiumIllustration: {
-    position: 'absolute',
-    right: 20,
-    bottom: -6,
-    width: 130,
-    height: 130,
-    opacity: 0.55,
-  },
-  premiumTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-  },
-  premiumTitle: {
-    fontWeight: 'bold',
-    fontSize: 20,
-    color: '#ff8f9b',
-  },
-  premiumFeatures: {
-    marginTop: 12,
-    maxWidth: '68%',
-    gap: 10,
-  },
-  premiumFeatureRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  premiumFeatureIcon: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: '#FFF0F0',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  premiumFeatureTitle: {
-    fontFamily: nanumSquareRound.bold,
-    fontSize: 15,
-    color: '#A88770',
-  },
-  premiumFeatureSubtitle: {
-    fontFamily: nanumSquareRound.regular,
-    fontSize: 12,
-    color: '#848484',
-    marginTop: 1,
-  },
-  premiumCta: {
-    marginTop: 16,
-    alignSelf: 'flex-start',
-    width: 173,
-    height: 27,
-    backgroundColor: '#FFF0F0',
-    borderWidth: 0.7,
-    borderColor: authColors.border,
-    borderRadius: 15,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 2,
-  },
-  premiumCtaText: {
-    fontFamily: nanumSquareRound.regular,
-    fontSize: 13,
-    color: authColors.pink,
   },
 });

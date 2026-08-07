@@ -22,7 +22,6 @@ const VISIBLE_TAB_BAR_STYLE = {
 const CONTENT_HEIGHT = 80; // mirrors (tabs)/_layout.tsx's CONTENT_HEIGHT
 const HIDDEN_TAB_BAR_ROUTES = new Set([
   'edit-profile',
-  'edit-allergy',
   'contact',
   'nutrient-preferences',
 ]);
@@ -47,7 +46,6 @@ export default function MyPageLayout() {
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="index" />
       <Stack.Screen name="edit-profile" />
-      <Stack.Screen name="edit-allergy" />
       <Stack.Screen name="contact" />
       <Stack.Screen name="nutrient-preferences" />
     </Stack>
