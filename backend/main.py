@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from backend.database import init_db
-from backend.routers import auth, foods, premium, users, food_log, intake, recommendation, coffee, ocr, water_log, tips
+from backend.routers import auth, foods, report, users, food_log, intake, recommendation, coffee, ocr, water_log, tips
 
 
 app = FastAPI(title="맘편하게 API", version="1.0.0")
@@ -36,7 +36,7 @@ def root():
 
 app.include_router(auth.router)
 app.include_router(foods.router)
-app.include_router(premium.router)
+app.include_router(report.router)
 app.include_router(users.router)
 app.include_router(food_log.router)
 app.include_router(intake.router)

@@ -6,7 +6,7 @@ import PrevIcon from '@/assets/images/common/prev.svg';
 import { authColors } from '@/components/auth/colors';
 import { fonts } from '@/constants/fonts';
 
-export default function PremiumReportScreen() {
+export default function ReportScreen() {
   const insets = useSafeAreaInsets();
 
   return (
@@ -15,7 +15,7 @@ export default function PremiumReportScreen() {
         <Pressable onPress={() => router.back()} style={styles.prevButton} hitSlop={8}>
           <PrevIcon width={15} height={15} />
         </Pressable>
-        <Text style={styles.title}>프리미엄 리포트</Text>
+        <Text style={styles.title}>리포트</Text>
       </View>
 
       <View style={styles.card}>

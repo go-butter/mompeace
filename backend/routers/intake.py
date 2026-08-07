@@ -22,6 +22,7 @@ from backend.intake_totals import (
     get_iron_status,
     get_status,
     get_trimester_limits,
+    build_nutrient_summary_item,
     resolve_user_nutrition_context,
     simplified_status_label,
 )
@@ -41,53 +42,26 @@ def _get_percent(value, standard):
 # "band"형(fat/iron)은 총 에너지·트라이메스터 한도 등 서로 다른 부가 인자가 필요해
 # judge_fn으로 자신만의 판정 함수를 들고 다닌다 — fat/iron 외의 band형이 늘어나면
 # 이 패턴을 그대로 재사용하면 된다.
-_SUMMARY_NUTRIENT_FIELDS = {
-    "carbohydrate": {"total_key": "total_carbohydrate", "known_key": "known_carbohydrate_count", "limit_key": "carbohydrate_g", "unit": "g", "type": "floor"},
-    "sugar":        {"total_key": "total_sugar", "known_key": "known_sugar_count", "limit_key": "sugar_g", "unit": "g", "type": "ceiling"},
-    "energy":       {"total_key": "total_calories", "known_key": "known_energy_count", "limit_key": "energy_kcal", "unit": "kcal", "type": "floor"},
-    # 지방의 분모는 "오늘 누적 에너지"가 아니라 "하루 에너지 목표"다 —
-    # 기준(15~30%)이 하루치 총 섭취량에 대한 비율이라 누적값을 분모로 쓰면
-    # 하루 중간에는 기준을 오용하게 된다(get_fat_status docstring 참고).
-    "fat":          {"total_key": "total_fat", "known_key": "known_fat_count", "limit_key": None, "unit": "g", "type": "band",
-                      "judge_fn": lambda total, known_count, logged_count, totals, limits: get_fat_status(
-                          total, limits["energy_kcal"], limits["fat_ratio_min"], limits["fat_ratio_max"], known_count, logged_count)},
-    "iron":         {"total_key": "total_iron", "known_key": "known_iron_count", "limit_key": None, "unit": "mg", "type": "band",
-                      "judge_fn": lambda total, known_count, logged_count, totals, limits: get_iron_status(
-                          total, IRON_RECOMMENDED_MG, IRON_UPPER_LIMIT_MG, known_count, logged_count)},
-    "protein":      {"total_key": "total_protein", "known_key": "known_protein_count", "limit_key": "protein_g", "unit": "g", "type": "floor"},
-    "sodium":       {"total_key": "total_sodium", "known_key": "known_sodium_count", "limit_key": "sodium_mg", "unit": "mg", "type": "ceiling"},
+# 집계 컬럼명 → build_nutrient_summary_item()에 넘길 (값, known 개수).
+# 판정 방식/단위/라벨은 intake_totals.NUTRIENT_SUMMARY_FIELDS가 들고 있고, 여기서는
+# 이 엔드포인트의 집계 쿼리 컬럼명만 매핑한다.
+_SUMMARY_TOTAL_KEYS = {
+    "carbohydrate": ("total_carbohydrate", "known_carbohydrate_count"),
+    "sugar":        ("total_sugar", "known_sugar_count"),
+    "energy":       ("total_calories", "known_energy_count"),
+    "fat":          ("total_fat", "known_fat_count"),
+    "iron":         ("total_iron", "known_iron_count"),
+    "protein":      ("total_protein", "known_protein_count"),
+    "sodium":       ("total_sodium", "known_sodium_count"),
+    "caffeine":     ("total_caffeine", "known_caffeine_count"),
 }
 
 
 def _build_nutrient_summary_item(key: str, totals: dict, limits: dict) -> dict:
-    spec = _SUMMARY_NUTRIENT_FIELDS[key]
-    total = totals[spec["total_key"]]
-    known_count = totals[spec["known_key"]]
-    logged_count = totals["logged_count"]
-
-    if spec["type"] == "ceiling":
-        limit = limits[spec["limit_key"]]
-        status = get_status(total, limit, known_count, logged_count)
-        percent = _get_percent(total, limit)
-    elif spec["type"] == "floor":
-        limit = limits[spec["limit_key"]]
-        status = get_floor_status(total, limit, known_count, logged_count)
-        percent = _get_percent(total, limit)
-    elif spec["type"] == "band":
-        status = spec["judge_fn"](total, known_count, logged_count, totals, limits)
-        limit = None
-        percent = None
-
-    return {
-        "key": key,
-        "label": NUTRIENT_LABELS_KO[key],
-        "total": round(total, 2),
-        "unit": spec["unit"],
-        "limit": limit,
-        "percent": percent,
-        "status": status,
-        "status_label": simplified_status_label(spec["type"], status),
-    }
+    total_key, known_key = _SUMMARY_TOTAL_KEYS[key]
+    return build_nutrient_summary_item(
+        key, totals[total_key], limits, totals[known_key], totals["logged_count"]
+    )
 
 
 def _fetch_intake_summary_for_date(user_id: int, target_date: str, db: sqlite3.Connection) -> dict:
@@ -430,8 +404,8 @@ def get_intake_summary(
 
     users.selected_nutrients를 서버에서 직접 조회한다 — 클라이언트가 어떤 영양소를
     요청할지 지정하지 않고, DB에 저장된 선택을 그대로 신뢰한다(단일 소스 오브 트루스).
-    Food Diary/프리미엄 리포트용 전체 응답(_fetch_intake_summary_for_date, 프리미엄
-    리포트의 자체 집계)과는 완전히 별개이며 서로의 응답 형태에 영향을 주지 않는다.
+    Food Diary/리포트용 전체 응답(_fetch_intake_summary_for_date, 리포트의 자체
+    집계)과는 완전히 별개이며 서로의 응답 형태에 영향을 주지 않는다.
     """
     from datetime import date as date_type
 
@@ -460,19 +434,7 @@ def get_intake_summary(
     week, age_bracket = resolve_user_nutrition_context(user)
     _, limits = get_trimester_limits(week, age_bracket)
 
-    caffeine_status = get_status(
-        totals["total_caffeine"], limits["caffeine_mg"], totals["known_caffeine_count"], totals["logged_count"]
-    )
-    caffeine_item = {
-        "key": "caffeine",
-        "label": NUTRIENT_LABELS_KO["caffeine"],
-        "total": round(totals["total_caffeine"], 2),
-        "unit": "mg",
-        "limit": limits["caffeine_mg"],
-        "percent": _get_percent(totals["total_caffeine"], limits["caffeine_mg"]),
-        "status": caffeine_status,
-        "status_label": simplified_status_label("ceiling", caffeine_status),
-    }
+    caffeine_item = _build_nutrient_summary_item("caffeine", totals, limits)
 
     water = fetch_water_summary_for_date(user_id, today, db)
     # water_log.amount_ml은 NOT NULL이므로 항상 known으로 취급한다.

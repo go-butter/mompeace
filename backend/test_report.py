@@ -1,5 +1,5 @@
 """
-backend/routers/premium.py 의 get_premium_report() 테스트 (기존 커버리지 없음).
+backend/routers/report.py 의 get_report() 테스트 (기존 커버리지 없음).
 
 핵심 검증 대상:
 - 400/404 기본 검증
@@ -15,33 +15,33 @@ backend/routers/premium.py 의 get_premium_report() 테스트 (기존 커버리�
 import pytest
 from fastapi import HTTPException
 
-from backend.routers.premium import get_premium_report
+from backend.routers.report import get_report
 
 from backend.nutrition_constants import DAILY_WATER_TARGET_ML
 
 from .conftest import make_food_log, make_user, make_water_log
 
 
-class TestGetPremiumReportBasicValidation:
+class TestGetReportBasicValidation:
     def test_invalid_period_returns_400(self, db):
         user_id = make_user(db)
         with pytest.raises(HTTPException) as exc_info:
-            get_premium_report(user_id=user_id, period="monthly", db=db)
+            get_report(user_id=user_id, period="monthly", db=db)
         assert exc_info.value.status_code == 400
 
     def test_invalid_date_format_returns_400(self, db):
         user_id = make_user(db)
         with pytest.raises(HTTPException) as exc_info:
-            get_premium_report(user_id=user_id, period="daily", date="not-a-date", db=db)
+            get_report(user_id=user_id, period="daily", date="not-a-date", db=db)
         assert exc_info.value.status_code == 400
 
     def test_unknown_user_returns_404(self, db):
         with pytest.raises(HTTPException) as exc_info:
-            get_premium_report(user_id=999999, period="daily", db=db)
+            get_report(user_id=999999, period="daily", db=db)
         assert exc_info.value.status_code == 404
 
 
-class TestGetPremiumReportDaily:
+class TestGetReportDaily:
     def _item(self, result, label):
         return next(i for i in result["chart"]["items"] if i["label"] == label)
 
@@ -56,7 +56,7 @@ class TestGetPremiumReportDaily:
         make_food_log(db, user_id, caffeine_mg=50, sugar_g=0, sodium_mg=0,
                        eaten_at="2030-01-10 20:00:00")   # 저녁
 
-        result = get_premium_report(user_id=user_id, period="daily", date="2030-01-10", db=db)
+        result = get_report(user_id=user_id, period="daily", date="2030-01-10", db=db)
 
         assert result["totals"]["caffeine_mg"] == 140.0
         assert result["percentages"]["caffeine"] == 70.0  # 140/200
@@ -75,7 +75,7 @@ class TestGetPremiumReportDaily:
         make_food_log(db, user_id, caffeine_mg=0, sugar_g=None, sodium_mg=0,
                        eaten_at="2030-01-11 04:00:00")   # 새벽, unknown
 
-        result = get_premium_report(user_id=user_id, period="daily", date="2030-01-11", db=db)
+        result = get_report(user_id=user_id, period="daily", date="2030-01-11", db=db)
 
         dawn = self._item(result, "새벽")
         assert dawn["sugar_g"] == 8.0          # unknown은 0으로 뭉개지지 않고 부분합 유지
@@ -88,7 +88,7 @@ class TestGetPremiumReportDaily:
         make_food_log(db, user_id, caffeine_mg=10, sugar_g=5, sodium_mg=50,
                        eaten_at="2030-01-12 03:00:00")   # 새벽만 기록
 
-        result = get_premium_report(user_id=user_id, period="daily", date="2030-01-12", db=db)
+        result = get_report(user_id=user_id, period="daily", date="2030-01-12", db=db)
 
         evening = self._item(result, "저녁")
         assert evening["caffeine_mg"] == 0.0
@@ -98,7 +98,7 @@ class TestGetPremiumReportDaily:
         assert evening["status"] == "safe"
 
 
-class TestGetPremiumReportFatIron:
+class TestGetReportFatIron:
     def test_fat_and_iron_totals_and_status_from_real_values(self, db):
         user_id = make_user(db, pregnancy_week=20)
         # 40g 지방 / 2000kcal = 총 에너지의 18% -> 15~30% 밴드 안쪽 (safe)
@@ -107,7 +107,7 @@ class TestGetPremiumReportFatIron:
                        calories_kcal=2000, fat_g=40, iron_mg=30,
                        eaten_at="2030-01-15 09:00:00")
 
-        result = get_premium_report(user_id=user_id, period="daily", date="2030-01-15", db=db)
+        result = get_report(user_id=user_id, period="daily", date="2030-01-15", db=db)
 
         assert result["totals"]["fat_g"] == 40.0
         assert result["totals"]["iron_mg"] == 30.0
@@ -129,7 +129,7 @@ class TestGetPremiumReportFatIron:
                            calories_kcal=2000, fat_g=40,
                            eaten_at=f"2030-01-{day} 09:00:00")
 
-        result = get_premium_report(user_id=user_id, period="weekly", date="2030-01-15", db=db)
+        result = get_report(user_id=user_id, period="weekly", date="2030-01-15", db=db)
 
         assert result["totals"]["fat_g"] == 280.0  # 기간 합계 노출은 기존 그대로
         # 판정은 일평균(280/7=40g) 대 하루 상한(78g) — 합계(280g)를 쓰면 avoid가 된다.
@@ -145,7 +145,7 @@ class TestGetPremiumReportFatIron:
                        calories_kcal=2000, fat_g=90,
                        eaten_at="2030-01-16 09:00:00")
 
-        result = get_premium_report(user_id=user_id, period="daily", date="2030-01-16", db=db)
+        result = get_report(user_id=user_id, period="daily", date="2030-01-16", db=db)
 
         assert result["status"]["fat_status"] == "avoid"
 
@@ -157,7 +157,7 @@ class TestGetPremiumReportFatIron:
                        calories_kcal=2000, saturated_fat_g=20,
                        eaten_at="2030-01-17 09:00:00")
 
-        result = get_premium_report(user_id=user_id, period="daily", date="2030-01-17", db=db)
+        result = get_report(user_id=user_id, period="daily", date="2030-01-17", db=db)
 
         assert result["status"]["saturated_fat_status"] == "avoid"
 
@@ -169,12 +169,12 @@ class TestGetPremiumReportFatIron:
                        calories_kcal=2000, trans_fat_g=5,
                        eaten_at="2030-01-18 09:00:00")
 
-        result = get_premium_report(user_id=user_id, period="daily", date="2030-01-18", db=db)
+        result = get_report(user_id=user_id, period="daily", date="2030-01-18", db=db)
 
         assert result["status"]["trans_fat_status"] == "avoid"
 
 
-class TestGetPremiumReportWeekly:
+class TestGetReportWeekly:
     def _item(self, result, label):
         return next(i for i in result["chart"]["items"] if i["label"] == label)
 
@@ -185,7 +185,7 @@ class TestGetPremiumReportWeekly:
         make_food_log(db, user_id, caffeine_mg=50, sugar_g=10, sodium_mg=300,
                        eaten_at="2030-01-08 09:00:00")   # 화요일
 
-        result = get_premium_report(user_id=user_id, period="weekly", date="2030-01-07", db=db)
+        result = get_report(user_id=user_id, period="weekly", date="2030-01-07", db=db)
 
         assert result["date_range"]["start"] == "2030-01-07"
         assert result["date_range"]["end"] == "2030-01-13"
@@ -199,7 +199,7 @@ class TestGetPremiumReportWeekly:
         make_food_log(db, user_id, caffeine_mg=None, sugar_g=10, sodium_mg=300,
                        eaten_at="2030-01-08 09:00:00")   # 화요일, 카페인 unknown
 
-        result = get_premium_report(user_id=user_id, period="weekly", date="2030-01-07", db=db)
+        result = get_report(user_id=user_id, period="weekly", date="2030-01-07", db=db)
 
         tuesday = self._item(result, "화")
         assert tuesday["caffeine_status"] == "unknown"
@@ -217,14 +217,14 @@ class TestGetPremiumReportWeekly:
         make_food_log(db, user_id, caffeine_mg=210, sugar_g=0, sodium_mg=0,
                        eaten_at="2030-01-11 09:00:00")  # 금
 
-        result = get_premium_report(user_id=user_id, period="weekly", date="2030-01-07", db=db)
+        result = get_report(user_id=user_id, period="weekly", date="2030-01-07", db=db)
 
         assert result["daily_average"]["caffeine_mg"] == 210.0  # 630/3, not 630/7
 
     def test_daily_average_is_zero_not_error_when_week_is_entirely_empty(self, db):
         user_id = make_user(db, pregnancy_week=20)
 
-        result = get_premium_report(user_id=user_id, period="weekly", date="2030-01-07", db=db)
+        result = get_report(user_id=user_id, period="weekly", date="2030-01-07", db=db)
 
         assert result["daily_average"] == {
             "caffeine_mg": 0.0, "sugar_g": 0.0, "sodium_mg": 0.0,
@@ -245,7 +245,7 @@ class TestGetPremiumReportWeekly:
         make_food_log(db, user_id, caffeine_mg=50, sugar_g=0, sodium_mg=0,
                        eaten_at="2030-01-08 09:00:00")
 
-        result = get_premium_report(user_id=user_id, period="weekly", date="2030-01-14", db=db)
+        result = get_report(user_id=user_id, period="weekly", date="2030-01-14", db=db)
 
         # 지난 주 평균이 100/7(=14.3%)이 아니라 50/2(=25%)로 계산되어야 delta가 25.0이 된다
         assert result["comparison"]["caffeine_vs_previous_pct"] == 25.0  # 50% - 25%
@@ -263,7 +263,7 @@ class TestGetPremiumReportWeekly:
             make_food_log(db, user_id, caffeine_mg=50, sugar_g=0, sodium_mg=0,
                            eaten_at=f"2030-01-{day:02d} 09:00:00")
 
-        result = get_premium_report(user_id=user_id, period="weekly", date="2030-01-14", db=db)
+        result = get_report(user_id=user_id, period="weekly", date="2030-01-14", db=db)
 
         assert result["comparison"]["previous_period"]["start"] == "2030-01-07"
         assert result["comparison"]["previous_period"]["end"] == "2030-01-13"
@@ -275,7 +275,7 @@ class TestGetPremiumReportWeekly:
                        eaten_at="2030-01-14 09:00:00")
         # 지난 주(2030-01-07~01-13)에는 아무 기록도 없음
 
-        result = get_premium_report(user_id=user_id, period="weekly", date="2030-01-14", db=db)
+        result = get_report(user_id=user_id, period="weekly", date="2030-01-14", db=db)
 
         assert result["comparison"]["caffeine_vs_previous_pct"] is None
         assert result["comparison"]["sugar_vs_previous_pct"] is None
@@ -294,7 +294,7 @@ class TestGetPremiumReportWeekly:
             make_food_log(db, user_id, caffeine_mg=50, sugar_g=None, sodium_mg=50,
                            eaten_at=f"2030-01-{day:02d} 09:00:00")
 
-        result = get_premium_report(user_id=user_id, period="weekly", date="2030-01-14", db=db)
+        result = get_report(user_id=user_id, period="weekly", date="2030-01-14", db=db)
 
         assert result["comparison"]["sugar_vs_previous_pct"] is None
         assert result["comparison"]["caffeine_vs_previous_pct"] is not None
@@ -303,7 +303,112 @@ class TestGetPremiumReportWeekly:
         assert result["comparison"]["sodium_vs_previous_pct"] == 3.4     # 6.7% - 3.3% (limit 1500mg)
 
 
-class TestGetPremiumReportWater:
+class TestGetReportNutrientItems:
+    """/intake/summary와 같은 형태로 미리 해석된 nutrient_items 블록."""
+
+    def test_daily_block_has_caffeine_and_selected_nutrients_in_stored_order(self, db):
+        user_id = make_user(db, pregnancy_week=20, selected_nutrients="sodium,carbohydrate,sugar")
+        make_food_log(db, user_id, caffeine_mg=50, sugar_g=10, sodium_mg=300,
+                       eaten_at="2030-01-10 09:00:00")
+
+        result = get_report(user_id=user_id, period="daily", date="2030-01-10", db=db)
+        block = result["nutrient_items"]
+
+        assert block["caffeine"]["key"] == "caffeine"
+        assert [n["key"] for n in block["nutrients"]] == ["sodium", "carbohydrate", "sugar"]
+
+    def test_block_omits_water_entirely(self, db):
+        user_id = make_user(db, pregnancy_week=20)
+        make_water_log(db, user_id, amount_ml=1000, logged_at="2030-01-10 09:00:00")
+
+        result = get_report(user_id=user_id, period="daily", date="2030-01-10", db=db)
+        block = result["nutrient_items"]
+
+        assert "water" not in block
+        assert all(n["key"] != "water" for n in block["nutrients"])
+        # flat 블록에는 여전히 수분이 있다 (이 결정은 nutrient_items에만 적용된다)
+        assert result["totals"]["water_ml"] == 1000.0
+
+    def test_items_carry_label_unit_and_status_label(self, db):
+        user_id = make_user(db, pregnancy_week=20, selected_nutrients="sugar")
+        make_food_log(db, user_id, caffeine_mg=50, sugar_g=10, sodium_mg=300,
+                       eaten_at="2030-01-10 09:00:00")
+
+        result = get_report(user_id=user_id, period="daily", date="2030-01-10", db=db)
+        sugar = result["nutrient_items"]["nutrients"][0]
+
+        assert sugar["label"] == "당류"
+        assert sugar["unit"] == "g"
+        assert sugar["status"] == "safe"
+        assert sugar["status_label"] == "여유"
+        assert result["nutrient_items"]["caffeine"]["unit"] == "mg"
+
+    def test_daily_values_equal_flat_totals_because_divisor_is_one(self, db):
+        user_id = make_user(
+            db, pregnancy_week=20, selected_nutrients="carbohydrate,protein,iron"
+        )
+        make_food_log(db, user_id, caffeine_mg=50, sugar_g=10, sodium_mg=300,
+                       calories_kcal=600, carbohydrate_g=80, protein_g=25,
+                       fat_g=20, iron_mg=6, eaten_at="2030-01-10 09:00:00")
+
+        result = get_report(user_id=user_id, period="daily", date="2030-01-10", db=db)
+        block = result["nutrient_items"]
+        by_key = {n["key"]: n for n in block["nutrients"]}
+
+        assert block["caffeine"]["total"] == result["totals"]["caffeine_mg"]
+        assert by_key["carbohydrate"]["total"] == result["totals"]["carbohydrate_g"]
+        assert by_key["protein"]["total"] == result["totals"]["protein_g"]
+        assert by_key["iron"]["total"] == result["totals"]["iron_mg"]
+
+    def test_weekly_values_are_daily_averages_not_period_totals(self, db):
+        user_id = make_user(db, pregnancy_week=20, selected_nutrients="iron")
+        # 월~수 3일, 매일 카페인 100mg / 철분 6mg
+        for i in range(3):
+            make_food_log(db, user_id, caffeine_mg=100, sugar_g=0, sodium_mg=0, iron_mg=6,
+                           eaten_at=f"2030-01-{7 + i:02d} 09:00:00")
+
+        result = get_report(user_id=user_id, period="weekly", date="2030-01-07", db=db)
+        block = result["nutrient_items"]
+        iron = block["nutrients"][0]
+
+        # 합계는 300mg/18mg이지만 블록은 일평균(100mg/6mg)을 판정 대상으로 쓴다
+        assert result["totals"]["caffeine_mg"] == 300.0
+        assert block["caffeine"]["total"] == 100.0
+        assert result["totals"]["iron_mg"] == 18.0
+        assert iron["total"] == 6.0
+
+    def test_weekly_block_may_disagree_with_flat_status_for_ceiling_types(self, db):
+        # 알려진 불일치의 회귀 가드: 하루 100mg(=50%)씩 7일이면 flat status는 기간
+        # 합계(700mg)를 하루 한도(200mg)와 비교해 avoid가 되지만, 블록은 일평균을 본다.
+        user_id = make_user(db, pregnancy_week=20, selected_nutrients="sugar")
+        for i in range(7):
+            make_food_log(db, user_id, caffeine_mg=100, sugar_g=0, sodium_mg=0,
+                           eaten_at=f"2030-01-{7 + i:02d} 09:00:00")
+
+        result = get_report(user_id=user_id, period="weekly", date="2030-01-07", db=db)
+
+        assert result["status"]["caffeine_status"] == "avoid"
+        assert result["nutrient_items"]["caffeine"]["status"] == "safe"
+
+    def test_empty_selection_returns_caffeine_only(self, db):
+        user_id = make_user(db, pregnancy_week=20, selected_nutrients="")
+
+        result = get_report(user_id=user_id, period="daily", date="2030-01-10", db=db)
+
+        assert result["nutrient_items"]["nutrients"] == []
+        assert result["nutrient_items"]["caffeine"]["key"] == "caffeine"
+
+    def test_unset_selection_falls_back_to_default_three(self, db):
+        user_id = make_user(db, pregnancy_week=20)  # selected_nutrients 미설정 (NULL)
+
+        result = get_report(user_id=user_id, period="weekly", date="2030-01-07", db=db)
+
+        assert [n["key"] for n in result["nutrient_items"]["nutrients"]] == [
+            "carbohydrate", "sugar", "sodium",
+        ]
+
+
+class TestGetReportWater:
     """수분은 floor형이며, 분모는 food_log가 아니라 water_log 기준 날 수다."""
 
     def test_daily_water_totals_percent_and_status(self, db):
@@ -311,7 +416,7 @@ class TestGetPremiumReportWater:
         make_water_log(db, user_id, amount_ml=500, logged_at="2030-01-10 09:00:00")
         make_water_log(db, user_id, amount_ml=300, logged_at="2030-01-10 15:00:00")
 
-        result = get_premium_report(user_id=user_id, period="daily", date="2030-01-10", db=db)
+        result = get_report(user_id=user_id, period="daily", date="2030-01-10", db=db)
 
         assert result["totals"]["water_ml"] == 800.0
         assert result["limits"]["water_target_ml"] == DAILY_WATER_TARGET_ML
@@ -325,7 +430,7 @@ class TestGetPremiumReportWater:
         make_water_log(db, user_id, amount_ml=DAILY_WATER_TARGET_ML,
                        logged_at="2030-01-10 09:00:00")
 
-        result = get_premium_report(user_id=user_id, period="daily", date="2030-01-10", db=db)
+        result = get_report(user_id=user_id, period="daily", date="2030-01-10", db=db)
 
         assert result["status"]["water_status"] == "sufficient"
         assert result["status"]["water_tier"] == "safe"
@@ -334,7 +439,7 @@ class TestGetPremiumReportWater:
     def test_daily_water_is_zero_not_error_when_no_water_logged(self, db):
         user_id = make_user(db, pregnancy_week=20)
 
-        result = get_premium_report(user_id=user_id, period="daily", date="2030-01-10", db=db)
+        result = get_report(user_id=user_id, period="daily", date="2030-01-10", db=db)
 
         assert result["totals"]["water_ml"] == 0.0
         assert result["percentages"]["water"] == 0.0
@@ -350,7 +455,7 @@ class TestGetPremiumReportWater:
             day = 7 + i
             make_water_log(db, user_id, amount_ml=1000, logged_at=f"2030-01-{day:02d} 10:00:00")
 
-        result = get_premium_report(user_id=user_id, period="weekly", date="2030-01-07", db=db)
+        result = get_report(user_id=user_id, period="weekly", date="2030-01-07", db=db)
 
         assert result["totals"]["water_ml"] == 5000.0
         # 5000/5 = 1000.0 (5000/1 = 5000.0이 아니다)
@@ -364,7 +469,7 @@ class TestGetPremiumReportWater:
         make_food_log(db, user_id, caffeine_mg=10, sugar_g=1, sodium_mg=10,
                        eaten_at="2030-01-07 09:00:00")
 
-        result = get_premium_report(user_id=user_id, period="weekly", date="2030-01-07", db=db)
+        result = get_report(user_id=user_id, period="weekly", date="2030-01-07", db=db)
 
         assert result["totals"]["water_ml"] == 0.0
         assert result["daily_average"]["water_ml"] == 0.0
@@ -374,14 +479,14 @@ class TestGetPremiumReportWater:
         user_id = make_user(db, pregnancy_week=20)
         make_water_log(db, user_id, amount_ml=1000, logged_at="2030-01-07 10:00:00")
 
-        result = get_premium_report(user_id=user_id, period="weekly", date="2030-01-07", db=db)
+        result = get_report(user_id=user_id, period="weekly", date="2030-01-07", db=db)
 
         assert all("water_ml" not in item for item in result["chart"]["items"])
         assert all("water_status" not in item for item in result["chart"]["items"])
         assert "water_vs_previous_pct" not in result["comparison"]
 
 
-class TestGetPremiumReportTiers:
+class TestGetReportTiers:
     """raw status 옆에 붙는 tier/status_label 형제 키 (OCR 확인 화면과 같은 어휘)."""
 
     def _item(self, result, label):
@@ -390,7 +495,7 @@ class TestGetPremiumReportTiers:
     def test_floor_shortfall_is_neutral_tier_but_deficient_label(self, db):
         user_id = make_user(db, pregnancy_week=20)
 
-        result = get_premium_report(user_id=user_id, period="daily", date="2030-01-10", db=db)
+        result = get_report(user_id=user_id, period="daily", date="2030-01-10", db=db)
 
         assert result["status"]["carbohydrate_status"] == "insufficient"
         assert result["status"]["carbohydrate_tier"] == "neutral"
@@ -401,7 +506,7 @@ class TestGetPremiumReportTiers:
         make_food_log(db, user_id, caffeine_mg=30, sugar_g=5, sodium_mg=100,
                        eaten_at="2030-01-10 08:00:00")   # 오전
 
-        result = get_premium_report(user_id=user_id, period="daily", date="2030-01-10", db=db)
+        result = get_report(user_id=user_id, period="daily", date="2030-01-10", db=db)
 
         morning = self._item(result, "오전")
         assert morning["status"] == "safe"
@@ -415,7 +520,7 @@ class TestGetPremiumReportTiers:
         make_food_log(db, user_id, caffeine_mg=250, sugar_g=5, sodium_mg=100,
                        eaten_at="2030-01-10 08:00:00")
 
-        result = get_premium_report(user_id=user_id, period="daily", date="2030-01-10", db=db)
+        result = get_report(user_id=user_id, period="daily", date="2030-01-10", db=db)
 
         assert result["status"]["caffeine_status"] == "avoid"
         assert result["status"]["caffeine_tier"] == "avoid"
@@ -428,7 +533,7 @@ class TestGetPremiumReportTiers:
         make_food_log(db, user_id, caffeine_mg=100, sugar_g=10, sodium_mg=300,
                        eaten_at="2030-01-07 09:00:00")   # 월요일
 
-        result = get_premium_report(user_id=user_id, period="weekly", date="2030-01-07", db=db)
+        result = get_report(user_id=user_id, period="weekly", date="2030-01-07", db=db)
 
         assert result["status"]["sugar_tier"] == "safe"
         assert result["status"]["sugar_status_label"] == "여유"
@@ -437,7 +542,7 @@ class TestGetPremiumReportTiers:
     def test_non_status_keys_are_left_alone(self, db):
         user_id = make_user(db, pregnancy_week=20)
 
-        result = get_premium_report(user_id=user_id, period="weekly", date="2030-01-07", db=db)
+        result = get_report(user_id=user_id, period="weekly", date="2030-01-07", db=db)
 
         assert "tier" not in result
         assert "status_label" not in result

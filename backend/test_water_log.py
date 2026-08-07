@@ -215,7 +215,7 @@ class TestDeleteWaterLog:
 
 
 class TestFetchWaterTotalsByDay:
-    """get_water_log_week에서 분리한 집계 함수 (프리미엄 리포트와 공유)."""
+    """get_water_log_week에서 분리한 집계 함수 (리포트와 공유)."""
 
     def test_empty_week_returns_seven_zero_days(self, db):
         user_id = make_user(db)
@@ -243,7 +243,7 @@ class TestFetchWaterTotalsByDay:
         assert sum(1 for d in days if d["log_count"] > 0) == 1
 
     def test_single_day_range_returns_one_day(self, db):
-        # 프리미엄 일간 리포트가 쓰는 형태 (start == end)
+        # 일간 리포트가 쓰는 형태 (start == end)
         user_id = make_user(db)
         target = date(2030, 1, 10)
         make_water_log(db, user_id, amount_ml=750, logged_at=f"{target.isoformat()} 09:00:00")

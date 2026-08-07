@@ -1,5 +1,4 @@
 import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import {
@@ -18,10 +17,13 @@ import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
 
 const HEART_ASPECT_RATIO = 696 / 588;
 
+import FoodIcon from '@/assets/images/home/food.svg';
 import WaterIcon from '@/assets/images/home/water.svg';
+import ReportIcon from '@/assets/images/home/report.svg';
 import RemainCoffeeIcon from '@/assets/images/home/home_remain_coffee.svg';
 import ProfileIcon from '@/assets/images/common/profile_circle.svg';
 import InformationIcon from '@/assets/images/onboarding/information.svg';
+import AddFoodPopup from '@/components/home/AddFoodPopup';
 import { authColors } from '@/components/auth/colors';
 import { summaryStatusColors, DEFAULT_SUMMARY_STATUS_COLORS } from '@/components/home/summaryColors';
 import { fonts, nanumSquareRound } from '@/constants/fonts';
@@ -67,16 +69,19 @@ function StatusChip({
 function ShortcutButton({
   icon,
   title,
+  subtitle,
   onPress,
 }: {
   icon: React.ReactNode;
   title: string;
+  subtitle: string;
   onPress: () => void;
 }) {
   return (
     <Pressable style={styles.shortcutButton} onPress={onPress}>
       <View style={styles.shortcutIconCircle}>{icon}</View>
       <Text style={styles.shortcutTitle}>{title}</Text>
+      <Text style={styles.shortcutSubtitle}>{subtitle}</Text>
     </Pressable>
   );
 }
@@ -101,6 +106,7 @@ export default function HomeScreen() {
   const [tips, setTips] = useState<TipsTodayResponse | null>(null);
   const [tipsLoading, setTipsLoading] = useState(true);
   const [tipsError, setTipsError] = useState<string | null>(null);
+  const [popupVisible, setPopupVisible] = useState(false);
 
   const fetchSummary = useCallback(async () => {
     if (!user?.user_id) return;
@@ -305,39 +311,22 @@ export default function HomeScreen() {
 
       <View style={styles.shortcutCard}>
         <ShortcutButton
-          icon={<WaterIcon width={22} height={22} />}
-          title="물 섭취 현황"
+          icon={<FoodIcon width={24} height={24} />}
+          title="음식 추가하기"
+          subtitle="빠른 식사 기록"
+          onPress={() => setPopupVisible(true)}
+        />
+        <ShortcutButton
+          icon={<WaterIcon width={24} height={24} />}
+          title="수분 다이어리"
+          subtitle="물 섭취 기록"
           onPress={() => router.push('/water-diary')}
         />
         <ShortcutButton
-          icon={<Ionicons name="camera-outline" size={22} color={authColors.pink} />}
-          title="영양성분표 촬영"
-          onPress={() =>
-            router.push({
-              pathname: '/(tabs)/food-diary/food-entry-ocr-capture',
-              params: { date: intake.date },
-            })
-          }
-        />
-        <ShortcutButton
-          icon={<Ionicons name="cafe-outline" size={22} color={authColors.pink} />}
-          title="카페인 검색"
-          onPress={() =>
-            router.push({
-              pathname: '/(tabs)/food-diary/food-entry-coffee',
-              params: { date: intake.date },
-            })
-          }
-        />
-        <ShortcutButton
-          icon={<Ionicons name="create-outline" size={22} color={authColors.pink} />}
-          title="직접 입력하기"
-          onPress={() =>
-            router.push({
-              pathname: '/(tabs)/food-diary/food-entry-manual',
-              params: { date: intake.date },
-            })
-          }
+          icon={<ReportIcon width={24} height={24} />}
+          title="건강 리포트"
+          subtitle="식습관 분석"
+          onPress={() => router.push('/report')}
         />
       </View>
 
@@ -399,6 +388,11 @@ export default function HomeScreen() {
         </View>
       )}
     </ScrollView>
+      <AddFoodPopup
+        visible={popupVisible}
+        onClose={() => setPopupVisible(false)}
+        selectedDate={intake.date}
+      />
     </View>
   );
 }
@@ -631,12 +625,11 @@ const styles = StyleSheet.create({
   },
   shortcutCard: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
     backgroundColor: authColors.white,
     borderRadius: 24,
     padding: 16,
     marginTop: 20,
-    rowGap: 16,
+    justifyContent: 'space-between',
     shadowColor: authColors.pink,
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.12,
@@ -645,7 +638,7 @@ const styles = StyleSheet.create({
   },
   shortcutButton: {
     alignItems: 'center',
-    width: '50%',
+    flex: 1,
   },
   shortcutIconCircle: {
     width: 48,
@@ -660,6 +653,13 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: authColors.brown,
     marginTop: 8,
+    textAlign: 'center',
+  },
+  shortcutSubtitle: {
+    fontFamily: fonts.regular,
+    fontSize: 10,
+    color: authColors.gray,
+    marginTop: 2,
     textAlign: 'center',
   },
   foodRow: {

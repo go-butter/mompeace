@@ -141,7 +141,7 @@ def get_fat_status(value, energy_basis_kcal, ratio_min, ratio_max, known_count, 
     이 함수는 "주어진 에너지 기준의 몇 %가 지방인가"만 계산한다. 그 기준을 무엇으로
     잡을지는 호출부의 책임이고, 질문이 다르면 답도 달라야 한다:
 
-    - 하루 누적 판정(홈/Food Diary 요약, 프리미엄 리포트, OCR 확인 화면의 일일 투영):
+    - 하루 누적 판정(홈/Food Diary 요약, 리포트, OCR 확인 화면의 일일 투영):
       반드시 "하루 에너지 목표"(limits["energy_kcal"])를 넘긴다. 출처 기준
       (임신_시기별_영양소_섭취기준)의 15~30%는 "하루치 총 섭취량"에 대한 비율이므로,
       하루가 채 지나지 않은 시점의 누적 섭취량을 분모로 쓰면 기준을 오용하는 것이다 —
@@ -227,6 +227,67 @@ def simplified_status_label(nutrient_type: str, status: str) -> str | None:
     if nutrient_type == "informational":
         return None if status == "info" else "정보없음"
     raise ValueError(f"알 수 없는 nutrient_type: {nutrient_type}")
+
+
+# /intake/summary와 리포트가 공유하는 "사전 해석된" 영양소 항목 정의.
+# unit은 여기에 다시 적지 않고 DAILY_PROJECTION_NUTRIENTS의 값을 읽는다 — 단위 문자열이
+# 이미 여러 표에 흩어져 있어 새 사본을 하나 더 만들지 않기 위해서다.
+# band형(지방/철분)은 부가 인자가 서로 달라 자신만의 판정 함수를 judge_fn으로 들고 다닌다.
+NUTRIENT_SUMMARY_FIELDS = {
+    "carbohydrate": {"type": "floor",   "limit_key": "carbohydrate_g"},
+    "sugar":        {"type": "ceiling", "limit_key": "sugar_g"},
+    "energy":       {"type": "floor",   "limit_key": "energy_kcal"},
+    "fat":          {"type": "band",    "limit_key": None,
+                     "judge_fn": lambda value, known_count, logged_count, limits: get_fat_status(
+                         value, limits["energy_kcal"], limits["fat_ratio_min"], limits["fat_ratio_max"],
+                         known_count, logged_count)},
+    "iron":         {"type": "band",    "limit_key": None,
+                     "judge_fn": lambda value, known_count, logged_count, limits: get_iron_status(
+                         value, IRON_RECOMMENDED_MG, IRON_UPPER_LIMIT_MG, known_count, logged_count)},
+    "protein":      {"type": "floor",   "limit_key": "protein_g"},
+    "sodium":       {"type": "ceiling", "limit_key": "sodium_mg"},
+    "caffeine":     {"type": "ceiling", "limit_key": "caffeine_mg"},
+}
+
+
+def _summary_percent(value, standard):
+    """routers/intake.py의 _get_percent와 같은 규칙(None/0 이하는 0)."""
+    if standard is None or standard <= 0:
+        return 0
+    return round(value / standard * 100, 1)
+
+
+def build_nutrient_summary_item(
+    key: str, value: float, limits: dict, known_count: int, logged_count: int
+) -> dict:
+    """영양소 하나의 {key,label,total,unit,limit,percent,status,status_label} 항목.
+
+    판정 대상 수치를 호출부가 value로 직접 넘긴다 — 하루 합계를 넘기면 일간 판정이,
+    일평균을 넘기면 기간 일평균 판정이 된다. 집계 딕셔너리의 컬럼명이 호출부마다
+    달라도(예: total_calories vs total_energy) 이 함수는 영향을 받지 않는다.
+    """
+    spec = NUTRIENT_SUMMARY_FIELDS[key]
+
+    if spec["type"] == "band":
+        status = spec["judge_fn"](value, known_count, logged_count, limits)
+        limit = None
+        percent = None
+    else:
+        limit = limits[spec["limit_key"]]
+        judge = get_status if spec["type"] == "ceiling" else get_floor_status
+        status = judge(value, limit, known_count, logged_count)
+        percent = _summary_percent(value, limit)
+
+    return {
+        "key": key,
+        "label": NUTRIENT_LABELS_KO[key],
+        "total": round(value, 2),
+        "unit": DAILY_PROJECTION_NUTRIENTS[key]["unit"],
+        "limit": limit,
+        "percent": percent,
+        "status": status,
+        "status_label": simplified_status_label(spec["type"], status),
+    }
 
 
 _ITEM_NUTRIENT_UNITS = {

@@ -616,7 +616,7 @@ export function deleteWaterLog(logId: number, userId: number): Promise<WaterLogD
   return del(`/water-log/${logId}?user_id=${userId}`);
 }
 
-// TODO: getPremiumReport() — added in a separate task, wires premium-report.tsx to live data.
+// TODO: getReport() — added in a separate task, wires report.tsx to live data.
 
 export function createPersonalFoodItem(
   body: UserFoodItemCreateRequest

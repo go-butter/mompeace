@@ -117,7 +117,7 @@ def fetch_water_totals_by_day(
 ) -> list[dict]:
     """기간 내 날짜별 수분 합계. 범위 쿼리 한 번 + 파이썬 버킷팅
 
-    (routers/premium.py의 _aggregate_week와 같은 패턴 — 날짜마다 쿼리를 돌리지 않는다).
+    (routers/report.py의 _aggregate_week와 같은 패턴 — 날짜마다 쿼리를 돌리지 않는다).
     표시용 플래그(hit_target/is_today)는 호출부의 책임이라 여기서 붙이지 않는다.
     """
     cursor = db.cursor()

@@ -10,7 +10,9 @@ from backend.nutrition_constants import (
     IRON_UPPER_LIMIT_MG,
     KCAL_PER_GRAM_FAT,
 )
+from backend.nutrition_constants import parse_selected_nutrients
 from backend.intake_totals import (
+    build_nutrient_summary_item,
     compute_overall_status,
     get_fat_status,
     get_floor_status,
@@ -30,7 +32,7 @@ WEEKDAY_LABELS = ["월", "화", "수", "목", "금", "토", "일"]
 # 응답의 status 키 → 판정 방식. tier_of_status()/simplified_status_label()가 요구하는
 # nutrient_type이며, /intake/today의 status_label 블록과 같은 배정을 쓴다.
 # "status"는 chart 항목의 종합 판정 키다(compute_overall_status 결과 = ceiling 어휘).
-_PREMIUM_STATUS_TYPES = {
+_REPORT_STATUS_TYPES = {
     "overall_status":       "ceiling",
     "caffeine_status":      "ceiling",
     "sugar_status":         "ceiling",
@@ -54,13 +56,13 @@ _MAPPABLE_STATUS_TYPES = ("ceiling", "floor", "band")
 def _tier_fields(source: dict) -> dict:
     """source의 status 키들에 대응하는 tier/status_label 형제 키를 계산해 돌려준다.
 
-    _PREMIUM_STATUS_TYPES에 없는 키, 알 수 없는 nutrient_type, 문자열이 아닌 값은
+    _REPORT_STATUS_TYPES에 없는 키, 알 수 없는 nutrient_type, 문자열이 아닌 값은
     건너뛴다 — 최상위 응답의 "status"는 dict(컨테이너)이고 chart 항목의 "status"는
     판정 문자열이라 같은 이름이 두 가지 뜻으로 쓰이기 때문이다.
     """
     added = {}
     for key, status in list(source.items()):
-        nutrient_type = _PREMIUM_STATUS_TYPES.get(key)
+        nutrient_type = _REPORT_STATUS_TYPES.get(key)
         if nutrient_type not in _MAPPABLE_STATUS_TYPES:
             continue
         if not isinstance(status, str):
@@ -282,6 +284,32 @@ def _build_extra_nutrient_report_block(totals: dict, limits: dict, divisor: int)
     }
 
 
+def _build_nutrient_items(
+    selected_keys: list[str], values: dict, known_counts: dict, logged_count: int, limits: dict
+) -> dict:
+    """/intake/summary와 같은 형태로 미리 해석된 영양소 블록.
+
+    화면이 키→라벨/단위/색을 스스로 매핑하지 않아도 되도록 label/unit/status_label까지
+    서버가 채운다. 카페인은 항상 포함하고, nutrients는 users.selected_nutrients에
+    저장된 순서를 그대로 따른다. 물은 이 블록에 넣지 않는다(리포트 화면에 없음).
+
+    ── 알려진 불일치 ──
+    주간 리포트에서 이 블록의 status는 flat status.*_status와 다를 수 있다:
+    여기서는 일평균을 판정하지만 flat 쪽의 caffeine/sugar/sodium/iron은 기간 합계를
+    하루치 기준과 비교하기 때문이다. 별도로 정리할 사안이며, 이번 변경에서 기존 flat
+    필드의 값은 건드리지 않는다.
+    """
+    def item(key: str) -> dict:
+        return build_nutrient_summary_item(
+            key, values[key], limits, known_counts[key], logged_count
+        )
+
+    return {
+        "caffeine": item("caffeine"),
+        "nutrients": [item(key) for key in selected_keys],
+    }
+
+
 def _build_water_report_block(
     user_id: int, start: date_type, end: date_type, db: sqlite3.Connection
 ) -> dict:
@@ -369,15 +397,15 @@ def _build_weekly_ai_summary(
     return {"title": "AI 분석 요약", "messages": messages}
 
 
-@router.get("/premium/report/{user_id}")
-def get_premium_report(
+@router.get("/report/{user_id}")
+def get_report(
     user_id: int,
     period: str,
     date: str = None,
     db: sqlite3.Connection = Depends(get_db)
 ):
     """
-    프리미엄 일간/주간 섭취 리포트.
+    일간/주간 섭취 리포트.
     period: "daily" | "weekly"
     date: YYYY-MM-DD (기본값: 오늘)
     공식 의학 기준 아님.
@@ -404,6 +432,7 @@ def get_premium_report(
     else:
         target_date = date_type.today()
 
+    selected_keys = parse_selected_nutrients(user.get("selected_nutrients"))
     week, age_bracket = resolve_user_nutrition_context(user)
     trimester, limits = get_trimester_limits(week, age_bracket)
     caffeine_limit = limits["caffeine_mg"]
@@ -517,6 +546,33 @@ def get_premium_report(
         extra_block = _build_extra_nutrient_report_block(extra_totals, limits, divisor=1)
         water_block = _build_water_report_block(user_id, target_date, target_date, db)
 
+        # divisor가 1이므로 일간 리포트의 판정 대상 수치는 그날의 합계 그대로다.
+        nutrient_items = _build_nutrient_items(
+            selected_keys,
+            {
+                "caffeine":     total_caffeine,
+                "sugar":        total_sugar,
+                "sodium":       total_sodium,
+                "energy":       extra_totals["total_energy"],
+                "carbohydrate": extra_totals["total_carbohydrate"],
+                "protein":      extra_totals["total_protein"],
+                "fat":          extra_totals["total_fat"],
+                "iron":         extra_totals["total_iron"],
+            },
+            {
+                "caffeine":     known_caffeine_count,
+                "sugar":        known_sugar_count,
+                "sodium":       known_sodium_count,
+                "energy":       extra_totals["known_energy_count"],
+                "carbohydrate": extra_totals["known_carbohydrate_count"],
+                "protein":      extra_totals["known_protein_count"],
+                "fat":          extra_totals["known_fat_count"],
+                "iron":         extra_totals["known_iron_count"],
+            },
+            logged_count,
+            limits,
+        )
+
         formatted_date = target_date.strftime("%Y.%m.%d")
         return _attach_tiers({
             "user_id":        user_id,
@@ -559,6 +615,7 @@ def get_premium_report(
                 **extra_block["status"],
                 **water_block["status"],
             },
+            "nutrient_items": nutrient_items,
             "chart": {
                 "type":  "time_slot",
                 "title": "일간 섭취 추이",
@@ -675,6 +732,36 @@ def get_premium_report(
     extra_block = _build_extra_nutrient_report_block(extra_totals, limits, divisor=divisor)
     water_block = _build_water_report_block(user_id, monday, sunday, db)
 
+    # 이 블록은 기간 합계가 아니라 일평균을 판정한다 — 하루치 기준(200mg/50g/45mg 등)과
+    # 비교하려면 분자도 하루치여야 한다. 철분은 일평균을 쓰는 곳이 여기뿐이라
+    # avg_iron을 여기서 처음 계산한다.
+    avg_iron = round(extra_totals["total_iron"] / divisor, 1)
+    nutrient_items = _build_nutrient_items(
+        selected_keys,
+        {
+            "caffeine":     avg_caffeine,
+            "sugar":        avg_sugar,
+            "sodium":       avg_sodium,
+            "energy":       round(extra_totals["total_energy"] / divisor, 1),
+            "carbohydrate": round(extra_totals["total_carbohydrate"] / divisor, 1),
+            "protein":      round(extra_totals["total_protein"] / divisor, 1),
+            "fat":          round(extra_totals["total_fat"] / divisor, 1),
+            "iron":         avg_iron,
+        },
+        {
+            "caffeine":     known_caffeine_count,
+            "sugar":        known_sugar_count,
+            "sodium":       known_sodium_count,
+            "energy":       extra_totals["known_energy_count"],
+            "carbohydrate": extra_totals["known_carbohydrate_count"],
+            "protein":      extra_totals["known_protein_count"],
+            "fat":          extra_totals["known_fat_count"],
+            "iron":         extra_totals["known_iron_count"],
+        },
+        week_row_count,
+        limits,
+    )
+
     date_range_str =f"{monday.strftime('%Y.%m.%d.')} ~ {sunday.strftime('%m.%d.')}"
     return _attach_tiers({
         "user_id":        user_id,
@@ -736,6 +823,7 @@ def get_premium_report(
             "sugar_vs_previous_pct":    sugar_vs_previous_pct,
             "sodium_vs_previous_pct":   sodium_vs_previous_pct,
         },
+        "nutrient_items": nutrient_items,
         "chart": {
             "type":  "weekday",
             "title": "주간 섭취 추이",

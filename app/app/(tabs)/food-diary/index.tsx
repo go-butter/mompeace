@@ -234,8 +234,8 @@ export default function FoodDiaryScreen() {
             </View>
           </View>
 
-          <Pressable onPress={() => router.push('/premium-report')}>
-            <Text style={styles.premiumLink}>프리미엄 리포트 보기 {'>'}</Text>
+          <Pressable onPress={() => router.push('/report')}>
+            <Text style={styles.reportLink}>리포트 보기 {'>'}</Text>
           </Pressable>
         </View>
       </View>
@@ -446,7 +446,7 @@ const styles = StyleSheet.create({
   chipPressable: {
     flex: 1,
   },
-  premiumLink: {
+  reportLink: {
     fontFamily: fonts.medium,
     fontSize: 12,
     color: authColors.pink,
