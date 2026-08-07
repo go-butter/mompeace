@@ -122,14 +122,21 @@ export default function MyPageScreen() {
         <View style={styles.menuDivider} />
         <MenuRow
           icon={<Ionicons name="nutrition-outline" size={22} color={authColors.pink} />}
-          title="초/중/후기별 제한사항"
-          subtitle="현재 시기 기준 1일 영양 기준값"
-          onPress={() => router.push('/(tabs)/mypage/nutrition-limits')}
+          title="영양성분 선택하기"
+          subtitle="홈 화면에 표시할 영양소 수정"
+          onPress={() => router.push('/(tabs)/mypage/nutrient-preferences')}
         />
       </View>
 
       <Text style={styles.sectionLabel}>기타</Text>
       <View style={styles.card}>
+        <MenuRow
+          icon={<Ionicons name="nutrition-outline" size={22} color={authColors.pink} />}
+          title="초/중/후기별 제한사항"
+          subtitle="현재 시기 기준 1일 영양 기준값"
+          onPress={() => router.push('/(tabs)/mypage/nutrition-limits')}
+        />
+        <View style={styles.menuDivider} />
         <MenuRow
           icon={<Ionicons name="mail-outline" size={22} color={authColors.pink} />}
           title="문의하기"

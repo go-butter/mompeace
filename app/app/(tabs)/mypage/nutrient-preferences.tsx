@@ -61,7 +61,7 @@ export default function NutrientPreferencesScreen() {
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.card}>
           <Text style={styles.description}>
-            카페인은 항상 표시돼요{'\n'}그 외 최대 3개까지 선택할 수 있어요
+            카페인은 항상 표시돼요{'\n'}그 외 최대 4개까지 선택할 수 있어요
           </Text>
           {loadingCurrent ? (
             <ActivityIndicator color={authColors.pink} style={styles.loadingIndicator} />
