@@ -7,7 +7,7 @@ import PrevIcon from '@/assets/images/common/prev.svg';
 import { authColors } from '@/components/auth/colors';
 import { NutrientPicker } from '@/components/nutrient-picker';
 import { fonts } from '@/constants/fonts';
-import { SelectableNutrientKey } from '@/constants/nutrients';
+import { MAX_SELECTED_NUTRIENTS, SelectableNutrientKey } from '@/constants/nutrients';
 import { useAuth } from '@/context/auth-context';
 import { ApiError, updateNutrientPreferences } from '@/lib/api-client';
 
@@ -61,7 +61,7 @@ export default function NutrientPreferencesScreen() {
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.card}>
           <Text style={styles.description}>
-            카페인은 항상 표시돼요{'\n'}그 외 최대 4개까지 선택할 수 있어요
+            카페인과 물은 항상 표시돼요{'\n'}그 외 {MAX_SELECTED_NUTRIENTS}개를 선택할 수 있어요
           </Text>
           {loadingCurrent ? (
             <ActivityIndicator color={authColors.pink} style={styles.loadingIndicator} />

@@ -71,7 +71,7 @@ export default function NutrientSelectScreen() {
           오늘의 섭취 요약에서{'\n'}중점적으로 볼 성분을 골라주세요 :)
         </Text>
         <View style={styles.noteRow}>
-          <Text style={styles.caffeineNote}>카페인은 기본으로 포함돼요!</Text>
+          <Text style={styles.caffeineNote}>카페인과 물은 기본으로 포함돼요!</Text>
           <Text>
             <Text style={styles.counterNumber}>{selected.length}</Text>
             <Text style={styles.counterRest}> / {MAX_SELECTED_NUTRIENTS} 선택됨</Text>
