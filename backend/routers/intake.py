@@ -16,6 +16,7 @@ from backend.risk import calculate_current_pregnancy_age, calculate_days_until_d
 from backend.intake_totals import (
     TRIMESTER_LABELS,
     compute_overall_status,
+    fetch_daily_nutrient_totals,
     get_fat_status,
     get_floor_status,
     get_iron_status,
@@ -445,29 +446,10 @@ def get_intake_summary(
         target_date = date_type.today()
     today = target_date.isoformat()
 
-    cursor.execute("""
-        SELECT
-            COALESCE(SUM(caffeine_mg), 0) AS total_caffeine,
-            COUNT(caffeine_mg) AS known_caffeine_count,
-            COALESCE(SUM(sugar_g), 0) AS total_sugar,
-            COUNT(sugar_g) AS known_sugar_count,
-            COALESCE(SUM(sodium_mg), 0) AS total_sodium,
-            COUNT(sodium_mg) AS known_sodium_count,
-            COALESCE(SUM(calories_kcal), 0) AS total_calories,
-            COUNT(calories_kcal) AS known_energy_count,
-            COALESCE(SUM(carbohydrate_g), 0) AS total_carbohydrate,
-            COUNT(carbohydrate_g) AS known_carbohydrate_count,
-            COALESCE(SUM(protein_g), 0) AS total_protein,
-            COUNT(protein_g) AS known_protein_count,
-            COALESCE(SUM(fat_g), 0) AS total_fat,
-            COUNT(fat_g) AS known_fat_count,
-            COALESCE(SUM(iron_mg), 0) AS total_iron,
-            COUNT(iron_mg) AS known_iron_count,
-            COUNT(*) AS logged_count
-        FROM food_log
-        WHERE user_id = ? AND DATE(eaten_at) = ?
-    """, (user_id, today))
-    totals = dict(cursor.fetchone())
+    # 집계 쿼리는 intake_totals.py로 옮겨 OCR 확인 화면의 일일 투영 판정과 공유한다 —
+    # 같은 쿼리를 두 벌 두면 하루 경계나 known_count 규칙이 서로 어긋날 수 있고,
+    # 그러면 요약 화면과 확인 화면이 같은 날에 다른 숫자를 보여주게 된다.
+    totals = fetch_daily_nutrient_totals(user_id, today, db)
 
     week, age_bracket = resolve_user_nutrition_context(user)
     _, limits = get_trimester_limits(week, age_bracket)
