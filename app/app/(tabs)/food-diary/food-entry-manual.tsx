@@ -220,7 +220,7 @@ export default function FoodEntryManualScreen() {
     const caffeine = caffeineMg.trim() === '' ? null : Number(caffeineMg);
     const sugar = sugarG.trim() === '' ? 0 : Number(sugarG);
     const sodium = sodiumMg.trim() === '' ? 0 : Number(sodiumMg);
-    const calories = caloriesKcal.trim() === '' ? 0 : Number(caloriesKcal);
+    const calories = caloriesKcal.trim() === '' ? null : Number(caloriesKcal);
     const carbohydrate = carbohydrateG.trim() === '' ? null : Number(carbohydrateG);
     const fat = fatG.trim() === '' ? null : Number(fatG);
     const iron = ironMg.trim() === '' ? null : Number(ironMg);
@@ -236,7 +236,9 @@ export default function FoodEntryManualScreen() {
       caffeine_mg: caffeine,
       sugar_g: sugar,
       sodium_mg: sodium,
-      calories_kcal: calories,
+      // UserFoodItemCreate.calories_kcal은 이번 변경 범위 밖이라(별도 과제) 여전히
+      // null을 받지 않는다 — food_log 저장(calories, 아래)과 달리 여기서만 0으로 폴백한다.
+      calories_kcal: calories ?? 0,
       carbohydrate_g: carbohydrate,
       protein_g: protein,
       fat_g: fat,

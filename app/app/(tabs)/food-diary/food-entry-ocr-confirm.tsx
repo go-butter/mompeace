@@ -905,11 +905,10 @@ export default function FoodEntryOcrConfirmScreen() {
       protein_g: consumptionBasisValue('protein'),
       fat_g: consumptionBasisValue('fat'),
       iron_mg: consumptionBasisValue('iron'),
-      // calories_kcal은 다른 필드와 달리 null을 허용하지 않는 필드라(백엔드 컨벤션),
-      // 정보없음일 때만 0으로 폴백한다 — 값이 있으면 항상 실제 값을 보낸다. 헤더의
-      // kcal 필드(totalEnergyKcal)와는 무관 — 저장되는 값은 항상 에너지 행의
-      // 100g당(basis)에서 계산한다.
-      calories_kcal: consumptionBasisValue('energy') ?? 0,
+      // calories_kcal도 다른 영양소와 동일하게 null 허용(정보없음 ≠ 0) — 값이 있으면
+      // 항상 실제 값을 보낸다. 헤더의 kcal 필드(headerKcal)와는 무관 — 저장되는 값은
+      // 항상 에너지 행의 100g당(basis)에서 계산한다.
+      calories_kcal: consumptionBasisValue('energy'),
       needs_review: needsReview,
       serving_multiplier: servingMultiplier,
       eaten_at: eatenAt,

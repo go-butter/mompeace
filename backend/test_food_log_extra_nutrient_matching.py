@@ -145,8 +145,8 @@ class TestExtraNutrientNameMatching:
         assert row["calories_kcal"] == 250.0
 
     def test_matching_energy_name_does_not_overwrite_explicit_nonzero_calories(self, db):
-        # calories_kcal은 Optional이 아니라 기본값 0이라 "미입력"이 None이 아닌 0으로
-        # 표현된다 — 이미 0이 아닌 값이 명시적으로 전달됐다면 자유 텍스트로 덮어쓰지 않는다.
+        # 이미 값이 명시적으로 전달됐다면(0이든 아니든) 자유 텍스트로 덮어쓰지 않는다 —
+        # calories_kcal도 다른 컬럼과 동일하게 None만 "미입력"으로 취급한다.
         user_id = make_user(db)
         log = FoodLogCreate(
             user_id=user_id,
@@ -158,6 +158,23 @@ class TestExtraNutrientNameMatching:
         result = create_food_log(log=log, db=db)
         row = _fetch_log(db, result["log_id"])
         assert row["calories_kcal"] == 300.0
+
+    def test_matching_energy_name_does_not_overwrite_explicit_zero_calories(self, db):
+        # 회귀 테스트: 아메리카노처럼 진짜 0kcal인 음식은 명시적으로 calories_kcal=0을
+        # 보낸다. _already_known()이 0을 "미입력"으로 취급하던 과거 버그에서는 이
+        # 확정된 0이 자유 텍스트 매칭("에너지":"999")에 덮어써졌다 — 이 값이 999로
+        # 바뀌면 그 버그가 되돌아온 것이다.
+        user_id = make_user(db)
+        log = FoodLogCreate(
+            user_id=user_id,
+            food_name="아메리카노",
+            input_type="manual",
+            calories_kcal=0.0,
+            extra_nutrients=[ExtraNutrientIn(name="에너지", value="999", unit="kcal")],
+        )
+        result = create_food_log(log=log, db=db)
+        row = _fetch_log(db, result["log_id"])
+        assert row["calories_kcal"] == 0.0
 
     def test_matching_protein_name_populates_protein_g(self, db):
         user_id = make_user(db)

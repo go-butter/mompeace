@@ -157,7 +157,7 @@ export interface FoodLogCreateRequest {
   caffeine_mg?: number | null;
   sugar_g?: number | null;
   sodium_mg?: number | null;
-  calories_kcal?: number;
+  calories_kcal?: number | null;
   carbohydrate_g?: number | null;
   protein_g?: number | null;
   fat_g?: number | null;

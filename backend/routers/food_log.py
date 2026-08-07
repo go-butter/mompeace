@@ -172,14 +172,8 @@ def create_food_log(
         "cholesterol_mg": cholesterol_mg,
         "iron_mg": iron_mg,
     }
-    # calories_kcal은 다른 컬럼과 달리 Optional이 아니라 기본값 0(FoodLogCreate.calories_kcal:
-    # float = 0)이라 "아직 모름"이 None이 아닌 0으로 표현된다 — "입력된 칼로리 대신 하드코딩된
-    # 0을 쓰지 않는다"는 기존 정책(5e0745d)과 동일하게, 여기서도 0을 "미입력"으로 취급한다.
     def _already_known(column: str) -> bool:
-        value = nutrient_values.get(column)
-        if column == "calories_kcal":
-            return value not in (None, 0)
-        return value is not None
+        return nutrient_values.get(column) is not None
 
     if log.extra_nutrients:
         for en in log.extra_nutrients:

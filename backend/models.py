@@ -43,7 +43,7 @@ class FoodLogCreate(BaseModel):
     caffeine_mg: Optional[float] = None
     sugar_g: Optional[float] = None
     sodium_mg: Optional[float] = None
-    calories_kcal: float = 0
+    calories_kcal: Optional[float] = None
     carbohydrate_g: Optional[float] = None
     protein_g: Optional[float] = None
     fat_g: Optional[float] = None
