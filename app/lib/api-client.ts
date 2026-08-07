@@ -770,3 +770,39 @@ export interface TipsTodayResponse {
 export function getTipsToday(userId: number, date?: string): Promise<TipsTodayResponse> {
   return get(`/tips/today/${userId}${date ? `?date=${date}` : ''}`);
 }
+
+export interface AccountDeleteResponse {
+  message: string;
+}
+
+export function deleteAccount(userId: number): Promise<AccountDeleteResponse> {
+  return del(`/users/${userId}`);
+}
+
+export interface TrimesterLimits {
+  label: string;
+  caffeine_mg: number;
+  sugar_g: number;
+  sodium_mg: number;
+  carbohydrate_g: number;
+  protein_g: number;
+  energy_kcal: number;
+  fat_ratio_min: number;
+  fat_ratio_max: number;
+  saturated_fat_ratio_max: number;
+  trans_fat_ratio_max: number;
+  note: string;
+}
+
+export interface NutritionLimitsResponse {
+  current_trimester: 'early' | 'middle' | 'late';
+  trimesters: {
+    early: TrimesterLimits;
+    middle: TrimesterLimits;
+    late: TrimesterLimits;
+  };
+}
+
+export function getNutritionLimits(userId: number): Promise<NutritionLimitsResponse> {
+  return get(`/users/${userId}/nutrition-limits`);
+}
