@@ -25,7 +25,7 @@ from backend.intake_totals import (
     resolve_user_nutrition_context,
     simplified_status_label,
 )
-from backend.routers.water_log import _fetch_water_summary_for_date
+from backend.routers.water_log import fetch_water_summary_for_date
 
 router = APIRouter()
 
@@ -474,7 +474,7 @@ def get_intake_summary(
         "status_label": simplified_status_label("ceiling", caffeine_status),
     }
 
-    water = _fetch_water_summary_for_date(user_id, today, db)
+    water = fetch_water_summary_for_date(user_id, today, db)
     # water_log.amount_ml은 NOT NULL이므로 항상 known으로 취급한다.
     water_status = get_floor_status(water["total_ml"], water["target_ml"], known_count=1, logged_count=1)
     water_item = {

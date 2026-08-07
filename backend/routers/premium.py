@@ -4,7 +4,12 @@ from datetime import date as date_type, timedelta
 from fastapi import APIRouter, HTTPException, Depends
 
 from backend.database import get_db
-from backend.nutrition_constants import IRON_RECOMMENDED_MG, IRON_UPPER_LIMIT_MG, KCAL_PER_GRAM_FAT
+from backend.nutrition_constants import (
+    DAILY_WATER_TARGET_ML,
+    IRON_RECOMMENDED_MG,
+    IRON_UPPER_LIMIT_MG,
+    KCAL_PER_GRAM_FAT,
+)
 from backend.intake_totals import (
     compute_overall_status,
     get_fat_status,
@@ -16,6 +21,7 @@ from backend.intake_totals import (
     simplified_status_label,
     tier_of_status,
 )
+from backend.routers.water_log import fetch_water_totals_by_day
 
 router = APIRouter()
 
@@ -36,6 +42,7 @@ _PREMIUM_STATUS_TYPES = {
     "protein_status":       "floor",
     "fat_status":           "band",
     "iron_status":          "band",
+    "water_status":         "floor",
     "status":               "ceiling",
 }
 
@@ -275,6 +282,38 @@ def _build_extra_nutrient_report_block(totals: dict, limits: dict, divisor: int)
     }
 
 
+def _build_water_report_block(
+    user_id: int, start: date_type, end: date_type, db: sqlite3.Connection
+) -> dict:
+    """수분의 totals/daily_average/limits/percentages/status 블록.
+
+    분모(water_divisor)는 food_log가 아니라 water_log에 기록이 있는 날 수다. 다른
+    영양소와 같은 규칙("기록이 있는 날 수로 나눈다")을 수분이 실제로 저장되는 테이블
+    기준으로 적용한 것 — 물만 마시고 음식은 기록하지 않은 날이 있으면 food_log 기준
+    분모(days_with_data)와 값이 달라진다.
+
+    일간 리포트는 start == end이라 water_divisor가 항상 1이고, 따라서 일평균이 그날의
+    합계와 같아진다(_build_extra_nutrient_report_block의 divisor=1과 같은 성질).
+
+    water_log.amount_ml은 NOT NULL이라 수분은 unknown이 될 수 없으므로
+    known_count/logged_count를 1로 고정한다 (routers/intake.py의 /intake/summary와 동일).
+    """
+    days = fetch_water_totals_by_day(user_id, start, end, db)
+    total_ml = round(sum(d["amount_ml"] for d in days), 1)
+    days_with_water = sum(1 for d in days if d["log_count"] > 0)
+    water_divisor = days_with_water or 1
+    avg_ml = round(total_ml / water_divisor, 1)
+    water_status = get_floor_status(avg_ml, DAILY_WATER_TARGET_ML, known_count=1, logged_count=1)
+
+    return {
+        "totals":        {"water_ml": total_ml},
+        "daily_average": {"water_ml": avg_ml},
+        "limits":        {"water_target_ml": DAILY_WATER_TARGET_ML},
+        "percentages":   {"water": _get_percent(avg_ml, DAILY_WATER_TARGET_ML)},
+        "status":        {"water_status": water_status},
+    }
+
+
 def _build_daily_ai_summary(
     caffeine_pct: float,
     sugar_pct: float,
@@ -476,6 +515,7 @@ def get_premium_report(
 
         extra_totals = _compute_extra_nutrient_totals(cursor, user_id, date_str, date_str)
         extra_block = _build_extra_nutrient_report_block(extra_totals, limits, divisor=1)
+        water_block = _build_water_report_block(user_id, target_date, target_date, db)
 
         formatted_date = target_date.strftime("%Y.%m.%d")
         return _attach_tiers({
@@ -495,18 +535,21 @@ def get_premium_report(
                 "sugar_g":     round(total_sugar, 2),
                 "sodium_mg":   round(total_sodium, 2),
                 **extra_block["totals"],
+                **water_block["totals"],
             },
             "limits": {
                 "caffeine_mg": caffeine_limit,
                 "sugar_g":     sugar_limit,
                 "sodium_mg":   sodium_limit,
                 **extra_block["limits"],
+                **water_block["limits"],
             },
             "percentages": {
                 "caffeine": caffeine_pct,
                 "sugar":    sugar_pct,
                 "sodium":   sodium_pct,
                 **extra_block["percentages"],
+                **water_block["percentages"],
             },
             "status": {
                 "overall_status":  overall_status,
@@ -514,6 +557,7 @@ def get_premium_report(
                 "sugar_status":    sugar_status,
                 "sodium_status":   sodium_status,
                 **extra_block["status"],
+                **water_block["status"],
             },
             "chart": {
                 "type":  "time_slot",
@@ -629,8 +673,9 @@ def get_premium_report(
 
     extra_totals = _compute_extra_nutrient_totals(cursor, user_id, monday.isoformat(), sunday.isoformat())
     extra_block = _build_extra_nutrient_report_block(extra_totals, limits, divisor=divisor)
+    water_block = _build_water_report_block(user_id, monday, sunday, db)
 
-    date_range_str = f"{monday.strftime('%Y.%m.%d.')} ~ {sunday.strftime('%m.%d.')}"
+    date_range_str =f"{monday.strftime('%Y.%m.%d.')} ~ {sunday.strftime('%m.%d.')}"
     return _attach_tiers({
         "user_id":        user_id,
         "period":         "weekly",
@@ -651,24 +696,28 @@ def get_premium_report(
             "sugar_g":     round(total_sugar, 2),
             "sodium_mg":   round(total_sodium, 2),
             **extra_block["totals"],
+            **water_block["totals"],
         },
         "daily_average": {
             "caffeine_mg": avg_caffeine,
             "sugar_g":     avg_sugar,
             "sodium_mg":   avg_sodium,
             **extra_block["daily_average"],
+            **water_block["daily_average"],
         },
         "limits": {
             "daily_caffeine_mg": caffeine_limit,
             "daily_sugar_g":     sugar_limit,
             "daily_sodium_mg":   sodium_limit,
             **extra_block["limits"],
+            **water_block["limits"],
         },
         "percentages": {
             "caffeine": caffeine_avg_pct,
             "sugar":    sugar_avg_pct,
             "sodium":   sodium_avg_pct,
             **extra_block["percentages"],
+            **water_block["percentages"],
         },
         "status": {
             "overall_status":  overall_status,
@@ -676,6 +725,7 @@ def get_premium_report(
             "sugar_status":    sugar_status,
             "sodium_status":   sodium_status,
             **extra_block["status"],
+            **water_block["status"],
         },
         "comparison": {
             "previous_period": {

@@ -17,6 +17,7 @@ from backend.routers.water_log import (
     WEEKDAY_LABELS,
     create_water_log,
     delete_water_log,
+    fetch_water_totals_by_day,
     get_today_water_log,
     get_water_log_by_date,
     get_water_log_week,
@@ -211,3 +212,44 @@ class TestDeleteWaterLog:
         with pytest.raises(HTTPException) as exc_info:
             delete_water_log(log_id=999, user_id=user_id, db=db)
         assert exc_info.value.status_code == 404
+
+
+class TestFetchWaterTotalsByDay:
+    """get_water_log_week에서 분리한 집계 함수 (프리미엄 리포트와 공유)."""
+
+    def test_empty_week_returns_seven_zero_days(self, db):
+        user_id = make_user(db)
+        monday = date(2030, 1, 7)
+        sunday = monday + timedelta(days=6)
+
+        days = fetch_water_totals_by_day(user_id, monday, sunday, db)
+
+        assert len(days) == 7
+        assert [d["label"] for d in days] == WEEKDAY_LABELS
+        assert all(d["amount_ml"] == 0 for d in days)
+        assert all(d["log_count"] == 0 for d in days)
+
+    def test_log_count_distinguishes_logged_days(self, db):
+        user_id = make_user(db)
+        monday = date(2030, 1, 7)
+        sunday = monday + timedelta(days=6)
+        make_water_log(db, user_id, amount_ml=200, logged_at=f"{monday.isoformat()} 09:00:00")
+        make_water_log(db, user_id, amount_ml=300, logged_at=f"{monday.isoformat()} 15:00:00")
+
+        days = fetch_water_totals_by_day(user_id, monday, sunday, db)
+
+        assert days[0]["amount_ml"] == 500
+        assert days[0]["log_count"] == 2
+        assert sum(1 for d in days if d["log_count"] > 0) == 1
+
+    def test_single_day_range_returns_one_day(self, db):
+        # 프리미엄 일간 리포트가 쓰는 형태 (start == end)
+        user_id = make_user(db)
+        target = date(2030, 1, 10)
+        make_water_log(db, user_id, amount_ml=750, logged_at=f"{target.isoformat()} 09:00:00")
+
+        days = fetch_water_totals_by_day(user_id, target, target, db)
+
+        assert len(days) == 1
+        assert days[0]["amount_ml"] == 750
+        assert days[0]["log_count"] == 1

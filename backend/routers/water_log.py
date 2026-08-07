@@ -18,7 +18,7 @@ def _get_percent(value: float, standard: float) -> float:
     return round(value / standard * 100, 1)
 
 
-def _fetch_water_summary_for_date(user_id: int, target_date: str, db: sqlite3.Connection) -> dict:
+def fetch_water_summary_for_date(user_id: int, target_date: str, db: sqlite3.Connection) -> dict:
     """주어진 날짜의 수분 섭취 기록 + 합계/퍼센트 계산: Water Diary 화면용"""
     cursor = db.cursor()
 
@@ -91,7 +91,7 @@ def get_today_water_log(
 ):
     """오늘 수분 섭취 기록 + 합계 조회: Water Diary 화면용"""
     today = date_type.today().isoformat()
-    return _fetch_water_summary_for_date(user_id, today, db)
+    return fetch_water_summary_for_date(user_id, today, db)
 
 
 @router.get("/water-log/by-date/{user_id}")
@@ -109,7 +109,36 @@ def get_water_log_by_date(
     else:
         target_date = date_type.today()
 
-    return _fetch_water_summary_for_date(user_id, target_date.isoformat(), db)
+    return fetch_water_summary_for_date(user_id, target_date.isoformat(), db)
+
+
+def fetch_water_totals_by_day(
+    user_id: int, monday: date_type, sunday: date_type, db: sqlite3.Connection
+) -> list[dict]:
+    """기간 내 날짜별 수분 합계. 범위 쿼리 한 번 + 파이썬 버킷팅
+
+    (routers/premium.py의 _aggregate_week와 같은 패턴 — 날짜마다 쿼리를 돌리지 않는다).
+    표시용 플래그(hit_target/is_today)는 호출부의 책임이라 여기서 붙이지 않는다.
+    """
+    cursor = db.cursor()
+    cursor.execute("""
+        SELECT amount_ml, DATE(logged_at) AS log_date
+        FROM water_log
+        WHERE user_id = ? AND DATE(logged_at) BETWEEN ? AND ?
+    """, (user_id, monday.isoformat(), sunday.isoformat()))
+    rows = [dict(r) for r in cursor.fetchall()]
+
+    days = []
+    for i in range((sunday - monday).days + 1):
+        d_str = (monday + timedelta(days=i)).isoformat()
+        day_rows = [r for r in rows if r["log_date"] == d_str]
+        days.append({
+            "label": WEEKDAY_LABELS[i] if i < len(WEEKDAY_LABELS) else None,
+            "date": d_str,
+            "amount_ml": round(sum(r["amount_ml"] for r in day_rows), 1),
+            "log_count": len(day_rows),
+        })
+    return days
 
 
 @router.get("/water-log/week/{user_id}")
@@ -137,25 +166,16 @@ def get_water_log_week(
     sunday = monday + timedelta(days=6)
     today_str = date_type.today().isoformat()
 
-    cursor.execute("""
-        SELECT amount_ml, DATE(logged_at) AS log_date
-        FROM water_log
-        WHERE user_id = ? AND DATE(logged_at) BETWEEN ? AND ?
-    """, (user_id, monday.isoformat(), sunday.isoformat()))
-    rows = [dict(r) for r in cursor.fetchall()]
-
-    days = []
-    for i in range(7):
-        d = monday + timedelta(days=i)
-        d_str = d.isoformat()
-        amount_ml = round(sum(r["amount_ml"] for r in rows if r["log_date"] == d_str), 1)
-        days.append({
-            "label": WEEKDAY_LABELS[i],
-            "date": d_str,
-            "amount_ml": amount_ml,
-            "hit_target": amount_ml >= DAILY_WATER_TARGET_ML,
-            "is_today": d_str == today_str,
-        })
+    days = [
+        {
+            "label": day["label"],
+            "date": day["date"],
+            "amount_ml": day["amount_ml"],
+            "hit_target": day["amount_ml"] >= DAILY_WATER_TARGET_ML,
+            "is_today": day["date"] == today_str,
+        }
+        for day in fetch_water_totals_by_day(user_id, monday, sunday, db)
+    ]
 
     return {
         "user_id": user_id,

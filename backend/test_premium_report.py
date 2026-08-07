@@ -17,7 +17,9 @@ from fastapi import HTTPException
 
 from backend.routers.premium import get_premium_report
 
-from .conftest import make_food_log, make_user
+from backend.nutrition_constants import DAILY_WATER_TARGET_ML
+
+from .conftest import make_food_log, make_user, make_water_log
 
 
 class TestGetPremiumReportBasicValidation:
@@ -227,6 +229,7 @@ class TestGetPremiumReportWeekly:
         assert result["daily_average"] == {
             "caffeine_mg": 0.0, "sugar_g": 0.0, "sodium_mg": 0.0,
             "energy_kcal": 0.0, "carbohydrate_g": 0.0, "protein_g": 0.0,
+            "water_ml": 0.0,
         }
 
     def test_comparison_uses_days_with_data_on_previous_week_too(self, db):
@@ -300,6 +303,84 @@ class TestGetPremiumReportWeekly:
         assert result["comparison"]["sodium_vs_previous_pct"] == 3.4     # 6.7% - 3.3% (limit 1500mg)
 
 
+class TestGetPremiumReportWater:
+    """수분은 floor형이며, 분모는 food_log가 아니라 water_log 기준 날 수다."""
+
+    def test_daily_water_totals_percent_and_status(self, db):
+        user_id = make_user(db, pregnancy_week=20)
+        make_water_log(db, user_id, amount_ml=500, logged_at="2030-01-10 09:00:00")
+        make_water_log(db, user_id, amount_ml=300, logged_at="2030-01-10 15:00:00")
+
+        result = get_premium_report(user_id=user_id, period="daily", date="2030-01-10", db=db)
+
+        assert result["totals"]["water_ml"] == 800.0
+        assert result["limits"]["water_target_ml"] == DAILY_WATER_TARGET_ML
+        assert result["percentages"]["water"] == round(800 / DAILY_WATER_TARGET_ML * 100, 1)
+        assert result["status"]["water_status"] == "insufficient"
+        assert result["status"]["water_tier"] == "neutral"
+        assert result["status"]["water_status_label"] == "부족"
+
+    def test_daily_water_meeting_target_is_sufficient(self, db):
+        user_id = make_user(db, pregnancy_week=20)
+        make_water_log(db, user_id, amount_ml=DAILY_WATER_TARGET_ML,
+                       logged_at="2030-01-10 09:00:00")
+
+        result = get_premium_report(user_id=user_id, period="daily", date="2030-01-10", db=db)
+
+        assert result["status"]["water_status"] == "sufficient"
+        assert result["status"]["water_tier"] == "safe"
+        assert result["status"]["water_status_label"] == "충분"
+
+    def test_daily_water_is_zero_not_error_when_no_water_logged(self, db):
+        user_id = make_user(db, pregnancy_week=20)
+
+        result = get_premium_report(user_id=user_id, period="daily", date="2030-01-10", db=db)
+
+        assert result["totals"]["water_ml"] == 0.0
+        assert result["percentages"]["water"] == 0.0
+        assert result["status"]["water_status"] == "insufficient"
+
+    def test_weekly_water_divides_by_water_days_not_food_days(self, db):
+        # 물은 5일(월~금), 음식은 1일(월)만 기록한다. days_with_data(food_log 기준)는 1이지만
+        # 수분 일평균은 5로 나눠야 한다 — 1로 나누면 5일치가 하루치로 보고된다.
+        user_id = make_user(db, pregnancy_week=20)
+        make_food_log(db, user_id, caffeine_mg=10, sugar_g=1, sodium_mg=10,
+                       eaten_at="2030-01-07 09:00:00")   # 월요일에만 음식 기록
+        for i in range(5):                                # 월~금 물 1000mL씩
+            day = 7 + i
+            make_water_log(db, user_id, amount_ml=1000, logged_at=f"2030-01-{day:02d} 10:00:00")
+
+        result = get_premium_report(user_id=user_id, period="weekly", date="2030-01-07", db=db)
+
+        assert result["totals"]["water_ml"] == 5000.0
+        # 5000/5 = 1000.0 (5000/1 = 5000.0이 아니다)
+        assert result["daily_average"]["water_ml"] == 1000.0
+        assert result["percentages"]["water"] == round(1000 / DAILY_WATER_TARGET_ML * 100, 1)
+        # food_log 기준 분모는 여전히 1이라는 것도 함께 확인한다 (수분만 다른 분모를 쓴다)
+        assert result["daily_average"]["caffeine_mg"] == 10.0
+
+    def test_weekly_water_divisor_is_one_when_no_water_logged(self, db):
+        user_id = make_user(db, pregnancy_week=20)
+        make_food_log(db, user_id, caffeine_mg=10, sugar_g=1, sodium_mg=10,
+                       eaten_at="2030-01-07 09:00:00")
+
+        result = get_premium_report(user_id=user_id, period="weekly", date="2030-01-07", db=db)
+
+        assert result["totals"]["water_ml"] == 0.0
+        assert result["daily_average"]["water_ml"] == 0.0
+        assert result["status"]["water_status"] == "insufficient"
+
+    def test_water_is_not_added_to_chart_or_comparison(self, db):
+        user_id = make_user(db, pregnancy_week=20)
+        make_water_log(db, user_id, amount_ml=1000, logged_at="2030-01-07 10:00:00")
+
+        result = get_premium_report(user_id=user_id, period="weekly", date="2030-01-07", db=db)
+
+        assert all("water_ml" not in item for item in result["chart"]["items"])
+        assert all("water_status" not in item for item in result["chart"]["items"])
+        assert "water_vs_previous_pct" not in result["comparison"]
+
+
 class TestGetPremiumReportTiers:
     """raw status 옆에 붙는 tier/status_label 형제 키 (OCR 확인 화면과 같은 어휘)."""
 
@@ -362,5 +443,5 @@ class TestGetPremiumReportTiers:
         assert "status_label" not in result
         assert set(result["daily_average"]) == {
             "caffeine_mg", "sugar_g", "sodium_mg",
-            "energy_kcal", "carbohydrate_g", "protein_g",
+            "energy_kcal", "carbohydrate_g", "protein_g", "water_ml",
         }
