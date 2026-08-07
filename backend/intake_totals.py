@@ -134,12 +134,27 @@ def get_informational_status(value) -> str:
     return "unknown" if value is None else "info"
 
 
-def get_fat_status(value, energy_total, ratio_min, ratio_max, known_count, logged_count) -> str:
+def get_fat_status(value, energy_basis_kcal, ratio_min, ratio_max, known_count, logged_count) -> str:
     """총 지방처럼 상한(ratio_max)과 하한(ratio_min)이 모두 있는 "밴드"형 판정.
-    총 에너지 섭취량 대비 비율로 기준을 동적으로 계산하므로, 오늘 에너지 섭취가
-    없으면(0 이하) 비율 자체를 계산할 수 없어 unknown을 반환한다.
 
-    energy_total(kcal) * ratio는 kcal 단위이므로, food_log에 그램 단위로 저장된
+    ── energy_basis_kcal에 무엇을 넘길 것인가 (호출부마다 다르다) ──
+    이 함수는 "주어진 에너지 기준의 몇 %가 지방인가"만 계산한다. 그 기준을 무엇으로
+    잡을지는 호출부의 책임이고, 질문이 다르면 답도 달라야 한다:
+
+    - 하루 누적 판정(홈/Food Diary 요약, 프리미엄 리포트, OCR 확인 화면의 일일 투영):
+      반드시 "하루 에너지 목표"(limits["energy_kcal"])를 넘긴다. 출처 기준
+      (임신_시기별_영양소_섭취기준)의 15~30%는 "하루치 총 섭취량"에 대한 비율이므로,
+      하루가 채 지나지 않은 시점의 누적 섭취량을 분모로 쓰면 기준을 오용하는 것이다 —
+      아침에는 분모가 작아서 지방이 조금만 있는 음식 하나에도 상한을 넘겨버린다.
+      목표를 분모로 쓰면 그날의 상한이 나트륨 1500mg/당류 50g처럼 고정된 숫자가 된다.
+
+    - 단일 품목 판정(get_item_nutrient_status, /ocr/alternatives): 그 품목 자신의
+      에너지를 넘긴다. 여기서 묻는 것은 "오늘 하루가 어떤가"가 아니라 "이 제품이
+      지방 위주인가"이고, 그건 사용자의 하루가 아니라 제품의 성질이다. 분자와 분모가
+      같은 배율로 움직이므로 인분 크기가 달라져도 판정이 변하지 않는다(의도된 성질,
+      test_item_nutrient_status.py에서 검증).
+
+    energy_basis_kcal * ratio는 kcal 단위이므로, food_log에 그램 단위로 저장된
     value와 비교하려면 KCAL_PER_GRAM_FAT(9kcal/g)로 나눠 그램 기준으로 환산해야
     한다 — 환산 없이 비교하면 사실상 도달 불가능한 상한과, 정상 섭취량도 걸리는
     하한이 되어버린다.
@@ -147,18 +162,21 @@ def get_fat_status(value, energy_total, ratio_min, ratio_max, known_count, logge
     상한 초과는 get_status()의 기존 safe/caution/avoid 티어를 그대로 재사용하고,
     하한 미달은 별도로 "low"를 반환한다 (미달은 초과보다 약한 신호로 다루는 정책상
     avoid로 올라가지 않음 — compute_overall_status 참고).
+
+    energy_basis_kcal <= 0 가드는 단일 품목 경로에서만 도달 가능하다(하루 에너지
+    목표는 항상 1900kcal 이상). 라벨에 열량이 없는 품목이 0으로 들어오는 경우다.
     """
     if _is_data_unresolved(known_count, logged_count):
         return "unknown"
-    if energy_total <= 0:
+    if energy_basis_kcal <= 0:
         return "unknown"
 
-    upper_limit_g = energy_total * ratio_max / KCAL_PER_GRAM_FAT
+    upper_limit_g = energy_basis_kcal * ratio_max / KCAL_PER_GRAM_FAT
     ceiling_status = get_status(value, upper_limit_g, known_count=1, logged_count=1)
     if ceiling_status in ("caution", "avoid"):
         return ceiling_status
 
-    lower_limit_g = energy_total * ratio_min / KCAL_PER_GRAM_FAT
+    lower_limit_g = energy_basis_kcal * ratio_min / KCAL_PER_GRAM_FAT
     if value < lower_limit_g:
         return "low"
     return "safe"
@@ -389,12 +407,6 @@ def build_daily_projected_statuses(
     """
     logged_count = daily_totals["logged_count"] + 1
 
-    # 지방 밴드 판정의 분모는 "투영된" 에너지다 — 오늘 누적 에너지만 쓰면 지금
-    # 확인 중인 품목의 칼로리가 빠져 비율이 과장된다.
-    projected_energy, _ = _project(
-        daily_totals, DAILY_PROJECTION_NUTRIENTS["energy"], pending_values.get("energy")
-    )
-
     items = []
     for key, spec in DAILY_PROJECTION_NUTRIENTS.items():
         nutrient_type = spec["type"]
@@ -413,15 +425,14 @@ def build_daily_projected_statuses(
                 value, IRON_RECOMMENDED_MG, IRON_UPPER_LIMIT_MG, known_count, logged_count
             )
         elif key == "fat":
-            # 투영 에너지가 0이면 비율 기준 자체를 만들 수 없다 — 상한도 None으로 둔다
-            # (get_fat_status도 energy_total<=0이면 unknown을 돌려준다).
-            limit = (
-                projected_energy * limits["fat_ratio_max"] / KCAL_PER_GRAM_FAT
-                if projected_energy > 0
-                else None
-            )
+            # 분모는 "오늘 누적 에너지"가 아니라 "하루 에너지 목표"다. 기준(15~30%)이
+            # 하루치 총 섭취량에 대한 비율이라, 하루가 끝나지 않은 시점의 누적값을
+            # 분모로 쓰면 아침에 지방 있는 음식 하나만 먹어도 상한을 넘겨버린다.
+            # 목표를 쓰면 그날의 상한이 나트륨 1500mg처럼 고정된 숫자가 된다.
+            # 목표는 항상 1900kcal 이상이므로 여기서 0 방어는 필요 없다.
+            limit = limits["energy_kcal"] * limits["fat_ratio_max"] / KCAL_PER_GRAM_FAT
             status = get_fat_status(
-                value, projected_energy, limits["fat_ratio_min"], limits["fat_ratio_max"],
+                value, limits["energy_kcal"], limits["fat_ratio_min"], limits["fat_ratio_max"],
                 known_count, logged_count,
             )
         else:

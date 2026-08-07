@@ -45,9 +45,12 @@ _SUMMARY_NUTRIENT_FIELDS = {
     "carbohydrate": {"total_key": "total_carbohydrate", "known_key": "known_carbohydrate_count", "limit_key": "carbohydrate_g", "unit": "g", "type": "floor"},
     "sugar":        {"total_key": "total_sugar", "known_key": "known_sugar_count", "limit_key": "sugar_g", "unit": "g", "type": "ceiling"},
     "energy":       {"total_key": "total_calories", "known_key": "known_energy_count", "limit_key": "energy_kcal", "unit": "kcal", "type": "floor"},
+    # 지방의 분모는 "오늘 누적 에너지"가 아니라 "하루 에너지 목표"다 —
+    # 기준(15~30%)이 하루치 총 섭취량에 대한 비율이라 누적값을 분모로 쓰면
+    # 하루 중간에는 기준을 오용하게 된다(get_fat_status docstring 참고).
     "fat":          {"total_key": "total_fat", "known_key": "known_fat_count", "limit_key": None, "unit": "g", "type": "band",
                       "judge_fn": lambda total, known_count, logged_count, totals, limits: get_fat_status(
-                          total, totals["total_calories"], limits["fat_ratio_min"], limits["fat_ratio_max"], known_count, logged_count)},
+                          total, limits["energy_kcal"], limits["fat_ratio_min"], limits["fat_ratio_max"], known_count, logged_count)},
     "iron":         {"total_key": "total_iron", "known_key": "known_iron_count", "limit_key": None, "unit": "mg", "type": "band",
                       "judge_fn": lambda total, known_count, logged_count, totals, limits: get_iron_status(
                           total, IRON_RECOMMENDED_MG, IRON_UPPER_LIMIT_MG, known_count, logged_count)},
@@ -204,7 +207,10 @@ def _fetch_intake_summary_for_date(user_id: int, target_date: str, db: sqlite3.C
     carbohydrate_status = get_floor_status(total_carbohydrate, carbohydrate_minimum, known_carbohydrate_count, logged_count)
     protein_status = get_floor_status(total_protein, protein_target, known_protein_count, logged_count)
     energy_status = get_floor_status(total_calories, energy_target, known_energy_count, logged_count)
-    fat_status = get_fat_status(total_fat, total_calories, fat_ratio_min, fat_ratio_max, known_fat_count, logged_count)
+    # 지방의 분모는 하루 에너지 목표(energy_target)다 — 누적 섭취량(total_calories)이
+    # 아니다. 아래 포화지방/트랜스지방은 별개 영양소라 이번 변경 범위 밖이며 기존대로
+    # 누적 에너지를 쓴다(같은 성격의 문제가 있으나 별도 결정 사항).
+    fat_status = get_fat_status(total_fat, energy_target, fat_ratio_min, fat_ratio_max, known_fat_count, logged_count)
     # energy_total(kcal) * ratio는 kcal 단위이므로, 그램 단위인 total_saturated_fat/
     # total_trans_fat과 비교하려면 KCAL_PER_GRAM_FAT(9kcal/g)로 나눠 환산해야 한다
     # (get_fat_status()와 동일한 이유 — 환산 없이 비교하면 기준이 사실상 무의미해진다).

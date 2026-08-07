@@ -112,8 +112,15 @@ def _build_extra_nutrient_report_block(totals: dict, limits: dict, divisor: int)
     limits/percentages/status 블록.
 
     divisor=1이면 daily 리포트(기간 합계 = 하루 값), weekly 리포트에서는 기록이 있는 날
-    수로 나눠 일평균을 낸다. 지방류 비율(총 에너지 대비)은 합계/합계와 평균/평균이
-    수학적으로 동일하므로 별도로 나누지 않고 기간 합계를 그대로 사용한다.
+    수로 나눠 일평균을 낸다.
+
+    지방(fat_status)도 에너지/탄수화물/단백질과 마찬가지로 일평균으로 판정한다.
+    예전에는 분모가 "기간 누적 에너지"라 합계/합계와 평균/평균이 수학적으로 같아서
+    나누지 않아도 됐지만, 분모가 "하루 에너지 목표"라는 고정값으로 바뀌면서 그
+    등가성이 깨졌다 — 이제 나누지 않으면 7일치 지방을 하루치 상한과 비교하게 된다.
+
+    포화지방/트랜스지방은 이번 변경 대상이 아니라 여전히 기간 누적 에너지 대비
+    비율을 쓴다(같은 성격의 문제가 있으나 별도 결정 사항).
     """
     energy_target = limits["energy_kcal"]
     carb_min = limits["carbohydrate_g"]
@@ -134,13 +141,17 @@ def _build_extra_nutrient_report_block(totals: dict, limits: dict, divisor: int)
     avg_energy = round(total_energy / divisor, 1)
     avg_carb = round(total_carb / divisor, 1)
     avg_protein = round(total_protein / divisor, 1)
+    # 지방도 일평균으로 판정한다 — 분모가 "하루 에너지 목표"인 고정값이 되었으므로
+    # 분자도 반드시 하루치여야 한다. 기간 합계를 그대로 쓰면 7일치 지방을 하루치
+    # 상한과 비교하게 되어 정상적인 한 주가 영구적으로 avoid가 된다.
+    avg_fat = round(total_fat / divisor, 1)
 
     logged_count = totals["logged_count"]
     energy_status = get_floor_status(avg_energy, energy_target, totals["known_energy_count"], logged_count)
     carb_status = get_floor_status(avg_carb, carb_min, totals["known_carbohydrate_count"], logged_count)
     protein_status = get_floor_status(avg_protein, protein_target, totals["known_protein_count"], logged_count)
     fat_status = get_fat_status(
-        total_fat, total_energy, fat_ratio_min, fat_ratio_max, totals["known_fat_count"], logged_count
+        avg_fat, energy_target, fat_ratio_min, fat_ratio_max, totals["known_fat_count"], logged_count
     )
     # energy_total(kcal) * ratio는 kcal 단위이므로, 그램 단위인 total_saturated_fat/
     # total_trans_fat과 비교하려면 KCAL_PER_GRAM_FAT(9kcal/g)로 나눠 환산해야 한다

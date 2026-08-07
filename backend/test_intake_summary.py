@@ -108,11 +108,18 @@ class TestIntakeSummaryFloorType:
 
 class TestIntakeSummaryBandType:
     """fat은 상한/하한이 모두 있는 밴드형이라 safe/low는 floor 어휘, caution/avoid는
-    ceiling 어휘를 섞어 쓴다 (nutrition_constants._BAND_LABELS 참고)."""
+    ceiling 어휘를 섞어 쓴다 (nutrition_constants._BAND_LABELS 참고).
+
+    이 클래스가 검증하는 것은 어휘 매핑이지 비율 산술이 아니다. 지방 기준은
+    "하루 에너지 목표"에서 나온다 — 20주(중기)/19-29세 기준 목표 2340kcal이므로
+    상한 78.0g, 하한 39.0g, caution 구간은 54.6g~78.0g다. 아래 fat_g 값은 각
+    구간의 한가운데를 고르되 경계에서 충분히 떨어뜨려, 기준이 조금 바뀌어도
+    "어휘가 틀렸다"가 아닌 이유로 실패하지 않게 한다.
+    """
 
     def test_fat_safe(self, db):
         user_id = make_user(db, selected_nutrients="fat")
-        make_food_log(db, user_id, calories_kcal=2000, fat_g=40)  # 18% of energy
+        make_food_log(db, user_id, calories_kcal=2000, fat_g=45)  # 39.0~54.6g 구간 한가운데
 
         result = get_intake_summary(user_id=user_id, db=db)
 
@@ -122,7 +129,7 @@ class TestIntakeSummaryBandType:
 
     def test_fat_low_uses_floor_style_label(self, db):
         user_id = make_user(db, selected_nutrients="fat")
-        make_food_log(db, user_id, calories_kcal=2000, fat_g=20)  # below 15% floor
+        make_food_log(db, user_id, calories_kcal=2000, fat_g=20)  # 하한 39.0g 한참 아래
 
         result = get_intake_summary(user_id=user_id, db=db)
 
@@ -131,8 +138,11 @@ class TestIntakeSummaryBandType:
         assert fat["status_label"] == "부족"
 
     def test_fat_caution_uses_ceiling_style_label(self, db):
+        # 예전 값 55g은 caution 하단 경계(54.6g)와 0.4g 차이라, 기준이 조금만
+        # 움직여도 어휘와 무관한 이유로 safe로 넘어가 깨지는 취약한 픽스처였다.
+        # 66g은 54.6~78.0g 구간의 한가운데로 양쪽 경계에서 충분히 떨어져 있다.
         user_id = make_user(db, selected_nutrients="fat")
-        make_food_log(db, user_id, calories_kcal=2000, fat_g=55)  # approaching 30% ceiling
+        make_food_log(db, user_id, calories_kcal=2000, fat_g=66)
 
         result = get_intake_summary(user_id=user_id, db=db)
 
@@ -142,7 +152,7 @@ class TestIntakeSummaryBandType:
 
     def test_fat_avoid(self, db):
         user_id = make_user(db, selected_nutrients="fat")
-        make_food_log(db, user_id, calories_kcal=2000, fat_g=90)  # over 30% ceiling
+        make_food_log(db, user_id, calories_kcal=2000, fat_g=95)  # 상한 78.0g 한참 위
 
         result = get_intake_summary(user_id=user_id, db=db)
 

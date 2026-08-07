@@ -112,6 +112,27 @@ class TestGetPremiumReportFatIron:
         assert result["status"]["fat_status"] == "safe"
         assert result["status"]["iron_status"] == "safe"
 
+    def test_weekly_fat_status_uses_daily_average_not_period_sum(self, db):
+        # 회귀 가드(T7 Finding A): 지방의 분모가 "하루 에너지 목표"로 바뀌면서
+        # 분자도 반드시 일평균이어야 한다. 기간 합계를 그대로 쓰면 7일치 지방
+        # (7 * 40 = 280g)을 하루치 상한(78g)과 비교하게 되어, 지극히 정상적인
+        # 한 주가 영구적으로 "avoid"로 표시된다.
+        #
+        # 예전(누적 에너지 분모)에는 합계/합계와 평균/평균이 수학적으로 같아서
+        # 나누지 않아도 괜찮았지만, 분모가 고정되는 순간 그 등가성이 깨진다.
+        user_id = make_user(db, pregnancy_week=20)
+        # 2030-01-14(월) ~ 01-20(일) 주. 매일 2000kcal / 지방 40g = 하루 18%로 안전한 주.
+        for day in range(14, 21):
+            make_food_log(db, user_id, caffeine_mg=0, sugar_g=0, sodium_mg=0,
+                           calories_kcal=2000, fat_g=40,
+                           eaten_at=f"2030-01-{day} 09:00:00")
+
+        result = get_premium_report(user_id=user_id, period="weekly", date="2030-01-15", db=db)
+
+        assert result["totals"]["fat_g"] == 280.0  # 기간 합계 노출은 기존 그대로
+        # 판정은 일평균(280/7=40g) 대 하루 상한(78g) — 합계(280g)를 쓰면 avoid가 된다.
+        assert result["status"]["fat_status"] == "safe"
+
     def test_fat_status_compares_grams_against_gram_limit_not_raw_kcal_number(self, db):
         # 회귀 가드: energy_total(kcal) * ratio는 kcal 단위이므로, 그램 단위인
         # total_fat과 비교하려면 KCAL_PER_GRAM_FAT(9kcal/g)로 나눠야 한다. 이 환산이

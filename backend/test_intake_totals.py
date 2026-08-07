@@ -331,30 +331,52 @@ class TestProjectedBandTypeStatuses:
 
         assert _by_key(items)["iron"]["limit"] == 45.0
 
-    def test_fat_uses_projected_energy_including_the_pending_item(self):
-        # 지방 상한 = 투영 에너지 * 30% / 9kcal. 에너지 2000 -> 66.67g.
-        items = build_daily_projected_statuses({"energy": 2000.0, "fat": 100.0}, _EMPTY_DAY, LIMITS)
+    def test_fat_bound_comes_from_the_daily_energy_target_not_accumulated_intake(self):
+        # 상한 = 하루 에너지 목표(2340) * 30% / 9kcal = 78.0g. 오늘 얼마나 먹었는지와
+        # 무관하게 그날 내내 같은 숫자다 — 나트륨 1500mg과 같은 성격의 고정 기준.
+        low_energy_day = build_daily_projected_statuses({"fat": 10.0}, _EMPTY_DAY, LIMITS)
+        high_energy_day = build_daily_projected_statuses(
+            {"energy": 1800.0, "fat": 10.0}, _day(total_calories=500, known_energy_count=1), LIMITS
+        )
+
+        assert _by_key(low_energy_day)["fat"]["limit"] == pytest.approx(78.0, abs=0.01)
+        assert _by_key(high_energy_day)["fat"]["limit"] == pytest.approx(78.0, abs=0.01)
+
+    def test_fat_dense_breakfast_on_an_empty_day_is_not_a_warning(self):
+        # 회귀 방지(T7의 핵심): 누적 에너지를 분모로 쓰던 시절에는 아침에 스캔한
+        # 지방 20g/에너지 135kcal짜리 품목이 상한(135*0.3/9=4.5g)을 훌쩍 넘겨
+        # "위험"으로 판정됐다. 목표(2340kcal -> 78g)를 분모로 쓰면 정상이다.
+        items = build_daily_projected_statuses({"energy": 135.0, "fat": 20.0}, _EMPTY_DAY, LIMITS)
 
         fat = _by_key(items)["fat"]
-        assert fat["limit"] == pytest.approx(66.67, abs=0.01)
-        assert fat["status"] == "avoid"
+        assert fat["tier"] not in ("caution", "avoid")
+        assert fat["status"] == "low"  # 78g 목표 대비로는 아직 하한 미달일 뿐
 
     def test_fat_below_lower_bound_is_neutral(self):
-        # 하한 = 2000 * 15% / 9 = 33.33g. 20g은 미달이지만 경고가 아니다.
+        # 하한 = 2340 * 15% / 9 = 39.0g. 20g은 미달이지만 경고가 아니다.
         items = build_daily_projected_statuses({"energy": 2000.0, "fat": 20.0}, _EMPTY_DAY, LIMITS)
 
         fat = _by_key(items)["fat"]
         assert fat["status"] == "low"
         assert fat["tier"] == "neutral"
 
-    def test_fat_without_any_energy_is_unknown_and_has_no_limit(self):
-        # 투영 에너지가 0이면 비율 기준을 만들 수 없다 — 0으로 나누지 않아야 한다.
-        items = build_daily_projected_statuses({"fat": 30.0}, _EMPTY_DAY, LIMITS)
+    def test_fat_is_judged_even_when_no_energy_is_known(self):
+        # 이전에는 에너지가 없으면 지방도 unknown이었다(분모를 만들 수 없어서).
+        # 이제 분모가 하루 목표라 에너지 유무와 무관하게 판정된다 — 지방이 unknown인
+        # 것은 지방 값 자체가 없을 때뿐이다.
+        items = build_daily_projected_statuses({"fat": 90.0}, _EMPTY_DAY, LIMITS)
+
+        fat = _by_key(items)["fat"]
+        assert fat["status"] == "avoid"  # 90g > 78g 상한
+        assert fat["limit"] == pytest.approx(78.0, abs=0.01)
+        assert fat["percent"] is not None
+
+    def test_fat_is_unknown_only_when_the_fat_value_itself_is_unknown(self):
+        items = build_daily_projected_statuses({"energy": 2000.0}, _EMPTY_DAY, LIMITS)
 
         fat = _by_key(items)["fat"]
         assert fat["status"] == "unknown"
-        assert fat["limit"] is None
-        assert fat["percent"] is None
+        assert fat["value"] is None
 
 
 # ── tier_of_status ───────────────────────────────────────────────
