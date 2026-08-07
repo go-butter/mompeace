@@ -25,9 +25,15 @@ from backend.gemini_vision import (
     LabelNotDetectedError,
 )
 from backend.routers import ocr as ocr_router
-from backend.routers.ocr import OcrScanRequest, scan_nutrition_label
+from backend.routers.ocr import (
+    OcrRecomputeNutrientInput,
+    OcrRecomputeRequest,
+    OcrScanRequest,
+    recompute_ocr_statuses,
+    scan_nutrition_label,
+)
 
-from .conftest import make_user
+from .conftest import make_food_log, make_user
 
 
 @pytest.fixture(autouse=True)
@@ -60,16 +66,41 @@ def test_scan_happy_path_returns_additive_fields(db):
     assert result["total_content_unit"] == "g"
     assert result["serving_size_unit"] == "g"
 
-    # 새 필드
+    # nutrients는 OCR이 추출할 수 있는 7개 그대로다 (카페인은 라벨에 없으므로 제외)
     assert set(result["nutrients"].keys()) == {
         "carbohydrate", "sugar", "energy", "fat", "iron", "protein", "sodium",
     }
-    assert len(result["nutrient_statuses"]) == 7
+    # nutrient_statuses는 일일 투영 판정이라 카페인을 포함해 8개다 (T5)
+    assert len(result["nutrient_statuses"]) == 8
+    assert {item["key"] for item in result["nutrient_statuses"]} == {
+        "carbohydrate", "sugar", "energy", "fat", "iron", "protein", "sodium", "caffeine",
+    }
+    # 각 항목이 T5에서 추가된 필드를 갖는다
+    for item in result["nutrient_statuses"]:
+        assert set(item) == {
+            "key", "label", "unit", "value", "limit", "percent", "status", "status_label", "tier",
+        }
+    assert "headline" in result
     assert result["total_content_value"] == 355.0
     assert result["needs_review"] is False
     # 기존 sugar_g/sodium_mg는 nutrients 아래 값과 동일해야 한다
     assert result["sugar_g"] == result["nutrients"]["sugar"]["serving_value"]
     assert result["sodium_mg"] == result["nutrients"]["sodium"]["serving_value"]
+
+
+def test_scan_projects_onto_todays_saved_totals(db):
+    # T5의 핵심: 확인 화면 카드 제목이 "오늘 섭취 안전도"인 만큼, 판정은 품목
+    # 단독이 아니라 "오늘 누적 + 이 품목"이어야 한다. 목 데이터의 나트륨은
+    # 178mg/100g * 0.3 = 53.4mg으로 단독으로는 안전하지만, 이미 1450mg을 먹은
+    # 날이라면 합계가 한도를 넘는다.
+    user_id = make_user(db)
+    make_food_log(db, user_id, sodium_mg=1450)
+
+    result = scan_nutrition_label(OcrScanRequest(image="ZmFrZQ==", user_id=user_id), db=db)
+
+    sodium = next(i for i in result["nutrient_statuses"] if i["key"] == "sodium")
+    assert sodium["value"] == pytest.approx(1503.4)
+    assert sodium["tier"] == "avoid"
 
 
 def test_scan_missing_user_returns_404(db):
@@ -165,3 +196,136 @@ def test_scan_generic_gemini_failure_returns_502_with_error_code(db, monkeypatch
         scan_nutrition_label(OcrScanRequest(image="ZmFrZQ==", user_id=user_id), db=db)
     assert exc_info.value.status_code == 502
     assert exc_info.value.detail["error_code"] == "GEMINI_CALL_FAILED"
+
+
+# ── POST /ocr/recompute ──────────────────────────────────────────
+# 확인 화면에서 값을 고칠 때마다 판정을 다시 계산하는 엔드포인트. Gemini를
+# 호출하지 않으므로 목 플래그와 무관하게 동작한다.
+
+def _recompute(db, user_id, **values):
+    """values: key=값(또는 (값, source)). 지정하지 않은 영양소는 화면에서 비어
+    있는 것으로 보고 None을 보낸다 — 8칸 전부를 항상 보내는 실제 호출과 동일."""
+    nutrients = {}
+    for key in ("carbohydrate", "sugar", "energy", "fat", "iron", "protein", "sodium", "caffeine"):
+        raw = values.get(key)
+        if isinstance(raw, tuple):
+            value, source = raw
+        else:
+            value, source = raw, "manual"
+        nutrients[key] = OcrRecomputeNutrientInput(value=value, source=source)
+    return recompute_ocr_statuses(OcrRecomputeRequest(user_id=user_id, nutrients=nutrients), db=db)
+
+
+def _by_key(result):
+    return {item["key"]: item for item in result["nutrient_statuses"]}
+
+
+def test_recompute_missing_user_returns_404(db):
+    with pytest.raises(HTTPException) as exc_info:
+        _recompute(db, 999999, sodium=100.0)
+    assert exc_info.value.status_code == 404
+
+
+def test_recompute_returns_eight_statuses_and_headline(db):
+    user_id = make_user(db)
+
+    result = _recompute(db, user_id, sodium=800.0)
+
+    assert len(result["nutrient_statuses"]) == 8
+    assert "headline" in result
+
+
+def test_recompute_blends_in_todays_saved_totals(db):
+    user_id = make_user(db)
+    make_food_log(db, user_id, sodium_mg=1400)
+
+    result = _recompute(db, user_id, sodium=1710.0)
+
+    sodium = _by_key(result)["sodium"]
+    assert sodium["value"] == 3110
+    assert sodium["tier"] == "avoid"
+    assert result["headline"]["key"] == "sodium"
+
+
+def test_recompute_manually_typed_iron_gets_a_real_verdict(db):
+    # 라벨에 철분이 없어 OCR은 null을 주지만, 사용자가 직접 입력하면 판정된다.
+    user_id = make_user(db)
+
+    result = _recompute(db, user_id, iron=(50.0, "manual"))
+
+    iron = _by_key(result)["iron"]
+    assert iron["status"] == "avoid"
+    assert iron["tier"] == "avoid"
+
+
+def test_recompute_empty_nutrient_stays_unknown(db):
+    user_id = make_user(db)
+
+    result = _recompute(db, user_id, sodium=800.0)
+
+    # 사용자가 비워둔 칸은 None으로 전송되어 unknown으로 남는다 (정보 없음 ≠ 0)
+    iron = _by_key(result)["iron"]
+    assert iron["status"] == "unknown"
+    assert iron["value"] is None
+
+
+def test_recompute_judges_typed_caffeine(db):
+    user_id = make_user(db)
+
+    result = _recompute(db, user_id, caffeine=250.0)
+
+    caffeine = _by_key(result)["caffeine"]
+    assert caffeine["value"] == 250
+    assert caffeine["tier"] == "avoid"
+
+
+def test_recompute_shows_accumulated_caffeine_before_user_types_anything(db):
+    user_id = make_user(db)
+    make_food_log(db, user_id, caffeine_mg=180)
+
+    result = _recompute(db, user_id, sodium=100.0)  # 카페인은 None으로 전송됨
+
+    caffeine = _by_key(result)["caffeine"]
+    assert caffeine["value"] == 180
+    assert caffeine["tier"] == "caution"
+
+
+def test_recompute_source_marker_does_not_affect_judgment(db):
+    # source는 저장 스냅샷용 메타데이터일 뿐 판정에 관여하지 않는다.
+    user_id = make_user(db)
+
+    from_ocr = _recompute(db, user_id, sodium=(1710.0, "ocr"))
+    from_manual = _recompute(db, user_id, sodium=(1710.0, "manual"))
+
+    assert from_ocr["nutrient_statuses"] == from_manual["nutrient_statuses"]
+    assert from_ocr["headline"] == from_manual["headline"]
+
+
+def test_recompute_source_defaults_to_manual_when_omitted(db):
+    # 화면이 source를 빼먹어도 요청이 깨지지 않아야 한다.
+    user_id = make_user(db)
+    request = OcrRecomputeRequest(user_id=user_id, nutrients={"sodium": {"value": 800.0}})
+
+    result = recompute_ocr_statuses(request, db=db)
+
+    assert request.nutrients["sodium"].source == "manual"
+    assert _by_key(result)["sodium"]["value"] == 800
+
+
+def test_recompute_floor_shortfall_is_neutral_and_not_the_headline(db):
+    user_id = make_user(db)
+
+    result = _recompute(db, user_id, protein=5.0, carbohydrate=20.0)
+
+    assert _by_key(result)["protein"]["tier"] == "neutral"
+    assert result["headline"] is None
+
+
+def test_recompute_is_deterministic_across_repeated_calls(db):
+    # 디바운스로 타이핑마다 호출되므로 같은 입력이면 항상 같은 결과여야 한다.
+    user_id = make_user(db)
+    make_food_log(db, user_id, sodium_mg=1400, caffeine_mg=190)
+
+    keys = {_recompute(db, user_id, sodium=1710.0)["headline"]["key"] for _ in range(20)}
+
+    assert len(keys) == 1

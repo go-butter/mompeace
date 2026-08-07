@@ -1,6 +1,6 @@
 import os
 import sqlite3
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -16,6 +16,7 @@ from backend.gemini_vision import (
 from backend.intake_totals import build_item_nutrient_statuses, get_trimester_limits, resolve_user_nutrition_context
 from backend.ocr_category_classifier import classify_food
 from backend.ocr_nutrition_parser import resolve_ocr_nutrients
+from backend.ocr_view import build_ocr_status_view
 
 router = APIRouter()
 
@@ -126,18 +127,67 @@ def scan_nutrition_label(req: OcrScanRequest, db: sqlite3.Connection = Depends(g
 
     resolved = resolve_ocr_nutrients(extraction)
 
-    week, age_bracket = resolve_user_nutrition_context(user)
-    _, limits = get_trimester_limits(week, age_bracket)
-
     serving_values = {key: data["serving_value"] for key, data in resolved["nutrients"].items()}
     # needs_review=True면 scale_factor가 없어 serving_value가 실제로는 스케일되지
     # 않은 기준량(예: 100g당) 값 그대로다 — 1회 제공량 기준인 것처럼 상태를 판정하면
     # 착시(예: 100g가 1회 제공량보다 훨씬 큰 경우 거짓 "위험")가 생길 수 있으므로,
-    # 이 경우 전부 None으로 넘겨 7개 전부 "정보없음"으로 처리한다.
-    status_input = serving_values if not resolved["needs_review"] else {key: None for key in serving_values}
-    resolved["nutrient_statuses"] = build_item_nutrient_statuses(status_input, limits)
+    # 이 경우 전부 None으로 넘겨 전부 "정보없음"으로 처리한다.
+    pending_values = serving_values if not resolved["needs_review"] else {key: None for key in serving_values}
+    # 카페인은 한국 영양성분표에 인쇄되지 않아 OCR이 절대 추출할 수 없다. 그래도
+    # 오늘 이미 마신 카페인이 있으면 그 누적 상태는 보여야 하므로, None으로 넣어
+    # 일일 투영에 포함시킨다 (빼면 앱에서 가장 엄격한 기준이 화면에서 사라진다).
+    pending_values["caffeine"] = None
+
+    # /ocr/recompute와 동일한 뷰 모델 조립기를 쓴다 — 스캔 직후와 편집 직후가
+    # 다른 규칙으로 판정되지 않도록 두 엔드포인트가 같은 함수를 공유한다.
+    view = build_ocr_status_view(pending_values, user, db)
+    resolved["nutrient_statuses"] = view["nutrient_statuses"]
+    resolved["headline"] = view["headline"]
 
     return resolved
+
+
+class OcrRecomputeNutrientInput(BaseModel):
+    """확인 화면에 현재 떠 있는 영양소 한 칸의 상태.
+
+    value: 비어 있으면 None (정보 없음 ≠ 0). 0은 "확정된 0"이라는 뜻이다.
+    source: 이 값이 OCR 추출에서 온 것인지 사용자가 직접 입력한 것인지.
+      판정에는 전혀 쓰이지 않는다 — 나중에 원본 라벨 스냅샷을 저장할 때 둘을
+      구분할 수 있도록 지금부터 요청 형식에 포함해 둘 뿐이다(스냅샷 테이블 자체는
+      이번 범위 밖이라 저장하지도, 응답에 되돌려주지도 않는다).
+    """
+    value: Optional[float] = None
+    source: Literal["ocr", "manual"] = "manual"
+
+
+class OcrRecomputeRequest(BaseModel):
+    user_id: int
+    # 키: carbohydrate/sugar/energy/fat/iron/protein/sodium/caffeine.
+    # 화면에 보이는 8칸 전부를 보낸다 — 사용자가 직접 입력한 철분/카페인도 판정
+    # 대상이고, 비워둔 칸은 None으로 보내야 unknown으로 남는다.
+    nutrients: dict[str, OcrRecomputeNutrientInput]
+
+
+@router.post("/ocr/recompute")
+def recompute_ocr_statuses(req: OcrRecomputeRequest, db: sqlite3.Connection = Depends(get_db)) -> dict:
+    """확인 화면에서 사용자가 값을 고칠 때마다 판정을 다시 계산한다.
+
+    /ocr/scan의 nutrient_statuses는 스캔 시점 스냅샷이라, 사용자가 수치를 고치면
+    화면의 판정과 실제 저장될 값이 어긋난다. 이 엔드포인트는 "지금 화면에 있는
+    값 + 오늘 이미 저장된 누적분"으로 다시 판정해 그 간극을 없앤다.
+
+    /ocr/scan과 달리 needs_review 개념이 없다 — 이 시점의 값은 전부 사용자가
+    눈으로 확인한 값이기 때문이다.
+    """
+    cursor = db.cursor()
+    cursor.execute("SELECT * FROM users WHERE user_id = ?", (req.user_id,))
+    user = cursor.fetchone()
+    if not user:
+        raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
+    user = dict(user)
+
+    pending_values = {key: item.value for key, item in req.nutrients.items()}
+    return build_ocr_status_view(pending_values, user, db)
 
 
 class OcrAlternativesRequest(BaseModel):

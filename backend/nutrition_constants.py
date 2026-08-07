@@ -108,6 +108,44 @@ NUTRIENT_STATUS_TYPE = {
     "sodium": "ceiling",
 }
 
+# 일일 투영(daily projection) 판정용 — OCR 확인 화면의 "오늘 섭취 안전도" 카드가
+# 쓰는 8개 영양소 정의. 위 NUTRIENT_STATUS_TYPE(단일 품목 판정용 7개)과 의도적으로
+# 분리해 둔 별도 테이블이다:
+# - 카페인은 한국 영양성분표에 인쇄되지 않아 OCR이 절대 추출할 수 없지만, 앱에서
+#   가장 엄격한 기준(200mg)이라 하루 누적 판정에는 반드시 들어가야 한다.
+# - 그렇다고 NUTRIENT_STATUS_TYPE에 카페인을 추가할 수는 없다 —
+#   get_item_nutrient_status()의 ceiling 분기가 {"sugar","sodium"} 하드코딩 맵을
+#   쓰기 때문에 /ocr/alternatives가 카페인 키에서 KeyError로 깨진다.
+# 임계값 자체는 여기 두지 않는다(단일 소스 유지) — limit_key로 get_trimester_limits()의
+# 반환값을 가리키기만 한다. band형(지방/철분)은 자체 판정 함수가 상한을 따로
+# 계산하므로 limit_key가 None이다.
+#
+# total_key/known_key는 fetch_daily_nutrient_totals()가 돌려주는 집계 컬럼명이다.
+# 순서 = 배지 그리드 표시 순서. 기존 7개 순서를 그대로 두고 카페인을 여덟 번째로
+# 덧붙인다(기존 화면의 시각적 순서를 바꾸지 않기 위해).
+DAILY_PROJECTION_NUTRIENTS = {
+    "carbohydrate": {"type": "floor",   "total_key": "total_carbohydrate", "known_key": "known_carbohydrate_count", "limit_key": "carbohydrate_g", "unit": "g"},
+    "sugar":        {"type": "ceiling", "total_key": "total_sugar",        "known_key": "known_sugar_count",        "limit_key": "sugar_g",        "unit": "g"},
+    "energy":       {"type": "floor",   "total_key": "total_calories",     "known_key": "known_energy_count",       "limit_key": "energy_kcal",    "unit": "kcal"},
+    "fat":          {"type": "band",    "total_key": "total_fat",          "known_key": "known_fat_count",          "limit_key": None,             "unit": "g"},
+    "iron":         {"type": "band",    "total_key": "total_iron",         "known_key": "known_iron_count",         "limit_key": None,             "unit": "mg"},
+    "protein":      {"type": "floor",   "total_key": "total_protein",      "known_key": "known_protein_count",      "limit_key": "protein_g",      "unit": "g"},
+    "sodium":       {"type": "ceiling", "total_key": "total_sodium",       "known_key": "known_sodium_count",       "limit_key": "sodium_mg",      "unit": "mg"},
+    "caffeine":     {"type": "ceiling", "total_key": "total_caffeine",     "known_key": "known_caffeine_count",     "limit_key": "caffeine_mg",    "unit": "mg"},
+}
+
+# 헤드라인(안전도 카드의 대표 문장) 후보와 최종 동점 처리 순서.
+#
+# 이 튜플에 있는 키만 헤드라인 후보다 — floor형(탄수화물/에너지/단백질)이 빠져
+# 있는 것은 실수가 아니라 설계다. 하루 최소 섭취량은 아침에 스캔하면 당연히
+# 미달이라, "단백질이 부족해요"가 경고처럼 보이면 안 된다(tier="neutral").
+# band형(지방/철분)은 상한 초과일 때만 후보가 된다 — 하한 미달(status="low")은
+# floor형과 같은 이유로 tier가 "neutral"이 되어 후보 필터에서 걸러진다.
+#
+# 순서는 심각도/관심성분/비율이 전부 같을 때만 쓰이는 최후의 결정론적 타이브레이크다.
+# 카페인이 첫 번째인 이유는 앱에서 가장 엄격한 기준(200mg)이기 때문.
+HEADLINE_TIEBREAK_ORDER = ("caffeine", "sodium", "sugar", "fat", "iron")
+
 
 def validate_selected_nutrients(selected: list[str] | None) -> str | None:
     """selected_nutrients 입력값을 검증하고 DB 저장용 comma-separated 문자열로 변환한다.

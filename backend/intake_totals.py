@@ -6,9 +6,11 @@ from backend.nutrition_constants import (
     BASE_PROTEIN_G,
     DAILY_CAFFEINE_LIMIT_MG,
     DAILY_CARB_MINIMUM_G,
+    DAILY_PROJECTION_NUTRIENTS,
     DAILY_SODIUM_LIMIT_MG,
     DAILY_SUGAR_LIMIT_G,
     DEFAULT_AGE_BRACKET,
+    HEADLINE_TIEBREAK_ORDER,
     FAT_ENERGY_RATIO_MAX,
     FAT_ENERGY_RATIO_MIN,
     IRON_RECOMMENDED_MG,
@@ -295,6 +297,210 @@ def build_item_nutrient_statuses(nutrients: dict[str, float | None], limits: dic
             "status_label": simplified_status_label(NUTRIENT_STATUS_TYPE[key], status),
         })
     return items
+
+
+# ── 일일 투영(daily projection) 판정 ─────────────────────────────
+# OCR 확인 화면의 "오늘 섭취 안전도" 카드용. 단일 품목만 보는 기존
+# build_item_nutrient_statuses()와 달리, "오늘 이미 저장된 누적분 + 지금 확인 중인
+# 품목"을 합산해 하루 기준으로 판정한다 — 카드 제목이 "오늘 섭취 안전도"인데
+# 품목 하나만 보고 판정하면 양방향으로 틀린다(이미 1400mg 먹은 날의 1710mg
+# 나트륨을 114%로, 한도를 넘긴 날의 800mg을 "안전"으로 표시).
+
+# /intake/summary(routers/intake.py)가 쓰던 집계 쿼리를 그대로 옮긴 것.
+# 하루 경계 판정 방식(서버 로컬 날짜 + DATE(eaten_at) 문자열 비교)을 두 화면이
+# 정확히 공유해야 자정 무렵에 확인 화면과 요약 화면이 어긋나지 않는다.
+_DAILY_TOTALS_SQL = """
+    SELECT
+        COALESCE(SUM(caffeine_mg), 0) AS total_caffeine,
+        COUNT(caffeine_mg) AS known_caffeine_count,
+        COALESCE(SUM(sugar_g), 0) AS total_sugar,
+        COUNT(sugar_g) AS known_sugar_count,
+        COALESCE(SUM(sodium_mg), 0) AS total_sodium,
+        COUNT(sodium_mg) AS known_sodium_count,
+        COALESCE(SUM(calories_kcal), 0) AS total_calories,
+        COUNT(calories_kcal) AS known_energy_count,
+        COALESCE(SUM(carbohydrate_g), 0) AS total_carbohydrate,
+        COUNT(carbohydrate_g) AS known_carbohydrate_count,
+        COALESCE(SUM(protein_g), 0) AS total_protein,
+        COUNT(protein_g) AS known_protein_count,
+        COALESCE(SUM(fat_g), 0) AS total_fat,
+        COUNT(fat_g) AS known_fat_count,
+        COALESCE(SUM(iron_mg), 0) AS total_iron,
+        COUNT(iron_mg) AS known_iron_count,
+        COUNT(*) AS logged_count
+    FROM food_log
+    WHERE user_id = ? AND DATE(eaten_at) = ?
+"""
+
+
+def fetch_daily_nutrient_totals(user_id: int, target_date: str, db) -> dict:
+    """하루치 누적 섭취량 + 영양소별 known 개수 + 총 기록 건수.
+
+    COUNT(col)은 NULL을 세지 않으므로 known_*_count는 "그 영양소 값이 실제로
+    확인된 기록 수"가 된다 — SUM은 COALESCE로 0이 되지만, known_count==0이면
+    _is_data_unresolved()가 unknown으로 처리해 "정보 없음 ≠ 0"이 유지된다.
+    """
+    cursor = db.cursor()
+    cursor.execute(_DAILY_TOTALS_SQL, (user_id, target_date))
+    return dict(cursor.fetchone())
+
+
+# 판정 코드(status)를 화면이 쓰는 심각도 등급(tier)으로 정규화한다.
+#
+# "neutral"이 이번에 새로 생긴 등급이다: 하한 미달은 "경고"가 아니라 "아직
+# 안 채웠음"이라는 중립 상태로 표시한다. 아침에 스캔하면 하루 최소 섭취량은
+# 당연히 미달이라, 이걸 경고로 보여주면 "아직 안 먹었을 뿐"인 사용자에게
+# 결핍이라고 말하는 셈이 된다.
+# - floor형(탄수화물/에너지/단백질)의 insufficient
+# - band형(지방/철분)의 low (하한 미달) — ADDITION B: 상한 초과만 경고 대상이고
+#   하한 미달은 floor형과 동일하게 취급한다
+_TIER_BY_TYPE = {
+    "ceiling": {"safe": "safe", "caution": "caution", "avoid": "avoid", "unknown": "unknown"},
+    "floor": {"sufficient": "safe", "insufficient": "neutral", "unknown": "unknown"},
+    "band": {"safe": "safe", "low": "neutral", "caution": "caution", "avoid": "avoid", "unknown": "unknown"},
+}
+
+# 헤드라인 후보가 될 수 있는 등급 — 나쁜 순서대로. neutral/unknown은 없다.
+_HEADLINE_TIERS = ("avoid", "caution", "safe")
+
+
+def tier_of_status(nutrient_type: str, status: str) -> str:
+    """status 코드 → 심각도 등급(avoid/caution/safe/neutral/unknown)."""
+    return _TIER_BY_TYPE[nutrient_type].get(status, "unknown")
+
+
+def _project(daily_totals: dict, spec: dict, pending_value: float | None) -> tuple[float, int]:
+    """오늘 누적분 + 확인 중인 품목 = 투영값. pending이 None이면 값은 그대로 두고
+    known_count도 올리지 않는다 (정보 없음 ≠ 0)."""
+    total = daily_totals[spec["total_key"]] + (pending_value or 0)
+    known = daily_totals[spec["known_key"]] + (0 if pending_value is None else 1)
+    return total, known
+
+
+def build_daily_projected_statuses(
+    pending_values: dict[str, float | None], daily_totals: dict, limits: dict
+) -> list[dict]:
+    """추적 대상 8개 영양소(DAILY_PROJECTION_NUTRIENTS) 전부에 대해
+    "오늘 누적 + 확인 중인 품목" 기준 상태를 계산한다. 항상 8개를 반환한다.
+
+    logged_count에 +1을 하는 이유: 확인 중인 품목도 한 건의 기록으로 세어야
+    "오늘 기록이 하나도 없는데 이 품목 값도 없음" 상황이 unknown으로 판정된다
+    (_is_data_unresolved는 logged_count>0 && known_count==0일 때만 unknown).
+    """
+    logged_count = daily_totals["logged_count"] + 1
+
+    # 지방 밴드 판정의 분모는 "투영된" 에너지다 — 오늘 누적 에너지만 쓰면 지금
+    # 확인 중인 품목의 칼로리가 빠져 비율이 과장된다.
+    projected_energy, _ = _project(
+        daily_totals, DAILY_PROJECTION_NUTRIENTS["energy"], pending_values.get("energy")
+    )
+
+    items = []
+    for key, spec in DAILY_PROJECTION_NUTRIENTS.items():
+        nutrient_type = spec["type"]
+        value, known_count = _project(daily_totals, spec, pending_values.get(key))
+
+        if nutrient_type == "ceiling":
+            limit = limits[spec["limit_key"]]
+            status = get_status(value, limit, known_count, logged_count)
+        elif nutrient_type == "floor":
+            limit = limits[spec["limit_key"]]
+            status = get_floor_status(value, limit, known_count, logged_count)
+        elif key == "iron":
+            # limit은 "경고 기준"인 상한섭취량이다 — 헤드라인 비율 계산도 이 값을 쓴다.
+            limit = IRON_UPPER_LIMIT_MG
+            status = get_iron_status(
+                value, IRON_RECOMMENDED_MG, IRON_UPPER_LIMIT_MG, known_count, logged_count
+            )
+        elif key == "fat":
+            # 투영 에너지가 0이면 비율 기준 자체를 만들 수 없다 — 상한도 None으로 둔다
+            # (get_fat_status도 energy_total<=0이면 unknown을 돌려준다).
+            limit = (
+                projected_energy * limits["fat_ratio_max"] / KCAL_PER_GRAM_FAT
+                if projected_energy > 0
+                else None
+            )
+            status = get_fat_status(
+                value, projected_energy, limits["fat_ratio_min"], limits["fat_ratio_max"],
+                known_count, logged_count,
+            )
+        else:
+            raise ValueError(f"알 수 없는 영양소 키: {key}")
+
+        # known_count==0이면 값 자체가 없는 것이라 0을 노출하지 않는다 (정보 없음 ≠ 0).
+        exposed_value = None if known_count == 0 else round(value, 2)
+        percent = (
+            round(exposed_value / limit * 100, 1)
+            if exposed_value is not None and limit is not None and limit > 0
+            else None
+        )
+
+        items.append({
+            "key": key,
+            "label": NUTRIENT_LABELS_KO[key],
+            "unit": spec["unit"],
+            "value": exposed_value,
+            "limit": round(limit, 2) if limit is not None else None,
+            "percent": percent,
+            "status": status,
+            "status_label": simplified_status_label(nutrient_type, status),
+            "tier": tier_of_status(nutrient_type, status),
+        })
+    return items
+
+
+def _headline_ratio(item: dict) -> float:
+    """헤드라인 동점 처리용 "한도 대비 비율". 207%가 102%를 이긴다.
+
+    한도를 모르거나 0 이하면 0.0을 돌려준다 — 0으로 나누는 것을 막기 위한 방어다.
+    실제로 도달 가능한 경로가 있다: 지방의 상한은 투영 에너지에서 계산되므로
+    에너지가 0이면 상한도 0이 된다.
+
+    하한 미달(band형 "low")용 역비율은 두지 않는다 — ADDITION B로 하한 미달은
+    항상 tier="neutral"이 되어 헤드라인 후보 필터에서 걸러지므로, 역비율을
+    계산할 일이 애초에 생기지 않는다(도달 불가능한 코드).
+    """
+    value = item.get("value")
+    limit = item.get("limit")
+    if value is None or limit is None or limit <= 0:
+        return 0.0
+    return value / limit
+
+
+def select_headline_nutrient(statuses: list[dict], preferred_keys) -> dict | None:
+    """안전도 카드가 이름을 내걸 영양소 하나를 고른다. 완전히 결정론적이다 —
+    입력이 같으면 항상 같은 결과가 나온다(무작위 없음). recompute가 타이핑마다
+    디바운스로 재호출되는데 무작위 타이브레이크를 쓰면 글자를 칠 때마다 헤드라인이
+    다른 영양소로 튄다.
+
+    순서:
+    1. 상한형(cap-type)만 후보 — HEADLINE_TIEBREAK_ORDER에 있는 키만 본다.
+       floor형은 애초에 그 튜플에 없고, band형 하한 미달은 tier=="neutral"이라
+       아래 등급 필터에서 걸러진다 (두 겹의 독립적인 방어).
+    2. 가장 나쁜 등급부터: avoid → caution → safe
+    3. 같은 등급 안에서는 사용자가 고른 관심성분 우선
+    4. 그래도 같으면 한도 대비 비율이 높은 쪽
+    5. 그래도 같으면 HEADLINE_TIEBREAK_ORDER의 고정 순서
+    """
+    preferred = set(preferred_keys or ())
+    candidates = [
+        item for item in statuses
+        if item["key"] in HEADLINE_TIEBREAK_ORDER and item["tier"] in _HEADLINE_TIERS
+    ]
+    if not candidates:
+        return None
+
+    for tier in _HEADLINE_TIERS:
+        at_tier = [item for item in candidates if item["tier"] == tier]
+        if not at_tier:
+            continue
+        best = min(at_tier, key=lambda item: (
+            0 if item["key"] in preferred else 1,
+            -_headline_ratio(item),
+            HEADLINE_TIEBREAK_ORDER.index(item["key"]),
+        ))
+        return {"key": best["key"], "tier": best["tier"], "label": best["label"]}
+    return None
 
 
 TRIMESTER_LABELS = {"early": "임신 초기", "middle": "임신 중기", "late": "임신 후기"}
