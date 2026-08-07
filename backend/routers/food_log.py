@@ -138,8 +138,12 @@ def create_food_log(
         # OCR 스캔 결과(1회 제공량 기준 값)에 사용자가 확인 화면에서 입력한
         # 인분수/그램 비율을 곱한다. food_id 경로의 _multiply()와 동일한
         # None-preserving 곱셈 — food_id가 없으므로 추천 판정은 호출하지 않는다.
-        # 추적 대상 7개 영양소 전부를 스케일한다 (당류/나트륨만 스케일하면 나머지
-        # 5개가 1회 제공량이 아닌 원본 그대로 저장되어버린다).
+        # 추적 대상 7개 영양소 + 콜레스테롤을 전부 스케일한다 (당류/나트륨만 스케일하면
+        # 나머지가 1회 제공량이 아닌 원본 그대로 저장되어버린다). 콜레스테롤은 추적
+        # 대상 7개(NUTRIENT_STATUS_TYPE)에는 없지만(판정 대상 아님, nutrition_constants.py
+        # 참고) food_log.cholesterol_mg는 계속 수집하므로 여기서도 함께 스케일해야
+        # 한다 — 빠뜨리면 이 경로로 들어온 콜레스테롤만 원본 그대로(1회 제공량 기준이
+        # 아닌 값) 저장되는 버그가 된다.
         caffeine_mg = _multiply(caffeine_mg, log.serving_multiplier)
         sugar_g = _multiply(sugar_g, log.serving_multiplier)
         sodium_mg = _multiply(sodium_mg, log.serving_multiplier)
@@ -147,6 +151,7 @@ def create_food_log(
         carbohydrate_g = _multiply(carbohydrate_g, log.serving_multiplier)
         protein_g = _multiply(protein_g, log.serving_multiplier)
         fat_g = _multiply(fat_g, log.serving_multiplier)
+        cholesterol_mg = _multiply(cholesterol_mg, log.serving_multiplier)
         iron_mg = _multiply(iron_mg, log.serving_multiplier)
     # food_id가 없는 순수 직접 입력은 recommend_food()가 기대하는 food_items
     # 행 형태(data_source 등)를 갖추지 못하므로 추천 판정을 호출하지 않는다.

@@ -196,6 +196,38 @@ class TestServingMultiplier:
         assert row["protein_g"] is None
         assert row["iron_mg"] is None
 
+    def test_serving_multiplier_scales_cholesterol(self, db):
+        # 회귀 방지: cholesterol_mg는 콜레스테롤이 판정 대상(추적 대상 7개) 밖이라는
+        # 이유로 이 스케일링 목록에서 빠져 있었다 — food_log.cholesterol_mg는 계속
+        # 수집되는 컬럼이므로(모델/INSERT에 이미 존재), 이 경로로 들어온 값도
+        # 다른 영양소와 동일하게 serving_multiplier가 곱해져야 한다.
+        user_id = make_user(db)
+        log = FoodLogCreate(
+            user_id=user_id,
+            food_name="감자깡",
+            input_type="ocr",
+            cholesterol_mg=5.0,
+            serving_multiplier=2.0,
+        )
+        result = create_food_log(log=log, db=db)
+        row = _fetch_log(db, result["log_id"])
+        assert row["cholesterol_mg"] == 10.0
+
+    def test_serving_multiplier_cholesterol_none_stays_none(self, db):
+        user_id = make_user(db)
+        log = FoodLogCreate(
+            user_id=user_id,
+            food_name="감자깡",
+            input_type="ocr",
+            cholesterol_mg=None,  # 라벨에서 읽지 못함
+            sugar_g=3.6,
+            serving_multiplier=2.0,
+        )
+        result = create_food_log(log=log, db=db)
+        row = _fetch_log(db, result["log_id"])
+        assert row["cholesterol_mg"] is None
+        assert row["sugar_g"] == 7.2
+
     def test_serving_multiplier_ignored_when_food_id_present(self, db):
         # food_id 경로가 우선이므로, 혹시라도 serving_multiplier가 함께
         # 전달돼도 food_id 기준 판정(_judge_food_log_from_food_item, amount 배율)
