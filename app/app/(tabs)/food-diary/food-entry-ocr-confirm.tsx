@@ -89,13 +89,13 @@ const BASIS_BADGE_BLUE = '#5B9BD1';
 const BASIS_BADGE_BLUE_BG = '#EAF3FA';
 
 const NUTRIENT_ICONS: Record<SelectableNutrientKey, ReactNode> = {
-  carbohydrate: <CarbohydrateIcon width={17} height={17} />,
-  sugar: <SugarIcon width={17} height={17} />,
-  energy: <CaloriesIcon width={17} height={17} />,
-  fat: <FatIcon width={17} height={17} />,
-  iron: <IronIcon width={17} height={17} />,
-  protein: <ProteinIcon width={17} height={17} />,
-  sodium: <SodiumIcon width={18} height={18} />,
+  carbohydrate: <CarbohydrateIcon width={17} height={17} color="#F47E8A" />,
+  sugar: <SugarIcon width={17} height={17} color="#F47E8A" />,
+  energy: <CaloriesIcon width={17} height={17} color="#F47E8A" />,
+  fat: <FatIcon width={17} height={17} color="#F47E8A" />,
+  iron: <IronIcon width={17} height={17} color="#F47E8A" />,
+  protein: <ProteinIcon width={17} height={17} color="#F47E8A" />,
+  sodium: <SodiumIcon width={18} height={18} color="#F47E8A" />,
 };
 
 const NUTRIENT_UNITS: Record<SelectableNutrientKey, string> = {
@@ -1446,7 +1446,7 @@ export default function FoodEntryOcrConfirmScreen() {
 
           <View style={styles.nutrientInputRow}>
             <View style={styles.nutrientLabelGroup}>
-              <CaffeineIcon width={17} height={17} />
+              <CaffeineIcon width={17} height={17} color="#F47E8A" />
               <Text style={styles.nutrientLabel}>카페인(mg)</Text>
             </View>
             <TextInput

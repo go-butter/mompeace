@@ -399,7 +399,7 @@ export default function FoodEntryManualScreen() {
         <View style={styles.nutrientGrid}>
           <View style={styles.nutrientCell}>
             <View style={styles.nutrientLabelGroup}>
-              <CaffeineIcon width={17} height={17} />
+              <CaffeineIcon width={17} height={17} color="#F47E8A" />
               <Text style={styles.nutrientLabel} numberOfLines={1}>카페인(mg)</Text>
             </View>
             <TextInput
@@ -413,7 +413,7 @@ export default function FoodEntryManualScreen() {
           </View>
           <View style={styles.nutrientCell}>
             <View style={styles.nutrientLabelGroup}>
-              <SugarIcon width={17} height={17} />
+              <SugarIcon width={17} height={17} color="#F47E8A" />
               <Text style={styles.nutrientLabel} numberOfLines={1}>당류(g)</Text>
             </View>
             <TextInput
@@ -427,7 +427,7 @@ export default function FoodEntryManualScreen() {
           </View>
           <View style={styles.nutrientCell}>
             <View style={styles.nutrientLabelGroup}>
-              <SodiumIcon width={18} height={18} />
+              <SodiumIcon width={18} height={18} color="#F47E8A" />
               <Text style={styles.nutrientLabel} numberOfLines={1}>나트륨(mg)</Text>
             </View>
             <TextInput
@@ -441,7 +441,7 @@ export default function FoodEntryManualScreen() {
           </View>
           <View style={styles.nutrientCell}>
             <View style={styles.nutrientLabelGroup}>
-              <CaloriesIcon width={17} height={17} />
+              <CaloriesIcon width={17} height={17} color="#F47E8A" />
               <Text style={styles.nutrientLabel} numberOfLines={1}>칼로리(kcal)</Text>
             </View>
             <TextInput
@@ -455,7 +455,7 @@ export default function FoodEntryManualScreen() {
           </View>
           <View style={styles.nutrientCell}>
             <View style={styles.nutrientLabelGroup}>
-              <CarbohydrateIcon width={17} height={17} />
+              <CarbohydrateIcon width={17} height={17} color="#F47E8A" />
               <Text style={styles.nutrientLabel} numberOfLines={1}>탄수화물(g)</Text>
             </View>
             <TextInput
@@ -469,7 +469,7 @@ export default function FoodEntryManualScreen() {
           </View>
           <View style={styles.nutrientCell}>
             <View style={styles.nutrientLabelGroup}>
-              <FatIcon width={17} height={17} />
+              <FatIcon width={17} height={17} color="#F47E8A" />
               <Text style={styles.nutrientLabel} numberOfLines={1}>지방(g)</Text>
             </View>
             <TextInput
@@ -483,7 +483,7 @@ export default function FoodEntryManualScreen() {
           </View>
           <View style={styles.nutrientCell}>
             <View style={styles.nutrientLabelGroup}>
-              <IronIcon width={17} height={17} />
+              <IronIcon width={17} height={17} color="#F47E8A" />
               <Text style={styles.nutrientLabel} numberOfLines={1}>철분(mg)</Text>
             </View>
             <TextInput
@@ -497,7 +497,7 @@ export default function FoodEntryManualScreen() {
           </View>
           <View style={styles.nutrientCell}>
             <View style={styles.nutrientLabelGroup}>
-              <ProteinIcon width={17} height={17} />
+              <ProteinIcon width={17} height={17} color="#F47E8A" />
               <Text style={styles.nutrientLabel} numberOfLines={1}>단백질(g)</Text>
             </View>
             <TextInput
