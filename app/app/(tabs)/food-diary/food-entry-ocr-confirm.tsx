@@ -369,7 +369,7 @@ function PairedNutrientField({
           style={styles.pairedInput}
           value={basisValue}
           onChangeText={onChangeBasis}
-          placeholder="-"
+          placeholder="입력"
           placeholderTextColor={authColors.gray}
           keyboardType="decimal-pad"
         />
