@@ -523,7 +523,7 @@ export default function FoodEntryManualScreen() {
         </View>
 
         <View style={styles.infoBanner}>
-          <InformationIcon width={16} height={16} />
+          <InformationIcon width={16} height={16} color={authColors.gray} opacity={0.5} />
           <Text style={styles.infoBannerText}>
             정확한 수치를 모르면 비워두세요! 정보 없음으로 처리됩니다 :)
           </Text>
