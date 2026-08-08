@@ -12,6 +12,10 @@
 from pathlib import Path
 from typing import Optional
 
+from backend.caffeine_relevance import (
+    TIER_CAFFEINE_POSSIBLE,
+    classify_caffeine_relevance,
+)
 from backend.food_search_api import detect_caffeine_keywords
 from backend.nutrition_constants import (
     DAILY_CAFFEINE_LIMIT_MG,
@@ -72,6 +76,16 @@ def _is_caffeine_missing(food: dict) -> bool:
     return food.get("caffeine_mg") is None
 
 
+def _caffeine_tier(food: dict) -> str:
+    """식품 분류 기준 카페인 관련성 티어 (backend/caffeine_relevance.py).
+
+    _is_caffeine_missing()과는 서로 다른 질문에 답한다: 저쪽은 "이 행의 카페인 수치를
+    믿고 쓸 수 있는가", 이쪽은 "이 종류의 음식에서 카페인이 애초에 의미가 있는가".
+    두 판정을 함께 써야 "정보 없음"과 "확인된 0"을 구분할 수 있다.
+    """
+    return classify_caffeine_relevance(food.get("category"), food.get("subcategory"))
+
+
 # ── 규칙 기반 안전장치 ──────────────────────────────────────
 def apply_safety_guard(
     status: str,
@@ -95,6 +109,7 @@ def apply_safety_guard(
     food_sugar = food.get("sugar_g") or 0.0
     food_sodium = food.get("sodium_mg") or 0.0
     caffeine_keywords = detect_caffeine_keywords(food.get("food_name") or "")
+    caffeine_tier = _caffeine_tier(food)
 
     def _upgrade(current: str, target: str) -> str:
         if STATUS_RANK.get(current, 0) < STATUS_RANK.get(target, 0):
@@ -111,7 +126,13 @@ def apply_safety_guard(
         return "avoid"
 
     # 3. 카페인 missing + 음식명 키워드 → at least caution (커피·초코 등)
-    if caffeine_missing and caffeine_keywords:
+    #    [키워드 규칙 티어 게이트 — make_reason에도 같은 표시의 한 곳이 더 있다.
+    #     이 두 곳만 되돌리면 키워드 규칙은 예전처럼 티어와 무관하게 동작한다]
+    #    FREE/NOT_MEASURED 식품군에서는 발동하지 않는다. 게이트가 없으면 같은 음식에
+    #    대해 티어는 "확인된 0", 키워드는 "카페인 있을 수 있음"이라고 서로 반대로
+    #    말하게 된다 — 실제로 빵 및 과자류 카페인 NULL 8,427행 중 419행(5.0%)이
+    #    모카빵·초코소라빵처럼 맛 표현 때문에 키워드에 걸리고 있었다.
+    if caffeine_missing and caffeine_keywords and caffeine_tier == TIER_CAFFEINE_POSSIBLE:
         status = _upgrade(status, "caution")
 
     # 3.5 임신 초기: 카페인 60% 초과 → at least caution
@@ -128,6 +149,16 @@ def apply_safety_guard(
 
     # 4. 당류 또는 나트륨 missing → at least caution
     if food.get("sugar_g") is None or food.get("sodium_mg") is None:
+        status = _upgrade(status, "caution")
+
+    # 5. 카페인 정보 없음 + 카페인이 들어갈 수 있는 식품군 → at least caution
+    #    4번(당류·나트륨 missing)과 같은 취지의 규칙이다. 카페인만 이 보호가 없어서
+    #    NULL이 조용히 0으로 계산돼 왔고, 그 결과 "확인된 0"과 "정보 없음"이 출력에서
+    #    구분되지 않았다 (실측 기준 possible 판정의 84%가 카페인 미측정 상태였다).
+    #    raw None이 아니라 _is_caffeine_missing()으로 판단한다 — 카페인 미제공 소스의
+    #    값도 믿을 수 없는 값이므로 같은 취급을 받아야 하고, 이 파일 안에 "missing"의
+    #    정의가 두 벌 생기는 것을 막기 위해서다.
+    if caffeine_missing and caffeine_tier == TIER_CAFFEINE_POSSIBLE:
         status = _upgrade(status, "caution")
 
     return status
@@ -153,6 +184,7 @@ def make_reason(
     food_sugar = food.get("sugar_g") or 0.0
     food_sodium = food.get("sodium_mg") or 0.0
     caffeine_keywords = detect_caffeine_keywords(food.get("food_name") or "")
+    caffeine_tier = _caffeine_tier(food)
 
     if status == "avoid":
         caffeine_for_ratio = food_caffeine if not caffeine_missing else 0.0
@@ -171,8 +203,14 @@ def make_reason(
             return "당류가 남은 허용량에 비해 높아 주의가 필요해요.", "sugar"
         if (today_sodium + food_sodium) / limits["sodium"] > 0.7:
             return "나트륨이 오늘 기준에 가까워지고 있어요.", "sodium"
-        if caffeine_missing and caffeine_keywords:
+        # [키워드 규칙 티어 게이트 — apply_safety_guard에 같은 표시의 한 곳이 더 있다]
+        if caffeine_missing and caffeine_keywords and caffeine_tier == TIER_CAFFEINE_POSSIBLE:
             return "음식명에 카페인 관련 표현이 있어 카페인 함량 확인이 필요해요.", "caffeine"
+        # 이름에 단서가 없어도 식품군 자체가 카페인을 가질 수 있으면 카페인을 지목한다.
+        # 아래 "일부 영양성분" 문구보다 먼저 온다 — 어떤 성분인지 아는 경우에 굳이
+        # 뭉뚱그린 문구를 쓸 이유가 없기 때문이다.
+        if caffeine_missing and caffeine_tier == TIER_CAFFEINE_POSSIBLE:
+            return "카페인이 들어 있을 수 있는데 함량 정보가 없어요. 오늘 카페인 섭취량을 함께 확인해 주세요.", "caffeine"
         if food.get("sugar_g") is None or food.get("sodium_mg") is None:
             return "일부 영양성분 정보가 없어 주의가 필요해요.", None
         return "오늘 섭취 흐름을 함께 확인해 주세요.", None

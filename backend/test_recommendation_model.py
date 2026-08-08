@@ -17,17 +17,30 @@ from backend.recommendation_model import (
     apply_safety_guard,
     judge_food_rules,
     make_reason,
+    recommend_food,
 )
 
 
 def make_food(**overrides):
-    """안전한 기본값을 가진 food dict. 필요한 필드만 덮어써서 사용."""
+    """안전한 기본값을 가진 food dict. 필요한 필드만 덮어써서 사용.
+
+    category/subcategory 기본값은 카페인 관련성 티어가 CAFFEINE_POSSIBLE인 조합이다
+    (backend/caffeine_relevance.py). 이 파일의 기존 테스트는 대부분 카페인 판정을
+    다루므로, 카페인이 의미 있는 식품군을 기본값으로 두어야 각 테스트가 검증하려던
+    규칙이 그대로 발동한다. FREE/NOT_MEASURED 동작을 보려면 명시적으로 덮어쓴다.
+
+    실제 food_items 행은 항상 category/subcategory를 갖는다 (19,514행 전부 non-NULL,
+    두 호출부 모두 `SELECT * FROM food_items`) — 이 기본값은 그 현실을 픽스처에
+    반영한 것이지, 없는 컬럼을 지어낸 것이 아니다.
+    """
     defaults = {
         "food_name": "테스트 음식",
         "caffeine_mg": 0.0,
         "sugar_g": 0.0,
         "sodium_mg": 0.0,
         "data_source": "dish_db_download",
+        "category": "음료 및 차류",
+        "subcategory": "커피",
     }
     defaults.update(overrides)
     return defaults
@@ -361,3 +374,238 @@ class TestMakeReason:
         )
         assert reason_nutrient is None
         assert "부담이 낮은" in reason
+
+
+# ── 카페인 관련성 티어 연동 ────────────────────────────────
+# "정보 없음"과 "확인된 0"을 구분하기 위한 규칙 (backend/caffeine_relevance.py).
+# 티어는 category/subcategory로만 결정되고, 카페인 값이 실제로 있으면(missing이 아니면)
+# 티어와 무관하게 그 값으로 판정한다.
+
+class TestCaffeineTierIntegration:
+    def test_possible_tier_with_missing_caffeine_forces_caution(self):
+        # 핵심 변경: 카페인이 있을 수 있는 식품군인데 값이 없으면 조용히 넘어가지 않는다.
+        food = make_food(
+            food_name="딸기 스무디", caffeine_mg=None,
+            category="음료 및 차류", subcategory="스무디",
+        )
+        result = apply_safety_guard(
+            "possible", food,
+            today_intake=make_intake(), trimester="middle",
+        )
+        assert result == "caution"
+
+    def test_free_tier_with_missing_caffeine_stays_possible(self):
+        # 유자차는 실측 28행 전부 0.0 — NULL을 확인된 0으로 취급해도 되는 식품군.
+        food = make_food(
+            food_name="유자차", caffeine_mg=None,
+            category="음료 및 차류", subcategory="유자차",
+        )
+        result = apply_safety_guard(
+            "possible", food,
+            today_intake=make_intake(), trimester="middle",
+        )
+        assert result == "possible"
+
+    def test_bakery_category_is_free_regardless_of_subcategory(self):
+        food = make_food(
+            food_name="초코 케이크", caffeine_mg=None,
+            category="빵 및 과자류", subcategory="케이크",
+        )
+        result = apply_safety_guard(
+            "possible", food,
+            today_intake=make_intake(), trimester="middle",
+        )
+        assert result == "possible"
+
+    def test_not_measured_tier_with_missing_caffeine_stays_possible(self):
+        # 국·탕류는 카페인을 잰 적이 없다. 값이 없다고 경고하면 근거 없는 경고가 된다.
+        food = make_food(
+            food_name="호박 된장국", caffeine_mg=None,
+            category="국 및 탕류", subcategory="된장국",
+        )
+        result = apply_safety_guard(
+            "possible", food,
+            today_intake=make_intake(), trimester="middle",
+        )
+        assert result == "possible"
+
+    def test_herbal_tea_is_flagged(self):
+        # 허브차에 자스민티(녹차)·얼그레이(홍차)가 묶여 있어 POSSIBLE로 분류했다.
+        food = make_food(
+            food_name="자스민티 아이스(ICED)", caffeine_mg=None,
+            category="음료 및 차류", subcategory="허브차",
+        )
+        result = apply_safety_guard(
+            "possible", food,
+            today_intake=make_intake(), trimester="middle",
+        )
+        assert result == "caution"
+
+    def test_unlisted_subcategory_in_measured_category_is_flagged(self):
+        # 실측 0건이라 목록에 없는 subcategory는 기본값(POSSIBLE)으로 처리된다.
+        food = make_food(
+            food_name="카페라떼", caffeine_mg=None,
+            category="음료 및 차류", subcategory="카페라떼",
+        )
+        result = apply_safety_guard(
+            "possible", food,
+            today_intake=make_intake(), trimester="middle",
+        )
+        assert result == "caution"
+
+    def test_known_caffeine_value_is_unaffected_by_tier(self):
+        # 값이 있으면 티어와 무관하게 그 값으로 판정한다 (티어는 missing일 때만 개입).
+        food = make_food(
+            food_name="딸기 스무디", caffeine_mg=0.0,
+            category="음료 및 차류", subcategory="스무디",
+        )
+        result = apply_safety_guard(
+            "possible", food,
+            today_intake=make_intake(), trimester="middle",
+        )
+        assert result == "possible"
+
+    def test_tier_rule_uses_is_caffeine_missing_not_raw_none(self):
+        # 카페인 미제공 소스는 값이 있어도 missing이므로 티어 규칙도 발동해야 한다.
+        # (raw None 검사였다면 caffeine_mg=0이 있으니 발동하지 않았을 것이다.)
+        food = make_food(
+            food_name="이름에 단서 없음", caffeine_mg=0,
+            data_source="food_nutrition_api",
+            category="음료 및 차류", subcategory="스무디",
+        )
+        result = apply_safety_guard(
+            "possible", food,
+            today_intake=make_intake(), trimester="middle",
+        )
+        assert result == "caution"
+
+    def test_tier_rule_never_downgrades(self):
+        # 안전장치 전체의 upgrade-only 성질은 티어 규칙에도 그대로 적용된다.
+        food = make_food(
+            food_name="유자차", caffeine_mg=None,
+            category="음료 및 차류", subcategory="유자차",
+        )
+        result = apply_safety_guard(
+            "avoid", food,
+            today_intake=make_intake(), trimester="middle",
+        )
+        assert result == "avoid"
+
+    def test_judge_food_rules_is_not_affected_by_tier(self):
+        # 티어 검사는 apply_safety_guard/make_reason에만 있다 (당류·나트륨 missing
+        # 규칙과 같은 위치). judge_food_rules는 건드리지 않았다.
+        food = make_food(
+            food_name="이름에 단서 없음", caffeine_mg=None,
+            category="음료 및 차류", subcategory="스무디",
+        )
+        assert judge_food_rules(food, "middle", make_intake()) == "possible"
+
+    def test_recommend_food_end_to_end_flags_missing_caffeine(self):
+        result = recommend_food(
+            food=make_food(
+                food_name="딸기 스무디", caffeine_mg=None,
+                category="음료 및 차류", subcategory="스무디",
+            ),
+            pregnancy_week=20,
+            today_intake=make_intake(),
+        )
+        assert result["status"] == "caution"
+        assert result["reason_nutrient"] == "caffeine"
+
+
+class TestCaffeineTierReason:
+    def test_possible_tier_missing_caffeine_reason_names_caffeine(self):
+        food = make_food(
+            food_name="이름에 단서 없음", caffeine_mg=None,
+            category="음료 및 차류", subcategory="스무디",
+        )
+        reason, reason_nutrient = make_reason(
+            "caution", food, today_intake=make_intake(),
+            trimester="middle",
+        )
+        assert "카페인" in reason
+        assert "정보가 없어요" in reason
+        assert reason_nutrient == "caffeine"
+
+    def test_tier_reason_is_more_specific_than_generic_missing_message(self):
+        # 당류까지 없는 경우에도, 어떤 성분인지 아는 카페인 문구가 우선한다.
+        food = make_food(
+            food_name="이름에 단서 없음", caffeine_mg=None, sugar_g=None,
+            category="음료 및 차류", subcategory="스무디",
+        )
+        reason, reason_nutrient = make_reason(
+            "caution", food, today_intake=make_intake(),
+            trimester="middle",
+        )
+        assert reason_nutrient == "caffeine"
+        assert "일부 영양성분" not in reason
+
+    def test_free_tier_missing_caffeine_falls_through_to_generic_message(self):
+        # FREE 식품군은 카페인을 지목하지 않는다. 당류가 없으면 기존 문구 그대로.
+        food = make_food(
+            food_name="유자차", caffeine_mg=None, sugar_g=None,
+            category="음료 및 차류", subcategory="유자차",
+        )
+        reason, reason_nutrient = make_reason(
+            "caution", food, today_intake=make_intake(),
+            trimester="middle",
+        )
+        assert reason_nutrient is None
+        assert "일부 영양성분" in reason
+
+
+class TestKeywordRuleTierGate:
+    """키워드 규칙(음식명 기반)의 티어 게이트.
+
+    이 클래스의 테스트는 recommendation_model.py의 "[키워드 규칙 티어 게이트]" 표시가
+    붙은 두 곳에 대응한다. 그 게이트를 되돌리면 여기가 함께 깨진다.
+    """
+
+    def test_keyword_rule_does_not_fire_for_free_tier(self):
+        # 모카빵은 이름에 "모카"가 있지만 빵 및 과자류는 FREE다.
+        # 게이트가 없으면 티어는 "확인된 0", 키워드는 "카페인 있을 수 있음"으로 충돌한다.
+        food = make_food(
+            food_name="모카빵", caffeine_mg=None,
+            category="빵 및 과자류", subcategory="번",
+        )
+        result = apply_safety_guard(
+            "possible", food,
+            today_intake=make_intake(), trimester="middle",
+        )
+        assert result == "possible"
+
+    def test_keyword_rule_does_not_fire_for_not_measured_tier(self):
+        food = make_food(
+            food_name="이디야초콜릿디핑소스", caffeine_mg=None,
+            category="장류, 양념류", subcategory="소스/드레싱",
+        )
+        result = apply_safety_guard(
+            "possible", food,
+            today_intake=make_intake(), trimester="middle",
+        )
+        assert result == "possible"
+
+    def test_keyword_reason_does_not_fire_for_free_tier(self):
+        food = make_food(
+            food_name="모카빵", caffeine_mg=None, sugar_g=None,
+            category="빵 및 과자류", subcategory="번",
+        )
+        reason, reason_nutrient = make_reason(
+            "caution", food, today_intake=make_intake(),
+            trimester="middle",
+        )
+        assert reason_nutrient is None
+        assert "음식명에" not in reason
+
+    def test_keyword_reason_still_fires_for_possible_tier(self):
+        # POSSIBLE 식품군에서는 이름 단서가 더 구체적이므로 기존 문구를 유지한다.
+        food = make_food(
+            food_name="아이스 라떼", caffeine_mg=None,
+            category="음료 및 차류", subcategory="라떼",
+        )
+        reason, reason_nutrient = make_reason(
+            "caution", food, today_intake=make_intake(),
+            trimester="middle",
+        )
+        assert "음식명에" in reason
+        assert reason_nutrient == "caffeine"
