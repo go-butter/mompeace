@@ -34,16 +34,9 @@ import ScaleIcon from '@/assets/images/scan/scale.svg';
 import SearchIcon from '@/assets/images/scan/search.svg';
 import StandardScaleIcon from '@/assets/images/scan/standard_scales.svg';
 import InformationIcon from '@/assets/images/onboarding/information.svg';
-import CaffeineIcon from '@/assets/images/foodDiary/caffeine.svg';
-import SodiumIcon from '@/assets/images/foodDiary/sodium.svg';
-import SugarIcon from '@/assets/images/foodDiary/sugar.svg';
-import CaloriesIcon from '@/assets/images/foodDiary/calories.svg';
-import CarbohydrateIcon from '@/assets/images/foodDiary/carbohydrate.svg';
-import FatIcon from '@/assets/images/foodDiary/fat.svg';
-import IronIcon from '@/assets/images/foodDiary/iron.svg';
-import ProteinIcon from '@/assets/images/foodDiary/protein.svg';
 import { authColors } from '@/components/auth/colors';
 import BottomSheet from '@/components/common/BottomSheet';
+import { NUTRIENT_ICONS, NutrientIconKey } from '@/components/common/nutrientIcons';
 import StatusChip from '@/components/common/StatusChip';
 import AmountUnitPicker, { WEIGHT_UNITS } from '@/components/food-diary/AmountUnitPicker';
 import { homeColors } from '@/components/home/colors';
@@ -88,15 +81,14 @@ const NUTRIENT_TABLE_HEIGHT = 400;
 const BASIS_BADGE_BLUE = '#5B9BD1';
 const BASIS_BADGE_BLUE_BG = '#EAF3FA';
 
-const NUTRIENT_ICONS: Record<SelectableNutrientKey, ReactNode> = {
-  carbohydrate: <CarbohydrateIcon width={17} height={17} color="#F47E8A" />,
-  sugar: <SugarIcon width={17} height={17} color="#F47E8A" />,
-  energy: <CaloriesIcon width={17} height={17} color="#F47E8A" />,
-  fat: <FatIcon width={17} height={17} color="#F47E8A" />,
-  iron: <IronIcon width={17} height={17} color="#F47E8A" />,
-  protein: <ProteinIcon width={17} height={17} color="#F47E8A" />,
-  sodium: <SodiumIcon width={18} height={18} color="#F47E8A" />,
-};
+// 아이콘 8종은 리포트 화면과 공유한다(components/common/nutrientIcons.ts). 이 화면은
+// 전부 같은 분홍으로 그리지만, 나트륨만 원본 뷰박스가 18이라 다른 아이콘과 눈으로 같은
+// 크기가 되도록 18로 그린다.
+function NutrientGlyph({ nutrientKey }: { nutrientKey: NutrientIconKey }) {
+  const Icon = NUTRIENT_ICONS[nutrientKey];
+  const size = nutrientKey === 'sodium' ? 18 : 17;
+  return <Icon width={size} height={size} color={authColors.pink} />;
+}
 
 const NUTRIENT_UNITS: Record<SelectableNutrientKey, string> = {
   carbohydrate: 'g',
@@ -1411,7 +1403,7 @@ export default function FoodEntryOcrConfirmScreen() {
                   return (
                     <PairedNutrientField
                       key={key}
-                      icon={NUTRIENT_ICONS[key]}
+                      icon={<NutrientGlyph nutrientKey={key} />}
                       label={NUTRIENT_LABELS_KO[key]}
                       unit={NUTRIENT_UNITS[key]}
                       basisValue={nutrientFields[key]}
@@ -1446,7 +1438,7 @@ export default function FoodEntryOcrConfirmScreen() {
 
           <View style={styles.nutrientInputRow}>
             <View style={styles.nutrientLabelGroup}>
-              <CaffeineIcon width={17} height={17} color="#F47E8A" />
+              <NutrientGlyph nutrientKey="caffeine" />
               <Text style={styles.nutrientLabel}>카페인(mg)</Text>
             </View>
             <TextInput
