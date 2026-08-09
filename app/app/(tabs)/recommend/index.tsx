@@ -47,13 +47,13 @@ const DISPLAY_LIMIT = 10;
 
 const FALLBACK_REASON: Record<RecommendationStatus, string> = {
   possible: '오늘 남은 섭취량 안에서 비교적 부담이 낮은 음식이에요.',
-  caution: '오늘 섭취 기준에 가까워질 수 있어 양을 조절해 주세요.',
+  caution: '영양성분 정보가 일부 없어 오늘 섭취량을 정확히 확인하기 어려운 음식이에요.',
   avoid: '오늘 기준을 넘길 수 있어 다른 음식을 선택하는 편이 좋아요.',
 };
 
 const STATUS_LABEL: Record<RecommendationStatus, string> = {
   possible: '섭취 가능',
-  caution: '주의',
+  caution: '정보 부족',
   avoid: '피함',
 };
 
@@ -153,7 +153,9 @@ function MutedCard({ item }: { item: RecommendationItem }) {
         </View>
       </View>
       <Text style={styles.mutedCardReason}>{reason}</Text>
-      {item.alternative && (
+      {/* 대체 제안은 avoid에만 붙인다. caution은 영양성분 값을 읽지 못했다는 뜻이라
+          다른 음식으로 바꿀 근거가 없다. */}
+      {isAvoid && item.alternative && (
         <View style={styles.alternativeBox}>
           <Text style={styles.alternativeLabel}>대신 이건 어때요?</Text>
           <Text style={styles.alternativeName}>{item.alternative.food_name}</Text>
@@ -231,7 +233,10 @@ export default function RecommendScreen() {
     0,
     DISPLAY_LIMIT
   );
-  const mutedItems = allItems.filter((item) => item.status !== 'possible').slice(0, DISPLAY_LIMIT);
+  // avoid와 caution은 서로 다른 뜻이라(허용량 초과 / 영양성분 정보 부족) 한 목록에
+  // 섞지 않는다. DISPLAY_LIMIT도 각각 따로 적용한다.
+  const avoidItems = allItems.filter((item) => item.status === 'avoid').slice(0, DISPLAY_LIMIT);
+  const cautionItems = allItems.filter((item) => item.status === 'caution').slice(0, DISPLAY_LIMIT);
 
   const emptyMessage =
     possibleItems.length === 0 && selectedNutrient !== 'all' && allPossibleItems.length > 0
@@ -319,10 +324,18 @@ export default function RecommendScreen() {
             {possibleItems.map((item, index) => (
               <PossibleCard key={item.food_id ?? `${item.food_name}-${index}`} item={item} />
             ))}
-            {mutedItems.length > 0 && (
+            {avoidItems.length > 0 && (
               <>
-                <Text style={styles.sectionLabel}>주의가 필요한 음식</Text>
-                {mutedItems.map((item, index) => (
+                <Text style={styles.sectionLabel}>기준을 넘길 수 있는 음식</Text>
+                {avoidItems.map((item, index) => (
+                  <MutedCard key={item.food_id ?? `${item.food_name}-${index}`} item={item} />
+                ))}
+              </>
+            )}
+            {cautionItems.length > 0 && (
+              <>
+                <Text style={styles.sectionLabel}>영양성분 정보가 부족한 음식</Text>
+                {cautionItems.map((item, index) => (
                   <MutedCard key={item.food_id ?? `${item.food_name}-${index}`} item={item} />
                 ))}
               </>
@@ -532,12 +545,12 @@ const styles = StyleSheet.create({
     borderWidth: 0.7,
   },
   cautionCard: {
-    backgroundColor: '#FFF9F0',
-    borderColor: '#F0D6A2',
-  },
-  avoidCard: {
     backgroundColor: '#F8F5F4',
     borderColor: '#E0D6D3',
+  },
+  avoidCard: {
+    backgroundColor: '#FFF9F0',
+    borderColor: '#F0D6A2',
   },
   mutedCardHeader: {
     flexDirection: 'row',
@@ -551,16 +564,16 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   cautionBadge: {
-    backgroundColor: '#FFF0D6',
-  },
-  cautionBadgeText: {
-    color: '#A86B00',
-  },
-  avoidBadge: {
     backgroundColor: '#EFEAE9',
   },
-  avoidBadgeText: {
+  cautionBadgeText: {
     color: authColors.gray,
+  },
+  avoidBadge: {
+    backgroundColor: '#FFF0D6',
+  },
+  avoidBadgeText: {
+    color: '#A86B00',
   },
   mutedCardReason: {
     fontFamily: fonts.regular,
