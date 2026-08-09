@@ -12,7 +12,6 @@ from backend.nutrition_constants import (
     DAILY_SODIUM_LIMIT_MG,
 )
 from backend.recommendation_model import recommend_food
-from backend.risk import calculate_current_pregnancy_age
 from backend.sensitivity import get_user_adj, recalculate_sensitivity
 from backend.intake_totals import compute_today_intake_totals, get_status
 
@@ -44,10 +43,6 @@ def _judge_food_log_from_food_item(food: dict, amount: float, user: dict, db: sq
 
     # today_intake는 이번에 기록할 항목을 제외한, 지금까지 누적된 양이어야 한다 (INSERT 이전 호출)
     today_intake = compute_today_intake_totals(user["user_id"], db)
-    computed_age = calculate_current_pregnancy_age(
-        user.get("pregnancy_week"), user.get("pregnancy_day"), user.get("pregnancy_entered_at")
-    )
-    week = computed_age["week"] or 20
     user_adj = get_user_adj(user)
 
     food_for_judgment = dict(food)
@@ -61,7 +56,6 @@ def _judge_food_log_from_food_item(food: dict, amount: float, user: dict, db: sq
 
     recommendation = recommend_food(
         food=food_for_judgment,
-        pregnancy_week=week,
         today_intake=today_intake,
         user_adj=user_adj,
     )

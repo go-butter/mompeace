@@ -123,7 +123,6 @@ def get_recommendations(
     for food in foods:
         result = recommend_food(
             food=food,
-            pregnancy_week=week,
             today_intake=today_intake,
             user_adj=user_adj,
         )

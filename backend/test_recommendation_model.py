@@ -5,10 +5,13 @@ backend/recommendation_model.py 의 핵심 안전 판정 로직 테스트.
 - judge_food_rules(): 누적 섭취 비율 기반 1차 판정 (possible/caution/avoid)
 - apply_safety_guard(): 임계 초과 등 안전 방향 보정 (절대 하향 금지)
 
-DAILY_LIMITS (1일 허용 기준, 트라이메스터 불변)을 직접 import해서 사용하므로,
-이 파일의 수치가 나중에 바뀌어도 테스트는 "70% 이상이면 caution, 100% 이상이면
-avoid"라는 *관계*를 검증하지, 하드코딩된 mg/g 값을 검증하지 않는다.
+DAILY_LIMITS (1일 허용 기준, 임신 시기 불변)을 직접 import해서 사용하므로,
+이 파일의 수치가 나중에 바뀌어도 테스트는 "남은 허용량 안에 들어오면 possible,
+100%를 넘기면 avoid"라는 *관계*를 검증하지, 하드코딩된 mg/g 값을 검증하지 않는다.
+caution은 영양성분 값을 믿을 수 없을 때만 나오며, 섭취량 비율로는 발생하지 않는다.
 """
+import inspect
+
 import pytest
 
 from backend.recommendation_model import (
@@ -55,83 +58,96 @@ def make_intake(**overrides):
 # ── judge_food_rules: 경계값 ──────────────────────────────
 
 class TestJudgeFoodRulesBoundaries:
-    @pytest.mark.parametrize("trimester", ["early", "middle", "late"])
-    def test_zero_intake_is_possible(self, trimester):
+    def test_zero_intake_is_possible(self):
         food = make_food()
-        status = judge_food_rules(food, trimester, make_intake())
+        status = judge_food_rules(food, make_intake())
         assert status == "possible"
 
-    @pytest.mark.parametrize("trimester", ["early", "middle", "late"])
     @pytest.mark.parametrize("nutrient,key", [
         ("caffeine", "caffeine_mg"),
         ("sugar", "sugar_g"),
         ("sodium", "sodium_mg"),
     ])
-    def test_just_under_70_percent_is_possible(self, trimester, nutrient, key):
+    def test_just_under_limit_is_possible(self, nutrient, key):
+        # 남은 허용량 안에 들어오면(99%) 추천 대상이다 — 완충 구간 없이 100%까지 possible.
         limit = DAILY_LIMITS[nutrient]
-        food = make_food(**{key: limit * 0.69})
-        status = judge_food_rules(food, trimester, make_intake())
+        food = make_food(**{key: limit * 0.99})
+        status = judge_food_rules(food, make_intake())
         assert status == "possible"
 
-    @pytest.mark.parametrize("trimester", ["early", "middle", "late"])
     @pytest.mark.parametrize("nutrient,key", [
         ("caffeine", "caffeine_mg"),
         ("sugar", "sugar_g"),
         ("sodium", "sodium_mg"),
     ])
-    def test_just_over_70_percent_is_caution(self, trimester, nutrient, key):
-        limit = DAILY_LIMITS[nutrient]
-        food = make_food(**{key: limit * 0.71})
-        status = judge_food_rules(food, trimester, make_intake())
-        assert status == "caution"
-
-    @pytest.mark.parametrize("trimester", ["early", "middle", "late"])
-    @pytest.mark.parametrize("nutrient,key", [
-        ("caffeine", "caffeine_mg"),
-        ("sugar", "sugar_g"),
-        ("sodium", "sodium_mg"),
-    ])
-    def test_just_over_100_percent_is_avoid(self, trimester, nutrient, key):
+    def test_just_over_100_percent_is_avoid(self, nutrient, key):
         limit = DAILY_LIMITS[nutrient]
         food = make_food(**{key: limit * 1.01})
-        status = judge_food_rules(food, trimester, make_intake())
+        status = judge_food_rules(food, make_intake())
         assert status == "avoid"
+
+    @pytest.mark.parametrize("nutrient,key", [
+        ("caffeine", "caffeine_mg"),
+        ("sugar", "sugar_g"),
+        ("sodium", "sodium_mg"),
+    ])
+    def test_exactly_at_limit_is_possible(self, nutrient, key):
+        # 경계는 > 1.0 이므로 정확히 100%는 아직 possible이다.
+        limit = DAILY_LIMITS[nutrient]
+        food = make_food(**{key: limit})
+        status = judge_food_rules(food, make_intake())
+        assert status == "possible"
+
+    def test_ratio_alone_never_produces_caution(self):
+        # caution은 영양성분 값을 믿을 수 없을 때만 나온다. 값이 전부 알려져 있으면
+        # 0%~100% 구간 어디에서도 caution이 나오지 않는다.
+        limit = DAILY_LIMITS["sodium"]
+        for fraction in (0.5, 0.71, 0.85, 0.99, 1.0):
+            food = make_food(sodium_mg=limit * fraction)
+            assert judge_food_rules(food, make_intake()) == "possible"
 
     def test_cumulative_intake_plus_food_can_tip_over(self):
         # 오늘 이미 60% 섭취한 상태에서 50%를 더 먹으면 110% → avoid
         limit = DAILY_LIMITS["sugar"]
         food = make_food(sugar_g=limit * 0.5)
         intake = make_intake(sugar_g=limit * 0.6)
-        status = judge_food_rules(food, "middle", intake)
+        status = judge_food_rules(food, intake)
         assert status == "avoid"
+
+    def test_cumulative_intake_within_limit_stays_possible(self):
+        # 오늘 이미 60% 섭취한 상태에서 39%를 더 먹으면 99% → 아직 남은 허용량 안이다.
+        limit = DAILY_LIMITS["sugar"]
+        food = make_food(sugar_g=limit * 0.39)
+        intake = make_intake(sugar_g=limit * 0.6)
+        status = judge_food_rules(food, intake)
+        assert status == "possible"
 
     def test_caffeine_missing_with_keyword_is_caution(self):
         # 카페인 정보가 없는 음식인데 이름에 카페인 키워드가 있으면 caution
         food = make_food(food_name="아이스 라떼", caffeine_mg=None, data_source="dish_db_download")
-        status = judge_food_rules(food, "middle", make_intake())
+        status = judge_food_rules(food, make_intake())
         assert status == "caution"
 
     def test_caffeine_missing_without_keyword_is_possible(self):
         food = make_food(food_name="흰쌀밥", caffeine_mg=None, data_source="dish_db_download")
-        status = judge_food_rules(food, "middle", make_intake())
+        status = judge_food_rules(food, make_intake())
         assert status == "possible"
 
 
 # ── apply_safety_guard: 안전장치 ──────────────────────────
 
 class TestApplySafetyGuard:
-    @pytest.mark.parametrize("trimester", ["early", "middle", "late"])
     @pytest.mark.parametrize("key,limit_key", [
         ("caffeine_mg", "caffeine"),
         ("sugar_g", "sugar"),
         ("sodium_mg", "sodium"),
     ])
-    def test_absolute_excess_forces_avoid(self, trimester, key, limit_key):
+    def test_absolute_excess_forces_avoid(self, key, limit_key):
         limit = DAILY_LIMITS[limit_key]
         food = make_food(**{key: limit * 1.5})
         result = apply_safety_guard(
             "possible", food,
-            today_intake=make_intake(), trimester=trimester,
+            today_intake=make_intake(),
         )
         assert result == "avoid"
 
@@ -140,7 +156,7 @@ class TestApplySafetyGuard:
         food = make_food()  # 모든 영양소 0, 안전한 음식
         result = apply_safety_guard(
             "avoid", food,
-            today_intake=make_intake(), trimester="middle",
+            today_intake=make_intake(),
         )
         assert result == "avoid"
 
@@ -148,52 +164,15 @@ class TestApplySafetyGuard:
         food = make_food()
         result = apply_safety_guard(
             "caution", food,
-            today_intake=make_intake(), trimester="middle",
+            today_intake=make_intake(),
         )
         assert STATUS_RANK[result] >= STATUS_RANK["caution"]
-
-    def test_early_trimester_caffeine_60_percent_triggers_caution(self):
-        limit = DAILY_LIMITS["caffeine"]
-        food = make_food(caffeine_mg=limit * 0.61)
-        result = apply_safety_guard(
-            "possible", food,
-            today_intake=make_intake(), trimester="early",
-        )
-        assert result == "caution"
-
-    def test_early_trimester_caffeine_under_60_percent_stays_possible(self):
-        limit = DAILY_LIMITS["caffeine"]
-        food = make_food(caffeine_mg=limit * 0.5)
-        result = apply_safety_guard(
-            "possible", food,
-            today_intake=make_intake(), trimester="early",
-        )
-        assert result == "possible"
-
-    def test_middle_trimester_does_not_apply_early_caffeine_rule(self):
-        # early 전용 60% 카페인 규칙이 다른 트라이메스터에 새지 않는지 확인
-        limit = DAILY_LIMITS["caffeine"]
-        food = make_food(caffeine_mg=limit * 0.61)
-        result = apply_safety_guard(
-            "possible", food,
-            today_intake=make_intake(), trimester="middle",
-        )
-        assert result == "possible"
-
-    def test_late_trimester_sodium_80_percent_triggers_caution(self):
-        limit = DAILY_LIMITS["sodium"]
-        food = make_food(sodium_mg=limit * 0.81)
-        result = apply_safety_guard(
-            "possible", food,
-            today_intake=make_intake(), trimester="late",
-        )
-        assert result == "caution"
 
     def test_missing_sugar_or_sodium_forces_at_least_caution(self):
         food = make_food(sugar_g=None)
         result = apply_safety_guard(
             "possible", food,
-            today_intake=make_intake(), trimester="middle",
+            today_intake=make_intake(),
         )
         assert result == "caution"
 
@@ -201,7 +180,7 @@ class TestApplySafetyGuard:
         food = make_food(sodium_mg=None)
         result = apply_safety_guard(
             "possible", food,
-            today_intake=make_intake(), trimester="middle",
+            today_intake=make_intake(),
         )
         assert result == "caution"
 
@@ -212,7 +191,7 @@ class TestApplySafetyGuard:
         food = make_food(food_name="콜드브루", caffeine_mg=0, data_source=source)
         result = apply_safety_guard(
             "possible", food,
-            today_intake=make_intake(), trimester="middle",
+            today_intake=make_intake(),
         )
         # 카페인 키워드("콜드브루")가 있고 missing 처리되므로 최소 caution
         assert result == "caution"
@@ -228,7 +207,7 @@ class TestApplySafetyGuard:
         )
         result = apply_safety_guard(
             "possible", food,
-            today_intake=make_intake(), trimester="middle",
+            today_intake=make_intake(),
         )
         # avoid 가 아니라 caution 이어야 함 (missing + 키워드 규칙만 적용)
         assert result == "caution"
@@ -239,11 +218,11 @@ class TestApplySafetyGuard:
         food = make_food(sodium_mg=limit * 1.05)  # 조정 없으면 avoid
         result_no_adj = apply_safety_guard(
             "possible", food,
-            today_intake=make_intake(), trimester="middle",
+            today_intake=make_intake(),
         )
         result_with_adj = apply_safety_guard(
             "possible", food,
-            today_intake=make_intake(), trimester="middle",
+            today_intake=make_intake(),
             user_adj={"sodium": 0.15},  # 최대 완화
         )
         assert result_no_adj == "avoid"
@@ -257,7 +236,7 @@ class TestApplySafetyGuard:
         food = make_food(food_name="아이스 라떼", caffeine_mg=None, data_source="dish_db_download")
         result = apply_safety_guard(
             "possible", food,
-            today_intake=make_intake(), trimester="middle",
+            today_intake=make_intake(),
         )
         assert result == "caution"
 
@@ -270,7 +249,6 @@ class TestMakeReason:
         food = make_food(caffeine_mg=limit * 1.1)
         reason, reason_nutrient = make_reason(
             "avoid", food, today_intake=make_intake(),
-            trimester="middle",
         )
         assert "카페인" in reason
         assert reason_nutrient == "caffeine"
@@ -280,7 +258,6 @@ class TestMakeReason:
         food = make_food(sugar_g=limit * 1.1)
         reason, reason_nutrient = make_reason(
             "avoid", food, today_intake=make_intake(),
-            trimester="middle",
         )
         assert "당류" in reason
         assert reason_nutrient == "sugar"
@@ -290,7 +267,6 @@ class TestMakeReason:
         food = make_food(sodium_mg=limit * 1.1)
         reason, reason_nutrient = make_reason(
             "avoid", food, today_intake=make_intake(),
-            trimester="middle",
         )
         assert "나트륨" in reason
         assert reason_nutrient == "sodium"
@@ -301,59 +277,52 @@ class TestMakeReason:
         food = make_food()
         reason, reason_nutrient = make_reason(
             "avoid", food, today_intake=make_intake(),
-            trimester="middle",
         )
         assert reason_nutrient is None
         assert "비추천" in reason
 
-    def test_caution_picks_caffeine_when_caffeine_ratio_exceeds_0_7(self):
-        limit = DAILY_LIMITS["caffeine"]
-        food = make_food(caffeine_mg=limit * 0.75)
-        reason, reason_nutrient = make_reason(
-            "caution", food, today_intake=make_intake(),
-            trimester="middle",
-        )
-        assert "카페인" in reason
-        assert reason_nutrient == "caffeine"
-
-    def test_caution_picks_sugar_when_sugar_ratio_exceeds_0_7(self):
-        limit = DAILY_LIMITS["sugar"]
-        food = make_food(sugar_g=limit * 0.75)
-        reason, reason_nutrient = make_reason(
-            "caution", food, today_intake=make_intake(),
-            trimester="middle",
-        )
-        assert "당류" in reason
-        assert reason_nutrient == "sugar"
-
-    def test_caution_picks_sodium_when_sodium_ratio_exceeds_0_7(self):
+    def test_caution_reason_never_cites_a_high_ratio(self):
+        # 비율이 아무리 높아도(99%) caution 이유는 섭취량을 근거로 대지 않는다 —
+        # 그 구간은 이제 possible이고, caution은 데이터 문제에만 붙기 때문이다.
         limit = DAILY_LIMITS["sodium"]
-        food = make_food(sodium_mg=limit * 0.75)
+        food = make_food(sodium_mg=limit * 0.99)
         reason, reason_nutrient = make_reason(
             "caution", food, today_intake=make_intake(),
-            trimester="middle",
         )
-        assert "나트륨" in reason
-        assert reason_nutrient == "sodium"
+        assert reason_nutrient is None
+        assert "높아" not in reason
+        assert "가까워지고" not in reason
 
-    def test_caution_caffeine_wins_over_sugar_when_both_ratios_exceed_0_7(self):
-        caffeine_limit = DAILY_LIMITS["caffeine"]
-        sugar_limit = DAILY_LIMITS["sugar"]
-        food = make_food(caffeine_mg=caffeine_limit * 0.75, sugar_g=sugar_limit * 0.75)
-        reason, reason_nutrient = make_reason(
-            "caution", food, today_intake=make_intake(),
-            trimester="middle",
-        )
-        assert reason_nutrient == "caffeine"
-
-    def test_caution_missing_sugar_or_sodium_returns_missing_info_message(self):
+    def test_caution_missing_sugar_names_sugar(self):
         food = make_food(sugar_g=None)
         reason, reason_nutrient = make_reason(
             "caution", food, today_intake=make_intake(),
-            trimester="middle",
         )
+        assert "당류" in reason
         assert "정보가 없어" in reason
+        assert reason_nutrient == "sugar"
+
+    def test_caution_missing_sodium_names_sodium(self):
+        food = make_food(sodium_mg=None)
+        reason, reason_nutrient = make_reason(
+            "caution", food, today_intake=make_intake(),
+        )
+        assert "나트륨" in reason
+        assert "정보가 없어" in reason
+        assert reason_nutrient == "sodium"
+
+    def test_caution_falls_back_to_generic_data_message(self):
+        # 어떤 성분이 문제인지 지목할 수 없는 경우(카페인은 FREE 티어라 언급하지 않고,
+        # 당류·나트륨은 값이 있는 경우)에도 이유는 데이터 문제를 가리켜야 한다.
+        food = make_food(
+            food_name="유자차", caffeine_mg=None,
+            category="음료 및 차류", subcategory="유자차",
+        )
+        reason, reason_nutrient = make_reason(
+            "caution", food, today_intake=make_intake(),
+        )
         assert reason_nutrient is None
+        assert "정확히 확인하기 어려워요" in reason
 
     def test_possible_with_real_caffeine_value_mentions_caffeine(self):
         # caffeine_mg가 missing이 아닌 실제 값으로 존재하면 possible이어도
@@ -361,7 +330,6 @@ class TestMakeReason:
         food = make_food(caffeine_mg=30.0, data_source="dish_db_download")
         reason, reason_nutrient = make_reason(
             "possible", food, today_intake=make_intake(),
-            trimester="middle",
         )
         assert "카페인" in reason
         assert reason_nutrient == "caffeine"
@@ -370,7 +338,6 @@ class TestMakeReason:
         food = make_food()  # caffeine_mg=0.0 (실제 값, missing 아님)
         reason, reason_nutrient = make_reason(
             "possible", food, today_intake=make_intake(),
-            trimester="middle",
         )
         assert reason_nutrient is None
         assert "부담이 낮은" in reason
@@ -390,7 +357,7 @@ class TestCaffeineTierIntegration:
         )
         result = apply_safety_guard(
             "possible", food,
-            today_intake=make_intake(), trimester="middle",
+            today_intake=make_intake(),
         )
         assert result == "caution"
 
@@ -402,7 +369,7 @@ class TestCaffeineTierIntegration:
         )
         result = apply_safety_guard(
             "possible", food,
-            today_intake=make_intake(), trimester="middle",
+            today_intake=make_intake(),
         )
         assert result == "possible"
 
@@ -413,7 +380,7 @@ class TestCaffeineTierIntegration:
         )
         result = apply_safety_guard(
             "possible", food,
-            today_intake=make_intake(), trimester="middle",
+            today_intake=make_intake(),
         )
         assert result == "possible"
 
@@ -425,7 +392,7 @@ class TestCaffeineTierIntegration:
         )
         result = apply_safety_guard(
             "possible", food,
-            today_intake=make_intake(), trimester="middle",
+            today_intake=make_intake(),
         )
         assert result == "possible"
 
@@ -437,7 +404,7 @@ class TestCaffeineTierIntegration:
         )
         result = apply_safety_guard(
             "possible", food,
-            today_intake=make_intake(), trimester="middle",
+            today_intake=make_intake(),
         )
         assert result == "caution"
 
@@ -449,7 +416,7 @@ class TestCaffeineTierIntegration:
         )
         result = apply_safety_guard(
             "possible", food,
-            today_intake=make_intake(), trimester="middle",
+            today_intake=make_intake(),
         )
         assert result == "caution"
 
@@ -461,7 +428,7 @@ class TestCaffeineTierIntegration:
         )
         result = apply_safety_guard(
             "possible", food,
-            today_intake=make_intake(), trimester="middle",
+            today_intake=make_intake(),
         )
         assert result == "possible"
 
@@ -475,7 +442,7 @@ class TestCaffeineTierIntegration:
         )
         result = apply_safety_guard(
             "possible", food,
-            today_intake=make_intake(), trimester="middle",
+            today_intake=make_intake(),
         )
         assert result == "caution"
 
@@ -487,7 +454,7 @@ class TestCaffeineTierIntegration:
         )
         result = apply_safety_guard(
             "avoid", food,
-            today_intake=make_intake(), trimester="middle",
+            today_intake=make_intake(),
         )
         assert result == "avoid"
 
@@ -498,7 +465,7 @@ class TestCaffeineTierIntegration:
             food_name="이름에 단서 없음", caffeine_mg=None,
             category="음료 및 차류", subcategory="스무디",
         )
-        assert judge_food_rules(food, "middle", make_intake()) == "possible"
+        assert judge_food_rules(food, make_intake()) == "possible"
 
     def test_recommend_food_end_to_end_flags_missing_caffeine(self):
         result = recommend_food(
@@ -506,7 +473,6 @@ class TestCaffeineTierIntegration:
                 food_name="딸기 스무디", caffeine_mg=None,
                 category="음료 및 차류", subcategory="스무디",
             ),
-            pregnancy_week=20,
             today_intake=make_intake(),
         )
         assert result["status"] == "caution"
@@ -521,7 +487,6 @@ class TestCaffeineTierReason:
         )
         reason, reason_nutrient = make_reason(
             "caution", food, today_intake=make_intake(),
-            trimester="middle",
         )
         assert "카페인" in reason
         assert "정보가 없어요" in reason
@@ -535,23 +500,21 @@ class TestCaffeineTierReason:
         )
         reason, reason_nutrient = make_reason(
             "caution", food, today_intake=make_intake(),
-            trimester="middle",
         )
         assert reason_nutrient == "caffeine"
-        assert "일부 영양성분" not in reason
+        assert "당류" not in reason
 
-    def test_free_tier_missing_caffeine_falls_through_to_generic_message(self):
-        # FREE 식품군은 카페인을 지목하지 않는다. 당류가 없으면 기존 문구 그대로.
+    def test_free_tier_missing_caffeine_does_not_name_caffeine(self):
+        # FREE 식품군은 카페인을 지목하지 않는다. 당류가 없으면 당류 쪽을 지목한다.
         food = make_food(
             food_name="유자차", caffeine_mg=None, sugar_g=None,
             category="음료 및 차류", subcategory="유자차",
         )
         reason, reason_nutrient = make_reason(
             "caution", food, today_intake=make_intake(),
-            trimester="middle",
         )
-        assert reason_nutrient is None
-        assert "일부 영양성분" in reason
+        assert reason_nutrient == "sugar"
+        assert "카페인" not in reason
 
 
 class TestKeywordRuleTierGate:
@@ -570,7 +533,7 @@ class TestKeywordRuleTierGate:
         )
         result = apply_safety_guard(
             "possible", food,
-            today_intake=make_intake(), trimester="middle",
+            today_intake=make_intake(),
         )
         assert result == "possible"
 
@@ -581,7 +544,7 @@ class TestKeywordRuleTierGate:
         )
         result = apply_safety_guard(
             "possible", food,
-            today_intake=make_intake(), trimester="middle",
+            today_intake=make_intake(),
         )
         assert result == "possible"
 
@@ -592,9 +555,8 @@ class TestKeywordRuleTierGate:
         )
         reason, reason_nutrient = make_reason(
             "caution", food, today_intake=make_intake(),
-            trimester="middle",
         )
-        assert reason_nutrient is None
+        assert reason_nutrient != "caffeine"
         assert "음식명에" not in reason
 
     def test_keyword_reason_still_fires_for_possible_tier(self):
@@ -605,7 +567,36 @@ class TestKeywordRuleTierGate:
         )
         reason, reason_nutrient = make_reason(
             "caution", food, today_intake=make_intake(),
-            trimester="middle",
         )
         assert "음식명에" in reason
         assert reason_nutrient == "caffeine"
+
+
+# ── 임신 시기 무관성 ───────────────────────────────────────
+# 카페인 200mg·나트륨 1500mg은 임신 시기와 무관한 고정 기준이므로, 판정도 시기에
+# 따라 달라지지 않는다. 시기별 민감도 규칙(초기 카페인 60%, 후기 나트륨 80%)은
+# 그 기준에 근거가 없어 제거했다.
+
+class TestPregnancyStageDoesNotAffectJudgment:
+    @pytest.mark.parametrize("func", [
+        judge_food_rules,
+        apply_safety_guard,
+        make_reason,
+        recommend_food,
+    ])
+    def test_judging_functions_take_no_pregnancy_input(self, func):
+        # 입력 자체가 없으므로 같은 음식·같은 섭취량이면 임신 초기·중기·후기가
+        # 모두 같은 결과다. 규칙이 되살아나면 파라미터가 먼저 되살아난다.
+        params = set(inspect.signature(func).parameters)
+        assert "trimester" not in params
+        assert "pregnancy_week" not in params
+
+    def test_caffeine_above_sixty_percent_is_possible(self):
+        # 예전 초기 규칙(카페인 60% 초과 → caution)에 걸리던 값.
+        food = make_food(caffeine_mg=DAILY_LIMITS["caffeine"] * 0.61)
+        assert recommend_food(food=food, today_intake=make_intake())["status"] == "possible"
+
+    def test_sodium_above_eighty_percent_is_possible(self):
+        # 예전 후기 규칙(나트륨 80% 초과 → caution)에 걸리던 값.
+        food = make_food(sodium_mg=DAILY_LIMITS["sodium"] * 0.81)
+        assert recommend_food(food=food, today_intake=make_intake())["status"] == "possible"

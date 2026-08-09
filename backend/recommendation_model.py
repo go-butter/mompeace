@@ -22,12 +22,10 @@ from backend.nutrition_constants import (
     DAILY_SODIUM_LIMIT_MG,
     DAILY_SUGAR_LIMIT_G,
 )
-from backend.risk import get_trimester
 
 _HERE = Path(__file__).resolve().parent
 
-# 1일 허용 기준 (앱 내부 보수적 기준, 공식 의학 기준 아님). 트라이메스터와 무관하게 항상 동일하며,
-# 트라이메스터는 apply_safety_guard()의 caution 민감도(early 카페인 60%, late 나트륨 80%)에만 영향을 준다.
+# 1일 허용 기준 (앱 내부 보수적 기준, 공식 의학 기준 아님). 임신 시기와 무관하게 항상 동일하다.
 DAILY_LIMITS = {
     "caffeine": DAILY_CAFFEINE_LIMIT_MG,
     "sugar": DAILY_SUGAR_LIMIT_G,
@@ -91,7 +89,6 @@ def apply_safety_guard(
     status: str,
     food: dict,
     today_intake: dict,
-    trimester: str,
     user_adj: Optional[dict] = None,
 ) -> str:
     """
@@ -135,18 +132,6 @@ def apply_safety_guard(
     if caffeine_missing and caffeine_keywords and caffeine_tier == TIER_CAFFEINE_POSSIBLE:
         status = _upgrade(status, "caution")
 
-    # 3.5 임신 초기: 카페인 60% 초과 → at least caution
-    if trimester == "early":
-        early_caffeine_ratio = (today_caffeine + (food_caffeine if not caffeine_missing else 0.0)) / limits["caffeine"]
-        if early_caffeine_ratio > 0.6:
-            status = _upgrade(status, "caution")
-
-    # 3.6 임신 후기: 나트륨 80% 초과 → at least caution
-    if trimester == "late":
-        late_sodium_ratio = (today_sodium + food_sodium) / limits["sodium"]
-        if late_sodium_ratio > 0.8:
-            status = _upgrade(status, "caution")
-
     # 4. 당류 또는 나트륨 missing → at least caution
     if food.get("sugar_g") is None or food.get("sodium_mg") is None:
         status = _upgrade(status, "caution")
@@ -169,7 +154,6 @@ def make_reason(
     status: str,
     food: dict,
     today_intake: dict,
-    trimester: str,
     user_adj: Optional[dict] = None,
 ) -> tuple:
     """반환값: (한국어 이유 메시지, reason_nutrient 태그)"""
@@ -196,24 +180,24 @@ def make_reason(
             return "나트륨이 오늘 허용량을 초과할 수 있어 섭취를 권장하지 않아요.", "sodium"
         return "오늘 누적 섭취량 기준으로 이 음식은 비추천이에요.", None
 
+    # caution은 더 이상 "허용량에 가까워졌다"는 뜻이 아니다. 허용량 안에 들어오는 음식은
+    # 전부 possible이고 넘기는 음식은 avoid이므로, caution이 남는 경우는 영양성분 값을
+    # 믿을 수 없어 판정 자체를 보증할 수 없을 때뿐이다. 따라서 이유도 전부 데이터 문제를
+    # 가리킨다.
     if status == "caution":
-        if not caffeine_missing and (today_caffeine + food_caffeine) / limits["caffeine"] > 0.7:
-            return "카페인이 남은 허용량에 비해 높아 주의가 필요해요.", "caffeine"
-        if (today_sugar + food_sugar) / limits["sugar"] > 0.7:
-            return "당류가 남은 허용량에 비해 높아 주의가 필요해요.", "sugar"
-        if (today_sodium + food_sodium) / limits["sodium"] > 0.7:
-            return "나트륨이 오늘 기준에 가까워지고 있어요.", "sodium"
         # [키워드 규칙 티어 게이트 — apply_safety_guard에 같은 표시의 한 곳이 더 있다]
         if caffeine_missing and caffeine_keywords and caffeine_tier == TIER_CAFFEINE_POSSIBLE:
             return "음식명에 카페인 관련 표현이 있어 카페인 함량 확인이 필요해요.", "caffeine"
         # 이름에 단서가 없어도 식품군 자체가 카페인을 가질 수 있으면 카페인을 지목한다.
-        # 아래 "일부 영양성분" 문구보다 먼저 온다 — 어떤 성분인지 아는 경우에 굳이
+        # 아래 뭉뚱그린 문구보다 먼저 온다 — 어떤 성분인지 아는 경우에 굳이
         # 뭉뚱그린 문구를 쓸 이유가 없기 때문이다.
         if caffeine_missing and caffeine_tier == TIER_CAFFEINE_POSSIBLE:
             return "카페인이 들어 있을 수 있는데 함량 정보가 없어요. 오늘 카페인 섭취량을 함께 확인해 주세요.", "caffeine"
-        if food.get("sugar_g") is None or food.get("sodium_mg") is None:
-            return "일부 영양성분 정보가 없어 주의가 필요해요.", None
-        return "오늘 섭취 흐름을 함께 확인해 주세요.", None
+        if food.get("sugar_g") is None:
+            return "당류 정보가 없어 오늘 섭취량에 반영하지 못했어요.", "sugar"
+        if food.get("sodium_mg") is None:
+            return "나트륨 정보가 없어 오늘 섭취량에 반영하지 못했어요.", "sodium"
+        return "영양성분 정보가 일부 없어 섭취량을 정확히 확인하기 어려워요.", None
 
     # possible: 카페인이 실제 값으로 존재하면 카페인 안내 우선
     if not caffeine_missing and food_caffeine > 0:
@@ -224,7 +208,6 @@ def make_reason(
 # ── 규칙 기반 판정 (메인 판단 로직) ────────────────────────
 def judge_food_rules(
     food: dict,
-    trimester: str,
     today_intake: dict,
     user_adj: Optional[dict] = None,
 ) -> str:
@@ -245,14 +228,11 @@ def judge_food_rules(
     after_sugar_ratio = (today_sugar + food_sugar) / limits["sugar"]
     after_sodium_ratio = (today_sodium + food_sodium) / limits["sodium"]
 
+    # 오늘 남은 허용량 안에 들어오면 possible, 넘기면 avoid. 그 사이의 완충 구간은 없다.
     if (after_caffeine_ratio > 1.0 or
             after_sugar_ratio > 1.0 or
             after_sodium_ratio > 1.0):
         return "avoid"
-    if (after_caffeine_ratio > 0.7 or
-            after_sugar_ratio > 0.7 or
-            after_sodium_ratio > 0.7):
-        return "caution"
     if caffeine_missing and caffeine_keywords:
         return "caution"
     return "possible"
@@ -260,7 +240,6 @@ def judge_food_rules(
 
 def recommend_food(
     food: dict,
-    pregnancy_week: int,
     today_intake: dict,
     user_adj: Optional[dict] = None,
 ) -> dict:
@@ -273,13 +252,11 @@ def recommend_food(
         reason: 한국어 이유
         reason_nutrient: caffeine / sugar / sodium / None
     """
-    trimester = get_trimester(pregnancy_week)
-
-    status = judge_food_rules(food, trimester, today_intake, user_adj)
+    status = judge_food_rules(food, today_intake, user_adj)
 
     # 안전장치: 판정 결과를 안전 방향으로만 보정
-    status = apply_safety_guard(status, food, today_intake, trimester, user_adj)
-    reason, reason_nutrient = make_reason(status, food, today_intake, trimester, user_adj)
+    status = apply_safety_guard(status, food, today_intake, user_adj)
+    reason, reason_nutrient = make_reason(status, food, today_intake, user_adj)
 
     return {
         "status": status,
