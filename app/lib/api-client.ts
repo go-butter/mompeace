@@ -636,7 +636,8 @@ export interface ReportNutrientItems {
   nutrients: NutrientSummaryItem[];
 }
 
-// 응답에는 여기 타입에 없는 블록(totals/limits/percentages/status/chart/comparison)도 함께 온다.
+// 응답에는 여기 타입에 없는 블록(totals/limits/percentages/status/chart)도 함께 온다.
+// comparison은 주간 응답에만 있어 WeeklyReportResponse에서 따로 타입을 붙인다.
 interface ReportResponseBase {
   user_id: number;
   pregnancy_week: number;
@@ -652,9 +653,25 @@ export interface DailyReportResponse extends ReportResponseBase {
   date: string;
 }
 
+/**
+ * 지난주 대비 증감. 값은 "기준 대비 퍼센트"의 차이(퍼센트포인트)다 — 25.0은 지난주
+ * 25%에서 이번 주 50%가 되었다는 뜻이지 "25% 더 먹었다"가 아니다. 두 주 모두 기록이
+ * 있는 날 수로 나눈 일평균을 기준으로 계산한다. 지난주에 그 영양소의 확인된 값이 하나도
+ * 없으면 null이며, 카페인/당류/나트륨 세 가지만 비교 대상이다.
+ */
+export interface ReportComparison {
+  previous_period: { start: string; end: string };
+  caffeine_vs_previous_pct: number | null;
+  sugar_vs_previous_pct: number | null;
+  sodium_vs_previous_pct: number | null;
+}
+
+// comparison은 주간 응답에만 있다 — 공용 base에 두면 일간 화면에서도 읽을 수 있게 되어
+// 타입이 사실과 어긋난다.
 export interface WeeklyReportResponse extends ReportResponseBase {
   period: 'weekly';
   date_range: { start: string; end: string };
+  comparison: ReportComparison;
 }
 
 /** period로 좁혀지는 유니언 — daily는 date를, weekly는 date_range를 가진다(서로 배타적). */
