@@ -265,8 +265,15 @@ def build_nutrient_summary_item(
     판정 대상 수치를 호출부가 value로 직접 넘긴다 — 하루 합계를 넘기면 일간 판정이,
     일평균을 넘기면 기간 일평균 판정이 된다. 집계 딕셔너리의 컬럼명이 호출부마다
     달라도(예: total_calories vs total_energy) 이 함수는 영향을 받지 않는다.
+
+    total/percent는 _is_data_unresolved(known_count, logged_count)일 때(무언가는
+    기록됐는데 이 영양소만 하나도 확인되지 않음) None을 반환한다 — 정보 없음을
+    0으로 노출하지 않기 위해서다(build_daily_projected_statuses의 exposed_value와
+    동일한 원칙). 기록 자체가 없는 날(logged_count==0)은 그대로 0을 노출한다.
     """
     spec = NUTRIENT_SUMMARY_FIELDS[key]
+    unresolved = _is_data_unresolved(known_count, logged_count)
+    exposed_total = None if unresolved else round(value, 2)
 
     if spec["type"] == "band":
         status = spec["judge_fn"](value, known_count, logged_count, limits)
@@ -276,12 +283,12 @@ def build_nutrient_summary_item(
         limit = limits[spec["limit_key"]]
         judge = get_status if spec["type"] == "ceiling" else get_floor_status
         status = judge(value, limit, known_count, logged_count)
-        percent = _summary_percent(value, limit)
+        percent = None if exposed_total is None else _summary_percent(value, limit)
 
     return {
         "key": key,
         "label": NUTRIENT_LABELS_KO[key],
-        "total": round(value, 2),
+        "total": exposed_total,
         "unit": DAILY_PROJECTION_NUTRIENTS[key]["unit"],
         "limit": limit,
         "percent": percent,

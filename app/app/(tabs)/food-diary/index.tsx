@@ -152,7 +152,7 @@ export default function FoodDiaryScreen() {
             <Text style={styles.remainingLabel}>잔여 허용량</Text>
             <Text style={styles.remainingValueWrapper}>
               <Text style={styles.remainingValueNumber}>
-                {Math.max(0, (summary.caffeine.limit ?? 0) - summary.caffeine.total)}
+                {Math.max(0, (summary.caffeine.limit ?? 0) - (summary.caffeine.total ?? 0))}
               </Text>
               <Text style={styles.remainingValueUnit}>mg</Text>
             </Text>

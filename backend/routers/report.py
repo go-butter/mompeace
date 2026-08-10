@@ -12,6 +12,7 @@ from backend.nutrition_constants import (
 )
 from backend.nutrition_constants import parse_selected_nutrients
 from backend.intake_totals import (
+    _is_data_unresolved,
     build_nutrient_summary_item,
     compute_overall_status,
     get_fat_status,
@@ -243,15 +244,18 @@ def _build_extra_nutrient_report_block(totals: dict, limits: dict, divisor: int)
         total_iron, IRON_RECOMMENDED_MG, IRON_UPPER_LIMIT_MG, totals["known_iron_count"], logged_count
     )
 
+    def _exposed(known_count, raw_total):
+        return None if _is_data_unresolved(known_count, logged_count) else round(raw_total, 2)
+
     return {
         "totals": {
-            "energy_kcal": round(total_energy, 2),
-            "carbohydrate_g": round(total_carb, 2),
-            "protein_g": round(total_protein, 2),
-            "fat_g": round(total_fat, 2),
-            "saturated_fat_g": round(total_saturated_fat, 2),
-            "trans_fat_g": round(total_trans_fat, 2),
-            "iron_mg": round(total_iron, 2),
+            "energy_kcal": _exposed(totals["known_energy_count"], total_energy),
+            "carbohydrate_g": _exposed(totals["known_carbohydrate_count"], total_carb),
+            "protein_g": _exposed(totals["known_protein_count"], total_protein),
+            "fat_g": _exposed(totals["known_fat_count"], total_fat),
+            "saturated_fat_g": _exposed(totals["known_saturated_fat_count"], total_saturated_fat),
+            "trans_fat_g": _exposed(totals["known_trans_fat_count"], total_trans_fat),
+            "iron_mg": _exposed(totals["known_iron_count"], total_iron),
         },
         "daily_average": {
             "energy_kcal": avg_energy,
@@ -587,9 +591,9 @@ def get_report(
                 "date_range": formatted_date,
             },
             "totals": {
-                "caffeine_mg": round(total_caffeine, 2),
-                "sugar_g":     round(total_sugar, 2),
-                "sodium_mg":   round(total_sodium, 2),
+                "caffeine_mg": None if _is_data_unresolved(known_caffeine_count, logged_count) else round(total_caffeine, 2),
+                "sugar_g":     None if _is_data_unresolved(known_sugar_count, logged_count) else round(total_sugar, 2),
+                "sodium_mg":   None if _is_data_unresolved(known_sodium_count, logged_count) else round(total_sodium, 2),
                 **extra_block["totals"],
                 **water_block["totals"],
             },
@@ -779,9 +783,9 @@ def get_report(
             "date_range": date_range_str,
         },
         "totals": {
-            "caffeine_mg": round(total_caffeine, 2),
-            "sugar_g":     round(total_sugar, 2),
-            "sodium_mg":   round(total_sodium, 2),
+            "caffeine_mg": None if _is_data_unresolved(known_caffeine_count, week_row_count) else round(total_caffeine, 2),
+            "sugar_g":     None if _is_data_unresolved(known_sugar_count, week_row_count) else round(total_sugar, 2),
+            "sodium_mg":   None if _is_data_unresolved(known_sodium_count, week_row_count) else round(total_sodium, 2),
             **extra_block["totals"],
             **water_block["totals"],
         },

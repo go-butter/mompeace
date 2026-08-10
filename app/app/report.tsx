@@ -1,6 +1,6 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -21,9 +21,11 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import PrevIcon from '@/assets/images/common/prev.svg';
+import InformationIcon from '@/assets/images/onboarding/information.svg';
 import { authColors } from '@/components/auth/colors';
+import BottomSheet from '@/components/common/BottomSheet';
+import { nutrientColorFor } from '@/components/common/nutrientColors';
 import { NUTRIENT_ICONS, NutrientIconKey } from '@/components/common/nutrientIcons';
-import { DEFAULT_SUMMARY_STATUS_COLORS, summaryStatusColors } from '@/components/home/summaryColors';
 import { reportColors } from '@/components/report/colors';
 import { fonts, nanumSquareRound } from '@/constants/fonts';
 import { useAuth } from '@/context/auth-context';
@@ -43,18 +45,25 @@ const EMPTY_NUTRIENTS_TEXT = '마이페이지에서 관심 영양소를 선택�
 // 라벨 색도 같은 진행값을 공유해서, 알약이 이동하는 동안 글자색만 먼저 바뀌지 않는다.
 const TOGGLE_TIMING = { duration: 300, easing: Easing.inOut(Easing.cubic) };
 
-// 배너 일러스트(Figma "note 1")는 110x110 박스 안에서 원본을 116%로 키우고 -8%만큼
-// 밀어 넣은 뒤 잘라낸 모양이다. resizeMode="contain"으로 그리면 Figma가 잘라낸 여백까지
-// 같이 보여서 그림이 작아 보이므로, 그 확대/오프셋을 그대로 재현한다.
-const NOTE_BOX = 110;
-const NOTE_SCALE = 1.16;
-const NOTE_OFFSET = -NOTE_BOX * 0.08;
+// 배너 일러스트(Figma "note 1")는 원본 440x440 캔버스 중 실제 그림(불투명 영역)이 가로는
+// 거의 꽉 차지만(0.5%~97.7%) 세로는 가운데 67%(15%~82%)뿐이다. Figma가 쓰던 116%/-8%
+// 확대·오프셋을 그대로 적용하면 세로 여백은 그대로 보여주면서 가로는 그림 가장자리를
+// 잘라버려(약 7%씩) 결과적으로 잘린 그림이 나온다. 정사각 캔버스이므로 resizeMode
+// "contain"이 곧 "cover"와 같아 확대·오프셋 계산 없이 원본 전체를 손실 없이 보여준다.
+const NOTE_BOX = 100;
+// 오른쪽 위 정보 아이콘(배너 안에 얹힌 앱 요소, Figma 프레임에는 없음)이 x=313~345에
+// 있어, Figma 원래 위치(right:12, 110 폭)로는 26px가 겹친다. 겹침을 없애려고만 왼쪽으로
+// 밀면 글자 블록의 실제 오른쪽 끝(x=199)에 거의 닿아버려서(0~4px), 폭도 100으로 줄여
+// 아이콘 쪽 6px · 글자 쪽 8px의 여유를 함께 확보했다.
+const NOTE_BOX_RIGHT_INSET = 44;
 
 /** 일간 행과 주간 카드는 배치가 다르지만 숫자를 해석하는 규칙은 하나여야 한다 —
  *  특히 밴드 판정(지방·철분)의 null 처리는 두 벌로 존재하면 안 되는 로직이라
  *  계산만 여기로 모으고 화면 구성은 각 컴포넌트가 따로 한다. */
 function resolveNutrientDisplay(item: NutrientSummaryItem) {
-  const colors = summaryStatusColors[item.status_label] ?? DEFAULT_SUMMARY_STATUS_COLORS;
+  // 색은 상태가 아니라 영양소 정체성에서 온다. 일간·주간 모두 같은 맵을 쓰므로 토글을
+  // 눌러도 같은 영양소의 색이 바뀌지 않는다. 상태는 색이 아니라 숫자와 퍼센트로 읽는다.
+  const colors = nutrientColorFor(item.key);
   const Icon = NUTRIENT_ICONS[item.key as NutrientIconKey] as
     | (typeof NUTRIENT_ICONS)[NutrientIconKey]
     | undefined;
@@ -69,6 +78,9 @@ function resolveNutrientDisplay(item: NutrientSummaryItem) {
     colors,
     Icon,
     hasLimit,
+    // total이 null이면(무언가는 기록됐는데 이 영양소만 확인된 값이 없음) 0을 보여주지
+    // 않고 정보없음으로 표시한다 (NULL ≠ 0 원칙, backend/intake_totals.py 참고).
+    valueText: item.total == null ? '정보 없음' : String(item.total),
     // 게이지는 0~100으로 자르지만 글자는 실제 값을 쓴다 — 130%가 트랙을 넘어 그려지지
     // 않으면서도 130%라는 사실은 그대로 전달된다.
     fillPercent: hasLimit ? Math.min(Math.max(item.percent as number, 0), 100) : 0,
@@ -133,13 +145,13 @@ function DailyNutrientRow({ item }: { item: NutrientSummaryItem }) {
         </View>
 
         <Text style={styles.valueRow}>
-          <Text style={[styles.value, { color: d.colors.value }]}>{item.total}</Text>
+          <Text style={[styles.value, { color: d.colors.value }]}>{d.valueText}</Text>
           <Text style={styles.limit}>{d.limitText}</Text>
         </Text>
 
         {d.hasLimit ? (
           <View style={styles.barRow}>
-            <View style={[styles.barTrack, { backgroundColor: d.colors.bg }]}>
+            <View style={[styles.barTrack, { backgroundColor: d.colors.track }]}>
               <View
                 style={[
                   styles.barFill,
@@ -147,7 +159,7 @@ function DailyNutrientRow({ item }: { item: NutrientSummaryItem }) {
                 ]}
               />
             </View>
-            <Text style={[styles.barPercent, { color: d.colors.label }]}>{d.percentText}</Text>
+            <Text style={styles.barPercent}>{d.percentText}</Text>
           </View>
         ) : null}
       </View>
@@ -160,8 +172,9 @@ function DailyNutrientRow({ item }: { item: NutrientSummaryItem }) {
   );
 }
 
-/** 주간(46:461): 카드 하나가 영양소 하나. Figma의 detail_bg는 349 프레임 안에서 201로
- *  그려져 있지만 그건 실수이므로 전체 폭을 쓴다. */
+/** 주간(46:461 / 46:444 / 46:426): 카드 하나가 영양소 하나. 상자가 둘이다 —
+ *  분홍 바깥 상자(337:334) 위에 흰 패널(46:427)이 왼쪽에 얹혀서, 왼쪽 수치 영역과
+ *  오른쪽 비교 영역이 배경색으로 갈린다. */
 function WeeklyNutrientCard({
   item,
   comparison,
@@ -174,6 +187,9 @@ function WeeklyNutrientCard({
 
   return (
     <View style={styles.weeklyCard}>
+      {/* 왼쪽 흰 패널. 내용이 아니라 배경이라 절대 위치로 깔아두고 그 위에 수치를 올린다. */}
+      <View style={styles.weeklyReadoutPanel} />
+
       <View style={styles.readout}>
         <View style={styles.labelRow}>
           {d.Icon ? <d.Icon width={17} height={17} color={d.colors.value} /> : null}
@@ -181,13 +197,13 @@ function WeeklyNutrientCard({
         </View>
 
         <Text style={styles.valueRow}>
-          <Text style={[styles.value, { color: d.colors.value }]}>{item.total}</Text>
+          <Text style={[styles.value, { color: d.colors.value }]}>{d.valueText}</Text>
           <Text style={styles.limit}>{d.limitText}</Text>
         </Text>
 
         {d.hasLimit ? (
           <View style={styles.barRow}>
-            <View style={[styles.barTrack, { backgroundColor: d.colors.bg }]}>
+            <View style={[styles.barTrack, { backgroundColor: d.colors.track }]}>
               <View
                 style={[
                   styles.barFill,
@@ -195,7 +211,7 @@ function WeeklyNutrientCard({
                 ]}
               />
             </View>
-            <Text style={[styles.barPercent, { color: d.colors.label }]}>{d.percentText}</Text>
+            <Text style={styles.barPercent}>{d.percentText}</Text>
           </View>
         ) : null}
       </View>
@@ -273,6 +289,7 @@ export default function ReportScreen() {
   const [data, setData] = useState<ReportResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [errorText, setErrorText] = useState<string | null>(null);
+  const [infoVisible, setInfoVisible] = useState(false);
   // 일간↔주간을 빠르게 오가면 먼저 보낸 요청이 나중에 도착할 수 있다. 최신 요청 번호와
   // 다른 응답은 성공이든 실패든 버려서, 늦게 온 이전 기간의 값이 화면을 덮지 못하게 한다.
   const seqRef = useRef(0);
@@ -353,6 +370,16 @@ export default function ReportScreen() {
                 style={styles.bannerNoteImage}
               />
             </View>
+
+            {/* 흰 원판 없이 배너 배경 위에 바로 글리프만 그린다. 일러스트가 왼쪽으로
+                비켜서 더 이상 이 자리와 겹치지 않는다. 누르는 영역은 32x32로 유지한다. */}
+            <Pressable
+              style={styles.bannerInfoButton}
+              onPress={() => setInfoVisible(true)}
+              accessibilityRole="button"
+              accessibilityLabel="일간과 주간 기준 설명 보기">
+              <InformationIcon width={16} height={16} color={authColors.pink} />
+            </Pressable>
           </LinearGradient>
         ) : null}
 
@@ -375,12 +402,19 @@ export default function ReportScreen() {
               // 일간(331:245): 행 전체가 하나의 카드 안에 들어간다. Figma는 3행이지만
               // 카페인 + 선택 영양소만큼 늘어나므로 높이를 고정하지 않는다.
               <View style={styles.dailyContainer}>
-                <DailyNutrientRow item={data.nutrient_items.caffeine} />
-                {nutrients.map((item) => (
-                  <DailyNutrientRow key={item.key} item={item} />
+                {/* 카페인 + 선택 영양소를 한 배열로 돌려서, 구분선을 "첫 행 위에는 없고
+                    마지막 행 아래에도 없다"는 규칙 하나로 처리한다. */}
+                {[data.nutrient_items.caffeine, ...nutrients].map((item, index) => (
+                  <Fragment key={item.key}>
+                    {index > 0 ? <View style={styles.dailyDivider} /> : null}
+                    <DailyNutrientRow item={item} />
+                  </Fragment>
                 ))}
                 {nutrients.length === 0 ? (
-                  <Text style={styles.emptyText}>{EMPTY_NUTRIENTS_TEXT}</Text>
+                  <>
+                    <View style={styles.dailyDivider} />
+                    <Text style={styles.emptyText}>{EMPTY_NUTRIENTS_TEXT}</Text>
+                  </>
                 ) : null}
               </View>
             ) : (
@@ -418,6 +452,26 @@ export default function ReportScreen() {
           </View>
         ) : null}
       </ScrollView>
+
+      <BottomSheet visible={infoVisible} onClose={() => setInfoVisible(false)}>
+        <View
+          style={[
+            styles.infoSheet,
+            { paddingBottom: styles.infoSheet.paddingBottom + insets.bottom },
+          ]}>
+          <Text style={styles.infoSheetBody}>
+            <Text style={styles.infoSheetHeading}>일간</Text>
+            {'\n하루 동안 먹은 총량을 기준으로 보여줘요.\n\n'}
+            <Text style={styles.infoSheetHeading}>주간</Text>
+            {'\n기록한 날들의 '}
+            <Text style={styles.infoSheetStrong}>하루 평균</Text>
+            {'을 기준으로 보여줘요.\n7일 합계가 아니라서, 기준량도 하루 기준 그대로예요.'}
+          </Text>
+          <Pressable onPress={() => setInfoVisible(false)}>
+            <Text style={styles.infoSheetCloseText}>확인</Text>
+          </Pressable>
+        </View>
+      </BottomSheet>
     </View>
   );
 }
@@ -473,9 +527,10 @@ const styles = StyleSheet.create({
   bannerTexts: {
     paddingTop: 23,
     paddingLeft: 22,
-    // 일러스트(오른쪽 110)와 글자가 겹치지 않도록 비워 둔다. numberOfLines=1과 함께
-    // 쓰여서, 문구가 길어지면 줄바꿈으로 배너 높이를 밀지 않고 말줄임된다.
-    paddingRight: 130,
+    // 일러스트 왼쪽 끝(오른쪽에서 44+100=144)보다 더 안쪽에서 끊어지도록 여유를 둔다.
+    // numberOfLines=1과 함께 쓰여서, 문구가 길어지면 줄바꿈으로 배너 높이를 밀지 않고
+    // 말줄임된다.
+    paddingRight: 150,
   },
   bannerWeek: {
     fontFamily: nanumSquareRound.bold,
@@ -502,18 +557,27 @@ const styles = StyleSheet.create({
   },
   bannerNoteBox: {
     position: 'absolute',
-    right: 12,
+    right: NOTE_BOX_RIGHT_INSET,
     top: 3,
     width: NOTE_BOX,
     height: NOTE_BOX,
     overflow: 'hidden',
   },
   bannerNoteImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'contain',
+  },
+  // 정보 버튼의 실제 누르는 영역은 32x32다. 원판이 없어진 뒤로는 글리프가 배경 위에
+  // 바로 놓이므로 별도 보정 없이 가운데 정렬만 하면 된다.
+  bannerInfoButton: {
     position: 'absolute',
-    left: NOTE_OFFSET,
-    top: NOTE_OFFSET,
-    width: NOTE_BOX * NOTE_SCALE,
-    height: NOTE_BOX * NOTE_SCALE,
+    top: 6,
+    right: 6,
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 
   // ── 일간/주간 토글(332:323) ────────────────────────────
@@ -572,8 +636,16 @@ const styles = StyleSheet.create({
     backgroundColor: authColors.white,
     paddingHorizontal: 16,
     paddingVertical: 20,
-    gap: 22,
+    // 행 사이에 1px 구분선을 끼우므로 gap을 절반으로 나눈다: 10.5 + 1 + 10.5 = 22로
+    // 프레임의 행 간격이 그대로 유지된다.
+    gap: 10.5,
     overflow: 'hidden',
+  },
+  // 프레임에는 없는 선이다 — 실기기에서 행이 서로 붙어 읽혀서 넣었다. 컨테이너의
+  // 자식이라 좌우 16 패딩 안쪽으로 저절로 맞춰진다.
+  dailyDivider: {
+    height: 1,
+    backgroundColor: authColors.border,
   },
   dailyRow: {
     flexDirection: 'row',
@@ -587,15 +659,35 @@ const styles = StyleSheet.create({
 
   // ── 주간: 카드 하나가 영양소 하나 ──────────────────────
   weeklyList: {
-    gap: 17,
+    // Figma는 106 간격(89 카드 + 17)이지만 실기기에서 너무 성글게 읽혀 12로 좁힌다.
+    // 프레임을 따라가지 않기로 한 의도적인 차이다.
+    gap: 12,
   },
   weeklyCard: {
     flexDirection: 'row',
-    alignItems: 'center',
+    // 왼쪽 덩어리를 가운데가 아니라 위에 붙여 아이콘이 Figma의 y=12(카드 세로 여백)에
+    // 정확히 오게 한다. 오른쪽 열은 alignSelf: 'stretch'라 이 값의 영향을 받지 않는다.
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
     minHeight: 89,
     paddingHorizontal: 16,
     paddingVertical: 12,
+    borderRadius: 15,
+    borderWidth: 0.7,
+    borderColor: authColors.border,
+    backgroundColor: reportColors.weeklyCardBg,
+  },
+  weeklyReadoutPanel: {
+    position: 'absolute',
+    // -0.7은 바깥 상자의 테두리 두께다. 이만큼 밀어야 두 상자의 테두리가 Figma처럼 겹쳐
+    // 그려지고, 왼쪽·위·아래에 분홍 실선이 비치지 않는다.
+    left: -0.7,
+    top: -0.7,
+    bottom: -0.7,
+    // Figma는 349 안에서 201(=57.6%)이다. 201을 그대로 고정하면 폭이 360인 기기에서
+    // 분홍 영역이 121만 남아 오른쪽 비교 열(최소 128)과 겹친다. 비율로 두면 360에서도
+    // 185가 남아 게이지(오른쪽 끝 161)와 비교 열이 모두 들어간다.
+    width: '57.6%',
     borderRadius: 15,
     borderWidth: 0.7,
     borderColor: authColors.border,
@@ -605,7 +697,9 @@ const styles = StyleSheet.create({
     // 카드 세로 여백(12)에 5를 더해 compare1을 Figma의 y=17에 맞춘다.
     alignSelf: 'stretch',
     justifyContent: 'flex-start',
-    alignItems: 'flex-end',
+    // stretch라야 두 행이 같은 폭을 갖고, 그 안에서 라벨이 왼쪽 끝·값이 오른쪽 끝에
+    // 정렬된다. flex-end로 두면 행마다 내용 폭이 달라 라벨 시작점이 어긋난다.
+    alignItems: 'stretch',
     paddingTop: 5,
     // Figma 구분선 폭. 폭을 고정하지 않는 이유는 "- 정보 없음"이 "▲ 13%p"보다 넓어서
     // 고정하면 잘리기 때문이다 — 최소치만 잡고 내용에 따라 늘어나게 둔다.
@@ -626,11 +720,16 @@ const styles = StyleSheet.create({
   labelRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    // 아이콘 오른쪽 끝(16+17=33)에서 라벨 시작(36)까지 3.
+    gap: 3,
   },
+  // letterSpacing은 Figma의 tracking 값 그대로다(대략 -0.02em). 빠뜨리면 글자가
+  // 전체적으로 벌어져 프레임과 다르게 읽힌다. 일간 행(331:319)과 주간 카드(46:461)의
+  // tracking 값이 같아서 두 배치가 이 스타일들을 그대로 공유한다.
   nutrientLabel: {
     fontFamily: fonts.medium,
     fontSize: 13,
+    letterSpacing: -0.25,
     color: authColors.brown,
   },
   valueRow: {
@@ -639,20 +738,26 @@ const styles = StyleSheet.create({
   value: {
     fontFamily: fonts.semiBold,
     fontSize: 20,
+    letterSpacing: -0.4,
   },
   limit: {
     fontFamily: fonts.medium,
     fontSize: 12,
+    letterSpacing: -0.24,
     color: authColors.gray,
   },
   barRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    // 게이지 오른쪽 끝(16+145=161)에서 퍼센트 글자 시작(165)까지 4.
+    gap: 4,
     marginTop: 6,
   },
+  // 프레임은 145지만 실기기에서 너무 길게 읽혀 120으로 줄인다. 의도적인 차이이므로
+  // 프레임과 맞추겠다고 145로 되돌리지 말 것. 옆의 퍼센트 글자는 같은 flex 행에 있어
+  // 게이지가 짧아진 만큼 4pt 간격을 유지한 채 함께 왼쪽으로 붙는다.
   barTrack: {
-    width: 145,
+    width: 120,
     height: 8,
     borderRadius: 100,
     overflow: 'hidden',
@@ -661,18 +766,27 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 100,
   },
+  // 게이지 옆 작은 퍼센트만 영양소 색을 쓰지 않는다 — 세 프레임 모두 회색(#848484)이다.
   barPercent: {
     fontFamily: fonts.medium,
     fontSize: 10,
+    letterSpacing: -0.2,
+    color: authColors.gray,
   },
+  // 라벨은 왼쪽 끝, 값은 오른쪽 끝. 프레임에서 두 줄의 라벨이 같은 x에서 시작하고
+  // (주간 215, 일간 234) 값은 블록 오른쪽 끝으로 밀려 있다. gap은 space-between과 함께
+  // 최소 간격으로 남겨둔다 — 값이 길어져도 라벨에 붙지 않는다.
   compareRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     gap: 9,
   },
   // 일간 행은 오른쪽 블록이 컨테이너 없이 바로 붙으므로 여기서 간격을 준다
-  // (주간은 weeklyCompareColumn이 같은 역할을 한다).
+  // (주간은 weeklyCompareColumn이 같은 역할을 한다). 118은 프레임의 compare1 폭이고,
+  // 고정이 아니라 최소값인 이유는 "섭취 상태 정보없음"이 그보다 넓기 때문이다.
   dailyCompare: {
+    minWidth: 118,
     marginLeft: 12,
   },
   compareDeltaRow: {
@@ -681,11 +795,14 @@ const styles = StyleSheet.create({
   compareLabel: {
     fontFamily: fonts.medium,
     fontSize: 12,
+    letterSpacing: -0.24,
     color: authColors.grayDark,
   },
+  // 오른쪽 두 값은 크기가 다르다 — 권장 기준 대비 17, 지난주 대비 15(compareDelta).
   compareValue: {
     fontFamily: fonts.semiBold,
     fontSize: 17,
+    letterSpacing: -0.34,
   },
   compareDelta: {
     fontFamily: fonts.semiBold,
@@ -697,6 +814,7 @@ const styles = StyleSheet.create({
   compareMissing: {
     fontFamily: fonts.medium,
     fontSize: 12,
+    letterSpacing: -0.24,
   },
   emptyText: {
     fontFamily: fonts.regular,
@@ -729,8 +847,41 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: authColors.brown,
   },
+  // ── 일간/주간 기준 안내 시트 ───────────────────────────
+  // OCR 확인 화면의 info 시트와 같은 형태를 쓴다(BottomSheet + 흰 시트 + 확인).
+  infoSheet: {
+    backgroundColor: authColors.white,
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    paddingTop: 36,
+    paddingHorizontal: 19,
+    paddingBottom: 40,
+  },
+  infoSheetBody: {
+    fontFamily: nanumSquareRound.regular,
+    fontSize: 14,
+    lineHeight: 21,
+    color: authColors.grayDark,
+  },
+  infoSheetHeading: {
+    fontFamily: nanumSquareRound.bold,
+    color: authColors.brown,
+  },
+  infoSheetStrong: {
+    fontFamily: nanumSquareRound.bold,
+  },
+  infoSheetCloseText: {
+    fontFamily: nanumSquareRound.bold,
+    fontSize: 15,
+    color: authColors.pink,
+    textAlign: 'center',
+    marginTop: 24,
+    textDecorationLine: 'underline',
+  },
+
   summaryBody: {
-    marginTop: 17,
+    // Figma는 17이지만 제목과 본문이 한 덩어리로 읽히도록 절반으로 줄인다.
+    marginTop: 8.5,
     paddingHorizontal: 16,
   },
   summaryMessageRow: {
