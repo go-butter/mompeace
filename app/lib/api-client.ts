@@ -105,7 +105,7 @@ export interface IntakeTodayResponse {
 export interface NutrientSummaryItem {
   key: string;
   label: string;
-  total: number;
+  total: number | null;
   unit: string;
   limit: number | null;
   percent: number | null;
