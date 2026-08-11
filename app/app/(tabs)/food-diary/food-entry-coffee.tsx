@@ -126,7 +126,7 @@ export default function FoodEntryCoffeeScreen() {
     }
     if (mode === 'home' && selectedHomePreset) {
       return {
-        food_name: `집에서 만든 커피 - ${selectedHomePreset.menu}`,
+        food_name: `홈메이드 커피 - ${selectedHomePreset.menu}`,
         caffeine_mg: selectedHomePreset.caffeine_mg,
       };
     }
@@ -299,7 +299,7 @@ export default function FoodEntryCoffeeScreen() {
     if (!selectedHomePreset) {
       return (
         <View style={styles.card}>
-          <Text style={styles.fieldLabel}>집에서 만든 커피</Text>
+          <Text style={styles.fieldLabel}>홈메이드 커피</Text>
           {options.home_presets.map((preset, index) => (
             <Pressable
               key={`${preset.menu}-${index}`}
@@ -351,7 +351,7 @@ export default function FoodEntryCoffeeScreen() {
           style={[styles.modePill, mode === 'home' && styles.modePillSelected]}
           onPress={() => setMode('home')}>
           <Text style={[styles.modePillText, mode === 'home' && styles.modePillTextSelected]}>
-            집에서 만든 커피
+            홈메이드 커피
           </Text>
         </Pressable>
       </View>
