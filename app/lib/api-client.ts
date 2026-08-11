@@ -308,6 +308,7 @@ export interface WaterLogDeleteResponse {
 
 export class ApiError extends Error {
   field?: string;
+  status?: number;
 }
 
 function throwApiError(detail: unknown): never {
@@ -369,12 +370,13 @@ function put<TReq, TRes>(path: string, body: TReq): Promise<TRes> {
   return request('PUT', path, body);
 }
 
-async function del<TRes>(path: string): Promise<TRes> {
+async function del<TRes>(path: string, body?: unknown): Promise<TRes> {
   let res: Response;
   try {
     res = await fetch(`${API_BASE_URL}${path}`, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
     });
   } catch {
     throw new Error('서버에 연결할 수 없습니다. 인터넷 연결을 확인해 주세요.');
@@ -383,7 +385,9 @@ async function del<TRes>(path: string): Promise<TRes> {
   const data = await res.json();
 
   if (!res.ok) {
-    throw new ApiError(data.detail);
+    const err = new ApiError(data.detail);
+    err.status = res.status;
+    throw err;
   }
 
   return data as TRes;
@@ -928,8 +932,8 @@ export interface AccountDeleteResponse {
   message: string;
 }
 
-export function deleteAccount(userId: number): Promise<AccountDeleteResponse> {
-  return del(`/users/${userId}`);
+export function deleteAccount(userId: number, password: string): Promise<AccountDeleteResponse> {
+  return del(`/users/${userId}`, { password });
 }
 
 export interface TrimesterLimits {

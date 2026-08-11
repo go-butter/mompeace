@@ -2,7 +2,18 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  Alert,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import NextIcon from '@/assets/images/common/next.svg';
@@ -13,7 +24,7 @@ import { authColors } from '@/components/auth/colors';
 import { fonts, nanumSquareRound } from '@/constants/fonts';
 import { useAuth } from '@/context/auth-context';
 import { useIntake } from '@/context/intake-context';
-import { deleteAccount } from '@/lib/api-client';
+import { ApiError, deleteAccount } from '@/lib/api-client';
 
 const CARD_GRADIENT_COLORS = ['#fef4f3', '#fff8f8', '#fff2f1'] as const;
 const CARD_GRADIENT_LOCATIONS = [0, 0.68755, 1] as const;
@@ -50,6 +61,9 @@ export default function MyPageScreen() {
   const { user, logout } = useAuth();
   const { intake, refresh } = useIntake();
   const [deletingAccount, setDeletingAccount] = useState(false);
+  const [passwordModalVisible, setPasswordModalVisible] = useState(false);
+  const [deletePassword, setDeletePassword] = useState('');
+  const [deleteError, setDeleteError] = useState('');
 
   useFocusEffect(
     useCallback(() => {
@@ -65,25 +79,53 @@ export default function MyPageScreen() {
   const handleDeleteAccount = () => {
     if (!user?.user_id) return;
 
+    // Alert.prompt는 iOS 전용이라 여기서 비밀번호를 받을 수 없다. 확인 다이얼로그로
+    // 의사만 먼저 받고, 실제 비밀번호 입력은 아래 커스텀 모달에서 처리한다.
     Alert.alert('정말 탈퇴하시겠어요?', '탈퇴하면 모든 기록이 삭제되며 복구할 수 없어요.', [
       { text: '취소', style: 'cancel' },
       {
         text: '탈퇴하기',
         style: 'destructive',
-        onPress: async () => {
-          setDeletingAccount(true);
-          try {
-            await deleteAccount(user.user_id);
-            logout();
-            router.replace('/(auth)/intro');
-          } catch (err) {
-            Alert.alert('오류', '탈퇴 처리 중 문제가 발생했어요. 다시 시도해 주세요.');
-          } finally {
-            setDeletingAccount(false);
-          }
+        onPress: () => {
+          setDeletePassword('');
+          setDeleteError('');
+          setPasswordModalVisible(true);
         },
       },
     ]);
+  };
+
+  const closePasswordModal = () => {
+    setPasswordModalVisible(false);
+    setDeletePassword('');
+    setDeleteError('');
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!user?.user_id) return;
+    if (!deletePassword) {
+      setDeleteError('비밀번호를 입력해 주세요.');
+      return;
+    }
+
+    setDeletingAccount(true);
+    setDeleteError('');
+    try {
+      await deleteAccount(user.user_id, deletePassword);
+      setPasswordModalVisible(false);
+      setDeletePassword('');
+      logout();
+      router.replace('/(auth)/intro');
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        // 모달을 열어 둔 채 인라인 에러만 표시해 재입력할 수 있게 한다.
+        setDeleteError('비밀번호가 올바르지 않습니다.');
+      } else {
+        setDeleteError('탈퇴 처리 중 문제가 발생했어요. 다시 시도해 주세요.');
+      }
+    } finally {
+      setDeletingAccount(false);
+    }
   };
 
   return (
@@ -163,6 +205,53 @@ export default function MyPageScreen() {
           chevron={false}
         />
       </View>
+
+      <Modal
+        visible={passwordModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={closePasswordModal}>
+        <KeyboardAvoidingView
+          style={styles.modalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>비밀번호 확인</Text>
+            <Text style={styles.modalDescription}>
+              계정을 삭제하려면 비밀번호를 입력해 주세요.
+            </Text>
+            <TextInput
+              style={[styles.modalInput, deleteError ? styles.modalInputError : null]}
+              value={deletePassword}
+              onChangeText={(text) => {
+                setDeletePassword(text);
+                if (deleteError) setDeleteError('');
+              }}
+              placeholder="비밀번호"
+              placeholderTextColor={authColors.gray}
+              secureTextEntry
+              autoFocus
+              editable={!deletingAccount}
+            />
+            {deleteError ? <Text style={styles.modalError}>{deleteError}</Text> : null}
+            <View style={styles.modalButtonRow}>
+              <Pressable
+                style={[styles.modalButton, styles.modalCancelButton]}
+                onPress={closePasswordModal}
+                disabled={deletingAccount}>
+                <Text style={styles.modalCancelText}>취소</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.modalButton, styles.modalDeleteButton]}
+                onPress={handleConfirmDelete}
+                disabled={deletingAccount}>
+                <Text style={styles.modalDeleteText}>
+                  {deletingAccount ? '처리 중...' : '탈퇴하기'}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </ScrollView>
   );
 }
@@ -253,5 +342,74 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: authColors.gray,
     marginTop: 2,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    justifyContent: 'center',
+    paddingHorizontal: 32,
+  },
+  modalCard: {
+    backgroundColor: authColors.white,
+    borderRadius: 15,
+    padding: 24,
+  },
+  modalTitle: {
+    fontFamily: fonts.medium,
+    fontSize: 18,
+    color: authColors.brown,
+  },
+  modalDescription: {
+    fontFamily: fonts.regular,
+    fontSize: 14,
+    color: authColors.gray,
+    marginTop: 8,
+  },
+  modalInput: {
+    fontFamily: fonts.regular,
+    fontSize: 16,
+    color: authColors.grayDark,
+    borderWidth: 1,
+    borderColor: authColors.border,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginTop: 16,
+  },
+  modalInputError: {
+    borderColor: authColors.pink,
+  },
+  modalError: {
+    fontFamily: fonts.regular,
+    fontSize: 13,
+    color: authColors.pink,
+    marginTop: 8,
+  },
+  modalButtonRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 20,
+  },
+  modalButton: {
+    flex: 1,
+    borderRadius: 10,
+    paddingVertical: 13,
+    alignItems: 'center',
+  },
+  modalCancelButton: {
+    backgroundColor: authColors.pinkLight,
+  },
+  modalCancelText: {
+    fontFamily: fonts.medium,
+    fontSize: 15,
+    color: authColors.brown,
+  },
+  modalDeleteButton: {
+    backgroundColor: authColors.pink,
+  },
+  modalDeleteText: {
+    fontFamily: fonts.medium,
+    fontSize: 15,
+    color: authColors.white,
   },
 });

@@ -18,6 +18,10 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class AccountDeleteRequest(BaseModel):
+    password: str
+
+
 class PregnancyUpdate(BaseModel):
     pregnancy_week: Optional[int] = None
     pregnancy_day: Optional[int] = None

@@ -2,10 +2,11 @@ import sqlite3
 from datetime import date
 from backend.intake_totals import TRIMESTER_LABELS, get_trimester_limits, resolve_user_nutrition_context
 
+import bcrypt
 from fastapi import APIRouter, HTTPException, Depends
 
 from backend.database import get_db
-from backend.models import NutrientPreferenceUpdate, PregnancyUpdate
+from backend.models import AccountDeleteRequest, NutrientPreferenceUpdate, PregnancyUpdate
 from backend.nutrition_constants import parse_selected_nutrients, validate_age_bracket, validate_selected_nutrients
 from backend.sensitivity import get_user_adj, recalculate_sensitivity
 
@@ -219,3 +220,55 @@ def get_nutrition_limits(
         "current_trimester": current_trimester,
         "trimesters": trimesters,
     }
+
+
+@router.delete("/users/{user_id}")
+def delete_user(
+    user_id: int,
+    req: AccountDeleteRequest,
+    db: sqlite3.Connection = Depends(get_db)
+):
+    """회원 탈퇴 — 비밀번호 확인 후 사용자와 사용자에 연결된 모든 기록을 삭제한다.
+
+    존재 여부를 먼저 확인(404)하고, 그 다음 비밀번호를 검증(401)한다. 이 엔드포인트는
+    로그인한 본인이 자신의 user_id로만 호출하는 self-service라 존재 여부 자체는
+    민감 정보가 아니며, food_log/water_log 삭제 라우터의 'SELECT 먼저' 선례와도
+    일치한다.
+
+    외래키 CASCADE가 스키마에 없고 PRAGMA foreign_keys도 켜져 있지 않으므로
+    자식 테이블을 부모(users)보다 먼저 명시적으로 삭제한다. food_log_extra_nutrients는
+    user_id가 아니라 food_log_id로만 연결되므로 food_log를 지우기 전에 서브쿼리로
+    먼저 지운다. 모든 DELETE를 하나의 커서에서 실행하고 마지막에 한 번만 commit해
+    단일 트랜잭션(전부 성공 또는 전부 롤백)으로 처리한다.
+    """
+    cursor = db.cursor()
+
+    cursor.execute("SELECT password FROM users WHERE user_id = ?", (user_id,))
+    user = cursor.fetchone()
+    if not user:
+        raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
+
+    stored_hash = user["password"] or ""
+    password_ok = (
+        bcrypt.checkpw(req.password.encode("utf-8"), stored_hash.encode("utf-8"))
+        if stored_hash
+        else False
+    )
+    if not password_ok:
+        raise HTTPException(status_code=401, detail="비밀번호가 올바르지 않습니다.")
+
+    cursor.execute(
+        """
+        DELETE FROM food_log_extra_nutrients
+        WHERE food_log_id IN (SELECT log_id FROM food_log WHERE user_id = ?)
+        """,
+        (user_id,),
+    )
+    cursor.execute("DELETE FROM food_log WHERE user_id = ?", (user_id,))
+    cursor.execute("DELETE FROM water_log WHERE user_id = ?", (user_id,))
+    cursor.execute("DELETE FROM user_food_items WHERE user_id = ?", (user_id,))
+    cursor.execute("DELETE FROM user_sensitivity_log WHERE user_id = ?", (user_id,))
+    cursor.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
+    db.commit()
+
+    return {"user_id": user_id, "message": "회원 탈퇴가 완료되었습니다."}
