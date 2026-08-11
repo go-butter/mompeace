@@ -12,10 +12,12 @@ backend/routers/report.py 의 get_report() 테스트 (기존 커버리지 없음
   더 이상 항상 "unknown"이 아니라 실제 값 기반으로 계산된다 (기존에는 두 컬럼이
   한 번도 채워진 적이 없어 이 경로가 커버되지 않았음)
 """
+from datetime import date
+
 import pytest
 from fastapi import HTTPException
 
-from backend.routers.report import get_report
+from backend.routers.report import _aggregate_day_slots, _aggregate_week, _chart_item_status, get_report
 
 from backend.nutrition_constants import DAILY_WATER_TARGET_ML
 
@@ -60,11 +62,11 @@ class TestGetReportDaily:
 
         assert result["totals"]["caffeine_mg"] == 140.0
         assert result["percentages"]["caffeine"] == 70.0  # 140/200
-        assert self._item(result, "새벽")["caffeine_mg"] == 20.0
-        assert self._item(result, "새벽")["caffeine_pct"] == 10.0  # 20/200
-        assert self._item(result, "오전")["caffeine_mg"] == 30.0
-        assert self._item(result, "오후")["caffeine_mg"] == 40.0
-        assert self._item(result, "저녁")["caffeine_mg"] == 50.0
+        assert self._item(result, "새벽")["nutrients"]["caffeine"]["value"] == 20.0
+        assert self._item(result, "새벽")["nutrients"]["caffeine"]["pct"] == 10.0  # 20/200
+        assert self._item(result, "오전")["nutrients"]["caffeine"]["value"] == 30.0
+        assert self._item(result, "오후")["nutrients"]["caffeine"]["value"] == 40.0
+        assert self._item(result, "저녁")["nutrients"]["caffeine"]["value"] == 50.0
 
     def test_known_sugar_value_used_even_when_another_food_has_null_sugar(self, db):
         # 회귀 가드: 같은 슬롯/하루에 확인된 값이 하나라도 있으면, 다른 음식의 NULL이
@@ -78,12 +80,16 @@ class TestGetReportDaily:
         result = get_report(user_id=user_id, period="daily", date="2030-01-11", db=db)
 
         dawn = self._item(result, "새벽")
-        assert dawn["sugar_g"] == 8.0          # unknown은 0으로 뭉개지지 않고 부분합 유지
-        assert dawn["sugar_status"] == "safe"  # 확인된 값(8g)이 있으므로 더 이상 unknown이 아님
+        assert dawn["nutrients"]["sugar"]["value"] == 8.0    # unknown은 0으로 뭉개지지 않고 부분합 유지
+        assert dawn["nutrients"]["sugar"]["status"] == "safe"  # 확인된 값(8g)이 있으므로 더 이상 unknown이 아님
         assert result["status"]["sugar_status"] == "safe"  # 전체(top-level)에도 반영
 
     def test_empty_slot_is_safe_not_unknown(self, db):
-        # 시간대에 로그가 아예 없는 것과 unknown 값이 있는 것은 다른 상태여야 한다
+        # 시간대에 로그가 아예 없는 것과 unknown 값이 있는 것은 다른 상태여야 한다.
+        # 탄수화물은 기본 선택 영양소(DEFAULT_SELECTED_NUTRIENTS)라 함께 집계되고
+        # floor형이라 0은 "정보없음"이 아니라 "부족"(insufficient)이다 — 하지만 버킷
+        # 롤업 status는 floor형을 제외하므로(_chart_item_status), 이 "부족"이 항목
+        # 전체를 caution으로 끌어내리지 않는다(§7: 부족은 경고가 아니다).
         user_id = make_user(db, pregnancy_week=20)
         make_food_log(db, user_id, caffeine_mg=10, sugar_g=5, sodium_mg=50,
                        eaten_at="2030-01-12 03:00:00")   # 새벽만 기록
@@ -91,10 +97,12 @@ class TestGetReportDaily:
         result = get_report(user_id=user_id, period="daily", date="2030-01-12", db=db)
 
         evening = self._item(result, "저녁")
-        assert evening["caffeine_mg"] == 0.0
-        assert evening["caffeine_status"] == "safe"
-        assert evening["sugar_status"] == "safe"
-        assert evening["sodium_status"] == "safe"
+        assert evening["nutrients"]["caffeine"]["value"] == 0.0
+        assert evening["nutrients"]["caffeine"]["status"] == "safe"
+        assert evening["nutrients"]["sugar"]["status"] == "safe"
+        assert evening["nutrients"]["sodium"]["status"] == "safe"
+        assert evening["nutrients"]["carbohydrate"]["status"] == "insufficient"
+        assert evening["nutrients"]["carbohydrate"]["tier"] == "neutral"
         assert evening["status"] == "safe"
 
 
@@ -190,9 +198,9 @@ class TestGetReportWeekly:
         assert result["date_range"]["start"] == "2030-01-07"
         assert result["date_range"]["end"] == "2030-01-13"
         assert result["totals"]["caffeine_mg"] == 150.0
-        assert self._item(result, "월")["caffeine_mg"] == 100.0
-        assert self._item(result, "화")["caffeine_mg"] == 50.0
-        assert self._item(result, "수")["caffeine_mg"] == 0.0
+        assert self._item(result, "월")["nutrients"]["caffeine"]["value"] == 100.0
+        assert self._item(result, "화")["nutrients"]["caffeine"]["value"] == 50.0
+        assert self._item(result, "수")["nutrients"]["caffeine"]["value"] == 0.0
 
     def test_unknown_status_propagates_top_level_and_per_item(self, db):
         user_id = make_user(db, pregnancy_week=20)
@@ -202,9 +210,9 @@ class TestGetReportWeekly:
         result = get_report(user_id=user_id, period="weekly", date="2030-01-07", db=db)
 
         tuesday = self._item(result, "화")
-        assert tuesday["caffeine_status"] == "unknown"
+        assert tuesday["nutrients"]["caffeine"]["status"] == "unknown"
         assert result["status"]["caffeine_status"] == "unknown"
-        assert tuesday["caffeine_tier"] == "unknown"
+        assert tuesday["nutrients"]["caffeine"]["tier"] == "unknown"
         assert result["status"]["caffeine_tier"] == "unknown"
 
     def test_daily_average_divides_by_days_with_data(self, db):
@@ -509,11 +517,19 @@ class TestGetReportTiers:
         result = get_report(user_id=user_id, period="daily", date="2030-01-10", db=db)
 
         morning = self._item(result, "오전")
+        # 항목 전체(top-level) status/tier/status_label은 여전히 _attach_tiers가 붙인다.
+        # 탄수화물(기본 선택, 0g)은 floor형이라 버킷 롤업(_chart_item_status)에서
+        # 제외되므로, ceiling형(카페인/당류/나트륨)만으로 판정한 결과가 그대로 온다.
         assert morning["status"] == "safe"
         assert morning["tier"] == "safe"
         assert morning["status_label"] == "여유"
-        assert morning["caffeine_tier"] == "safe"
-        assert morning["caffeine_status_label"] == "여유"
+        # 영양소별 tier/status_label은 flat <key>_tier 형제 키가 아니라
+        # nutrients[key] 안에 build_nutrient_summary_item() 결과로 이미 들어 있다.
+        assert morning["nutrients"]["caffeine"]["tier"] == "safe"
+        assert morning["nutrients"]["caffeine"]["status_label"] == "여유"
+        # 탄수화물 자체의 판정은 그대로 남아 있다 — 배제된 건 롤업뿐이다.
+        assert morning["nutrients"]["carbohydrate"]["status"] == "insufficient"
+        assert morning["nutrients"]["carbohydrate"]["tier"] == "neutral"
 
     def test_raw_status_values_are_unchanged(self, db):
         user_id = make_user(db, pregnancy_week=20)
@@ -537,7 +553,11 @@ class TestGetReportTiers:
 
         assert result["status"]["sugar_tier"] == "safe"
         assert result["status"]["sugar_status_label"] == "여유"
+        # 탄수화물(기본 선택, 0g)은 floor형이라 버킷 롤업에서 제외된다 — 이 날의
+        # 조합 tier는 ceiling형(카페인/당류/나트륨)만으로 계산되어 safe로 남는다.
         assert self._item(result, "월")["tier"] == "safe"
+        assert self._item(result, "월")["nutrients"]["sugar"]["tier"] == "safe"
+        assert self._item(result, "월")["nutrients"]["carbohydrate"]["status"] == "insufficient"
 
     def test_non_status_keys_are_left_alone(self, db):
         user_id = make_user(db, pregnancy_week=20)
@@ -550,3 +570,299 @@ class TestGetReportTiers:
             "caffeine_mg", "sugar_g", "sodium_mg",
             "energy_kcal", "carbohydrate_g", "protein_g", "water_ml",
         }
+
+
+class TestAggregateHelpersBandTypeKey:
+    """_aggregate_week()/_aggregate_day_slots()가 band형 영양소(예: 철분)를 포함한
+    keys를 받아도 values/known 중첩 구조를 올바르게 만드는지 확인한다."""
+
+    def test_aggregate_week_shapes_values_and_known_for_iron(self, db):
+        user_id = make_user(db, pregnancy_week=20)
+        make_food_log(db, user_id, caffeine_mg=10, iron_mg=6,
+                       eaten_at="2030-02-04 09:00:00")  # 월요일
+
+        week_days, row_count = _aggregate_week(
+            cursor=db.cursor(), user_id=user_id,
+            monday=date(2030, 2, 4),
+            sunday=date(2030, 2, 10),
+            keys=["caffeine", "iron"],
+        )
+
+        assert row_count == 1
+        monday = next(d for d in week_days if d["label"] == "월")
+        assert monday["values"] == {"caffeine": 10.0, "iron": 6.0}
+        assert monday["known"] == {"caffeine": 1, "iron": 1}
+        tuesday = next(d for d in week_days if d["label"] == "화")
+        assert tuesday["values"] == {"caffeine": 0.0, "iron": 0.0}
+        assert tuesday["known"] == {"caffeine": 0, "iron": 0}
+
+    def test_aggregate_day_slots_shapes_values_and_known_for_iron(self, db):
+        user_id = make_user(db, pregnancy_week=20)
+        make_food_log(db, user_id, caffeine_mg=10, iron_mg=6,
+                       eaten_at="2030-02-04 09:00:00")  # 오전
+
+        slot_data, row_count = _aggregate_day_slots(
+            cursor=db.cursor(), user_id=user_id, date_str="2030-02-04", keys=["caffeine", "iron"]
+        )
+
+        assert row_count == 1
+        assert slot_data["오전"]["values"] == {"caffeine": 10.0, "iron": 6.0}
+        assert slot_data["오전"]["known"] == {"caffeine": 1, "iron": 1}
+        # 철분이 아예 기록되지 않은 시간대는 0/0으로 남는다 (unknown 여부는 이 구조가
+        # 아니라 build_nutrient_summary_item()의 _is_data_unresolved가 판단한다).
+        assert slot_data["새벽"]["values"] == {"caffeine": 0.0, "iron": 0.0}
+        assert slot_data["새벽"]["known"] == {"caffeine": 0, "iron": 0}
+
+
+class TestGetReportChartFollowsSelectedNutrients:
+    """차트(chart.items[].nutrients)가 nutrient_items와 같은 selected_nutrients를
+    따라가는지 확인한다 — 이 파일이 고치는 "같은 화면, 모순된 내용" 버그의 회귀 가드."""
+
+    def test_chart_includes_non_default_selected_nutrient(self, db):
+        user_id = make_user(db, pregnancy_week=20, selected_nutrients="protein")
+        make_food_log(db, user_id, caffeine_mg=10, sugar_g=0, sodium_mg=0,
+                       protein_g=20, eaten_at="2030-02-04 09:00:00")
+
+        result = get_report(user_id=user_id, period="daily", date="2030-02-04", db=db)
+
+        morning = next(i for i in result["chart"]["items"] if i["label"] == "오전")
+        assert set(morning["nutrients"]) == {"caffeine", "protein"}
+        assert morning["nutrients"]["protein"]["value"] == 20.0
+        assert morning["nutrients"]["protein"]["label"] == "단백질"
+
+    def test_chart_omits_unselected_default_nutrients(self, db):
+        # sugar/sodium이 기본 선택 목록에 있지만, 이 사용자는 protein만 선택했으므로
+        # 차트 nutrients에 sugar/sodium이 나타나면 안 된다.
+        user_id = make_user(db, pregnancy_week=20, selected_nutrients="protein")
+
+        result = get_report(user_id=user_id, period="weekly", date="2030-02-04", db=db)
+
+        for item in result["chart"]["items"]:
+            assert "sugar" not in item["nutrients"]
+            assert "sodium" not in item["nutrients"]
+
+    def test_chart_band_type_nutrient_has_null_pct_but_real_tier(self, db):
+        # fat/iron(band형)은 build_nutrient_summary_item()이 항상 percent=None을
+        # 돌려준다 — 단일 퍼센트 개념이 없기 때문이다. 값이 있으면 tier/status는
+        # 여전히 실제로 계산된다.
+        user_id = make_user(db, pregnancy_week=20, selected_nutrients="iron")
+        make_food_log(db, user_id, caffeine_mg=0, iron_mg=30,
+                       eaten_at="2030-02-04 09:00:00")  # 30mg: 권장 이상, 상한 미만 -> safe
+
+        result = get_report(user_id=user_id, period="daily", date="2030-02-04", db=db)
+
+        morning = next(i for i in result["chart"]["items"] if i["label"] == "오전")
+        assert morning["nutrients"]["iron"]["pct"] is None
+        assert morning["nutrients"]["iron"]["value"] == 30.0
+        assert morning["nutrients"]["iron"]["status"] == "safe"
+        assert morning["nutrients"]["iron"]["tier"] == "safe"
+
+    def test_chart_caffeine_only_when_selection_is_empty(self, db):
+        user_id = make_user(db, pregnancy_week=20, selected_nutrients="")
+        make_food_log(db, user_id, caffeine_mg=10, eaten_at="2030-02-04 09:00:00")
+
+        result = get_report(user_id=user_id, period="daily", date="2030-02-04", db=db)
+
+        for item in result["chart"]["items"]:
+            assert set(item["nutrients"]) == {"caffeine"}
+
+
+class TestChartItemStatusExcludesFloorType:
+    """_chart_item_status()의 floor형 제외 규칙을 직접 검증한다.
+
+    회귀 배경: compute_overall_status()는 하루 전체 합계용으로 설계되어 floor형의
+    "미달"을 caution 동급으로 취급한다. 버킷(시간대/요일) 단위에 그대로 적용하면
+    거의 모든 버킷이 caution으로 물드는데(하루치 최소량을 한 버킷에서 채우는 경우는
+    없으므로), mompeace_ocr_design.md §7은 이 "부족"이 경고가 아니라고 명시한다.
+    """
+
+    def test_floor_insufficient_does_not_pollute_bucket_when_ceiling_is_safe(self):
+        nutrients = {
+            "caffeine": {"status": "safe"},
+            "carbohydrate": {"status": "insufficient"},  # floor형, 버킷 단위에서는 항상 미달
+        }
+        assert _chart_item_status(nutrients, ["caffeine", "carbohydrate"]) == "safe"
+
+    def test_ceiling_avoid_still_wins_regardless_of_floor_status(self):
+        nutrients = {
+            "caffeine": {"status": "avoid"},
+            "carbohydrate": {"status": "insufficient"},
+        }
+        assert _chart_item_status(nutrients, ["caffeine", "carbohydrate"]) == "avoid"
+
+    def test_band_type_iron_still_counted_in_rollup(self):
+        nutrients = {
+            "caffeine": {"status": "safe"},
+            "iron": {"status": "avoid"},  # band형은 floor가 아니므로 롤업에 포함된다
+        }
+        assert _chart_item_status(nutrients, ["caffeine", "iron"]) == "avoid"
+
+
+class TestGetReportAiSummary:
+    """ai_summary가 chart_keys(카페인 + 선택 영양소) 전체를 따라가는지, 그리고
+    ceiling/floor/band 타입별로 올바른 문구·심각도를 고르는지 검증한다.
+    pregnancy_week=20(middle) 기준 한도: 카페인 200mg, 당류 50g, 나트륨 1500mg,
+    탄수화물 최소 175g, 에너지 목표 2340kcal, 단백질 70g, 지방 상한 78g(2340*0.30/9),
+    철분 권장 24mg/상한 45mg.
+    """
+
+    def test_ceiling_avoid_uses_daily_specific_wording(self, db):
+        user_id = make_user(db, pregnancy_week=20, selected_nutrients="")
+        make_food_log(db, user_id, caffeine_mg=250, sugar_g=0, sodium_mg=0,
+                       eaten_at="2030-03-01 09:00:00")  # 250/200 -> avoid
+
+        result = get_report(user_id=user_id, period="daily", date="2030-03-01", db=db)
+
+        assert result["ai_summary"]["messages"][0] == (
+            "카페인 섭취량이 기준을 넘었어요. 오늘은 추가 섭취를 피하는 것이 좋아요."
+        )
+
+    def test_ceiling_caution_uses_daily_specific_wording(self, db):
+        user_id = make_user(db, pregnancy_week=20, selected_nutrients="")
+        make_food_log(db, user_id, caffeine_mg=150, sugar_g=0, sodium_mg=0,
+                       eaten_at="2030-03-02 09:00:00")  # 150/200 = 75% -> caution
+
+        result = get_report(user_id=user_id, period="daily", date="2030-03-02", db=db)
+
+        assert result["ai_summary"]["messages"][0] == "카페인 섭취량이 기준에 가까워지고 있어요."
+
+    def test_ceiling_weekly_wording_reads_as_average_not_a_single_day(self, db):
+        # 일간 문구("섭취량이 기준을 넘었어요")를 주간에 그대로 쓰면 "어느 하루
+        # 초과했다"로 읽힌다 — 주간 카드는 하루 평균이므로 반드시 다른 문구를 써야 한다.
+        user_id = make_user(db, pregnancy_week=20, selected_nutrients="")
+        for day in range(14, 21):
+            make_food_log(db, user_id, caffeine_mg=250, sugar_g=0, sodium_mg=0,
+                           eaten_at=f"2030-01-{day} 09:00:00")  # 매일 250mg -> 평균도 avoid
+
+        result = get_report(user_id=user_id, period="weekly", date="2030-01-15", db=db)
+
+        message = result["ai_summary"]["messages"][0]
+        assert "이번 주" in message
+        assert "평균" in message
+        assert message != (
+            "카페인 섭취량이 기준을 넘었어요. 오늘은 추가 섭취를 피하는 것이 좋아요."
+        )
+
+    def test_floor_insufficient_below_half_uses_gentle_far_from_goal_wording(self, db):
+        user_id = make_user(db, pregnancy_week=20, selected_nutrients="carbohydrate")
+        make_food_log(db, user_id, caffeine_mg=0, carbohydrate_g=50,  # 50/175 = 28.6% (<50%)
+                       eaten_at="2030-03-03 09:00:00")
+
+        result = get_report(user_id=user_id, period="daily", date="2030-03-03", db=db)
+
+        assert result["ai_summary"]["messages"][0] == (
+            "탄수화물 섭취가 아직 많이 부족해요. 조금씩 채워보세요."
+        )
+
+    def test_floor_insufficient_above_half_uses_almost_there_wording(self, db):
+        user_id = make_user(db, pregnancy_week=20, selected_nutrients="carbohydrate")
+        make_food_log(db, user_id, caffeine_mg=0, carbohydrate_g=100,  # 100/175 = 57.1% (>=50%)
+                       eaten_at="2030-03-04 09:00:00")
+
+        result = get_report(user_id=user_id, period="daily", date="2030-03-04", db=db)
+
+        assert result["ai_summary"]["messages"][0] == (
+            "탄수화물 섭취가 목표에 거의 다 왔어요. 조금만 더 신경 써주세요."
+        )
+
+    def test_floor_sufficient_produces_no_message(self, db):
+        user_id = make_user(db, pregnancy_week=20, selected_nutrients="carbohydrate")
+        make_food_log(db, user_id, caffeine_mg=0, carbohydrate_g=200,  # >= 175 -> sufficient
+                       eaten_at="2030-03-05 09:00:00")
+
+        result = get_report(user_id=user_id, period="daily", date="2030-03-05", db=db)
+
+        assert "탄수화물" not in " ".join(result["ai_summary"]["messages"])
+
+    def test_band_avoid_and_caution_use_ceiling_style_wording(self, db):
+        user_id = make_user(db, pregnancy_week=20, selected_nutrients="fat")
+        # 90g / 2340kcal 기준 상한(78g) 초과 -> avoid
+        make_food_log(db, user_id, caffeine_mg=0, calories_kcal=2340, fat_g=90,
+                       eaten_at="2030-03-06 09:00:00")
+
+        result = get_report(user_id=user_id, period="daily", date="2030-03-06", db=db)
+
+        assert result["ai_summary"]["messages"][0] == (
+            "지방 섭취량이 상한을 넘었어요. 오늘은 섭취를 줄이는 것이 좋아요."
+        )
+
+    def test_band_low_uses_gentle_non_warning_wording(self, db):
+        user_id = make_user(db, pregnancy_week=20, selected_nutrients="iron")
+        make_food_log(db, user_id, caffeine_mg=0, iron_mg=10,  # < 24mg 권장량 -> low
+                       eaten_at="2030-03-07 09:00:00")
+
+        result = get_report(user_id=user_id, period="daily", date="2030-03-07", db=db)
+
+        assert result["ai_summary"]["messages"][0] == "철분 섭취가 부족해요. 조금 더 신경 써주세요."
+
+    def test_warnings_ordered_worst_tier_first_regardless_of_chart_key_order(self, db):
+        # chart_keys 순서는 caffeine, carbohydrate, sugar, fat인데(선택 순서 그대로),
+        # 심각도 순서(avoid > caution > neutral)가 그 순서를 이겨야 한다.
+        user_id = make_user(db, pregnancy_week=20, selected_nutrients="carbohydrate,sugar,fat")
+        make_food_log(
+            db, user_id,
+            caffeine_mg=0,                 # safe -> 메시지 없음
+            carbohydrate_g=50,              # insufficient -> neutral
+            sugar_g=60,                     # 60/50 > 1.0 -> avoid
+            calories_kcal=2340, fat_g=60,    # 60/78 = 76.9% -> caution
+            eaten_at="2030-03-08 09:00:00",
+        )
+
+        result = get_report(user_id=user_id, period="daily", date="2030-03-08", db=db)
+        messages = result["ai_summary"]["messages"]
+
+        assert "당류" in messages[0] and "넘었" in messages[0]        # avoid
+        assert "지방" in messages[1] and "가까워지고" in messages[1]  # caution
+        assert "탄수화물" in messages[2] and "부족" in messages[2]    # neutral
+
+    def test_nutrient_warnings_capped_at_three(self, db):
+        # chart_keys 최대 4개(카페인 + 선택 3개) 전부 avoid를 내도 카드는 3개까지만
+        # 보여준다 — 동률(전부 avoid)이면 chart_keys 순서(카페인 우선)로 상위 3개.
+        user_id = make_user(db, pregnancy_week=20, selected_nutrients="sugar,sodium,fat")
+        make_food_log(
+            db, user_id,
+            caffeine_mg=250, sugar_g=60, sodium_mg=2000,      # 전부 avoid
+            calories_kcal=2340, fat_g=90,                      # avoid
+            eaten_at="2030-03-09 09:00:00",
+        )
+
+        result = get_report(user_id=user_id, period="daily", date="2030-03-09", db=db)
+        warning_count = sum(
+            1 for m in result["ai_summary"]["messages"]
+            if "넘었" in m or "상한을 넘었" in m
+        )
+        assert warning_count == 3
+        assert "카페인" in result["ai_summary"]["messages"][0]
+        assert "당류" in result["ai_summary"]["messages"][1]
+        assert "나트륨" in result["ai_summary"]["messages"][2]
+        assert "지방" not in " ".join(result["ai_summary"]["messages"][:3])
+
+    def test_fallback_message_when_nothing_fires(self, db):
+        user_id = make_user(db, pregnancy_week=20, selected_nutrients="")
+        make_food_log(db, user_id, caffeine_mg=10, sugar_g=0, sodium_mg=0,
+                       eaten_at="2030-03-10 09:00:00")
+
+        result = get_report(user_id=user_id, period="daily", date="2030-03-10", db=db)
+
+        assert "오늘은 전반적으로 기준 이내에서 섭취했어요." in result["ai_summary"]["messages"]
+
+    def test_weekly_fallback_message_when_nothing_fires(self, db):
+        user_id = make_user(db, pregnancy_week=20, selected_nutrients="")
+        for day in range(14, 21):
+            make_food_log(db, user_id, caffeine_mg=10, sugar_g=0, sodium_mg=0,
+                           eaten_at=f"2030-01-{day} 09:00:00")
+
+        result = get_report(user_id=user_id, period="weekly", date="2030-01-15", db=db)
+
+        assert "이번 주는 전반적으로 안정적인 섭취 흐름을 보였어요." in result["ai_summary"]["messages"]
+
+    def test_all_floor_type_returns_unknown_not_safe(self):
+        # 방어적 케이스: chart_keys가 카페인 없이 floor형만으로 구성되면(현재 코드에서는
+        # chart_keys가 항상 "caffeine"으로 시작해 도달 불가능하다) compute_overall_status()의
+        # 빈 인자 기본값("safe")을 그대로 쓰지 않는다 — 아무것도 판정 안 하고 "안전"이라
+        # 말하는 것은 과장이다. "unknown"을 쓴다.
+        nutrients = {
+            "carbohydrate": {"status": "insufficient"},
+            "protein": {"status": "sufficient"},
+        }
+        assert _chart_item_status(nutrients, ["carbohydrate", "protein"]) == "unknown"
