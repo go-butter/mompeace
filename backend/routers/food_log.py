@@ -432,7 +432,7 @@ def _fetch_food_log_for_date(user_id: int, target_date: str, db: sqlite3.Connect
             "sugar_g": log.get("sugar_g"),
             "sodium_mg": log.get("sodium_mg"),
             "caffeine_mg": log.get("caffeine_mg"),
-            "protein_g": log.get("protein_g") or 0,
+            "protein_g": log.get("protein_g"),
             "extra_nutrients": extra_nutrients,
 
             # 접힌 카드에서 바로 쓰는 값

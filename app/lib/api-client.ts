@@ -133,10 +133,10 @@ export interface FoodLogEntry {
   eaten_at: string;
   time: string;
   calories_kcal: number | null;
-  sugar_g: number;
-  sodium_mg: number;
+  sugar_g: number | null;
+  sodium_mg: number | null;
   caffeine_mg: number | null;
-  protein_g: number;
+  protein_g: number | null;
   extra_nutrients: { name: string; value: string; unit?: string | null }[];
 }
 

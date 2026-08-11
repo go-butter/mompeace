@@ -79,6 +79,28 @@ class TestGetTodayFoodLog:
         assert entry["caffeine_mg"] is None
         assert entry["protein_g"] == 1
 
+    def test_entry_with_null_protein_returns_null_not_zero(self, db):
+        # 단백질 미상(NULL)은 확정된 0으로 뭉개지 않고 그대로 null로 반환되어야 한다.
+        user_id = make_user(db)
+        today_dt = date.today().isoformat() + " 10:15:00"
+        make_food_log(
+            db,
+            user_id,
+            food_id=None,
+            food_name="단백질 미상 음식",
+            sugar_g=5,
+            sodium_mg=30,
+            caffeine_mg=None,
+            protein_g=None,
+            eaten_at=today_dt,
+        )
+
+        result = get_today_food_log(user_id=user_id, db=db)
+
+        assert result["count"] == 1
+        entry = result["logs"][0]
+        assert entry["protein_g"] is None
+
 
 class TestExtraNutrients:
     def test_extra_nutrients_persisted_and_returned(self, db):
