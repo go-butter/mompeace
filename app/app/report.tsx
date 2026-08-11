@@ -45,7 +45,7 @@ import {
   ReportResponse,
 } from '@/lib/api-client';
 
-const SCREEN_SUBTITLE = '카페인, 당류, 나트륨 섭취 패턴을 자세히 확인해 보세요';
+const SCREEN_SUBTITLE = '카페인과 관심 성분을 하루·일주일 단위로 정리했어요';
 const EMPTY_NUTRIENTS_TEXT = '마이페이지에서 관심 영양소를 선택하면 카페인과 함께 여기에 표시돼요.';
 
 // 알약이 "미끄러진다"고 느껴지도록 기본값보다 여유 있는 시간과 ease-in-out을 쓴다.
@@ -66,12 +66,12 @@ const AI_ANALYSIS_DISCLAIMER =
 // 확대·오프셋을 그대로 적용하면 세로 여백은 그대로 보여주면서 가로는 그림 가장자리를
 // 잘라버려(약 7%씩) 결과적으로 잘린 그림이 나온다. 정사각 캔버스이므로 resizeMode
 // "contain"이 곧 "cover"와 같아 확대·오프셋 계산 없이 원본 전체를 손실 없이 보여준다.
-const NOTE_BOX = 100;
+const NOTE_BOX = 112;
 // 오른쪽 위 정보 아이콘(배너 안에 얹힌 앱 요소, Figma 프레임에는 없음)이 x=313~345에
 // 있어, Figma 원래 위치(right:12, 110 폭)로는 26px가 겹친다. 겹침을 없애려고만 왼쪽으로
 // 밀면 글자 블록의 실제 오른쪽 끝(x=199)에 거의 닿아버려서(0~4px), 폭도 100으로 줄여
 // 아이콘 쪽 6px · 글자 쪽 8px의 여유를 함께 확보했다.
-const NOTE_BOX_RIGHT_INSET = 44;
+const NOTE_BOX_RIGHT_INSET = 36;
 
 /** 일간 행과 주간 카드는 배치가 다르지만 숫자를 해석하는 규칙은 하나여야 한다 —
  *  특히 밴드 판정(지방·철분)의 null 처리는 두 벌로 존재하면 안 되는 로직이라
@@ -832,7 +832,7 @@ const styles = StyleSheet.create({
   bannerNoteBox: {
     position: 'absolute',
     right: NOTE_BOX_RIGHT_INSET,
-    top: 3,
+    top: 5,
     width: NOTE_BOX,
     height: NOTE_BOX,
     overflow: 'hidden',
