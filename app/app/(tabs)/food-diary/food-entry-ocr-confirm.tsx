@@ -1038,6 +1038,13 @@ export default function FoodEntryOcrConfirmScreen() {
       .finally(() => setSaving(false));
   };
 
+  // "다시 스캔하기" — 이 화면을 OCR 촬영 가이드로 replace 한다. replace(=push 아님)라
+  // 확인 화면이 스택에 쌓이지 않고, 이 화면이 언마운트되면서 모든 OCR state가 폐기된다
+  // (전부 scan_result 파라미터로 초기화되는 useState/useRef라 다음 스캔에서 새로 마운트됨).
+  const handleRescan = () => {
+    router.replace({ pathname: '/(tabs)/food-diary/food-entry-ocr-guide', params: { date: params.date } });
+  };
+
   // 오늘 섭취 안전도 헤드라인 — 서버가 고른 성분을 그대로 읽는다. 클라이언트는 더 이상
   // 후보를 고르지 않는다(선택은 backend/intake_totals.py의 select_headline_nutrient가
   // 결정론적으로 수행하므로, 타이핑할 때마다 헤드라인이 다른 성분으로 튀지 않는다).
@@ -1490,6 +1497,11 @@ export default function FoodEntryOcrConfirmScreen() {
           onPress={handleSave}
           disabled={isSaveBlocked}>
           <Text style={styles.saveButtonText}>{saving ? '저장 중...' : '기록 저장'}</Text>
+        </Pressable>
+
+        {/* 다시 스캔하기 — 새 스캔으로 다시 시작 (Figma 38:513 / node 46:73 텍스트 스타일) */}
+        <Pressable onPress={handleRescan} hitSlop={8} style={styles.rescanLinkWrap}>
+          <Text style={styles.rescanLink}>다시 스캔하기</Text>
         </Pressable>
       </ScrollView>
 
@@ -2211,6 +2223,18 @@ const styles = StyleSheet.create({
     fontFamily: fonts.semiBold,
     fontSize: 19,
     color: authColors.white,
+  },
+  rescanLinkWrap: {
+    marginTop: 16,
+    alignItems: 'center',
+  },
+  rescanLink: {
+    fontFamily: nanumSquareRound.bold,
+    fontSize: 15,
+    color: authColors.pink,
+    textDecorationLine: 'underline',
+    textAlign: 'center',
+    letterSpacing: -0.15, // Figma 46:73 tracking
   },
   infoSheet: {
     backgroundColor: authColors.white,
