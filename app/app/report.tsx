@@ -13,13 +13,16 @@ import {
 } from 'react-native';
 import Animated, {
   Easing,
+  interpolate,
   interpolateColor,
+  runOnJS,
   useAnimatedStyle,
   useSharedValue,
   withTiming,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import DownIcon from '@/assets/images/common/down.svg';
 import PrevIcon from '@/assets/images/common/prev.svg';
 import InformationIcon from '@/assets/images/onboarding/information.svg';
 import { authColors } from '@/components/auth/colors';
@@ -27,12 +30,16 @@ import BottomSheet from '@/components/common/BottomSheet';
 import { nutrientColorFor } from '@/components/common/nutrientColors';
 import { NUTRIENT_ICONS, NutrientIconKey } from '@/components/common/nutrientIcons';
 import { reportColors } from '@/components/report/colors';
+import IntakeTrendChart from '@/components/report/IntakeTrendChart';
 import { fonts, nanumSquareRound } from '@/constants/fonts';
 import { useAuth } from '@/context/auth-context';
 import {
   ApiError,
   getReport,
+  getReportAiAnalysis,
   NutrientSummaryItem,
+  ReportAiAnalysis,
+  ReportAiSummary,
   ReportComparison,
   ReportPeriod,
   ReportResponse,
@@ -44,6 +51,15 @@ const EMPTY_NUTRIENTS_TEXT = '마이페이지에서 관심 영양소를 선택�
 // 알약이 "미끄러진다"고 느껴지도록 기본값보다 여유 있는 시간과 ease-in-out을 쓴다.
 // 라벨 색도 같은 진행값을 공유해서, 알약이 이동하는 동안 글자색만 먼저 바뀌지 않는다.
 const TOGGLE_TIMING = { duration: 300, easing: Easing.inOut(Easing.cubic) };
+
+// AI 분석 카드가 처음 펼쳐질 때(아직 응답이 없을 때) 잠깐 보여주는 로딩 줄의 높이.
+// 실측이 아니라 고정값이다 — 스피너+한 줄짜리 문구라 내용이 바뀌지 않으므로
+// food-entry-ocr-confirm.tsx의 "추정치로 먼저 펼치고 나중에 실측으로 정착" 방식에서
+// 추정 단계와 같은 역할을 한다. 응답이 오면 실제 내용을 오프스크린으로 재서 이 값에서
+// 실측값으로 다시 애니메이션한다.
+const AI_ANALYSIS_LOADING_HEIGHT = 28;
+const AI_ANALYSIS_DISCLAIMER =
+  '안전도 판단은 앱의 규칙 엔진이 하고, AI는 그 결과를 바탕으로 설명만 제공해요.';
 
 // 배너 일러스트(Figma "note 1")는 원본 440x440 캔버스 중 실제 그림(불투명 영역)이 가로는
 // 거의 꽉 차지만(0.5%~97.7%) 세로는 가운데 67%(15%~82%)뿐이다. Figma가 쓰던 116%/-8%
@@ -282,6 +298,212 @@ function PeriodToggle({
   );
 }
 
+/** AI 분석 요약 카드가 펼쳐졌을 때 무엇을 보여줄지의 상태 기계.
+ *  idle: 아직 펼친 적 없음(펼침 API를 호출하지 않았다)
+ *  loading: 첫 펼침 — 응답 대기 중, 고정 높이 로딩 줄만 보인다
+ *  gemini: 2단계 AI 설명 성공 — text를 그대로 보여준다
+ *  rule_based: 무엇이 실패했든(쿼터 초과/네트워크 오류 등) 규칙 기반 문구로 대체 —
+ *    카드가 이미 갖고 있던 extraMessages를 그대로 쓴다(서버 응답의 messages를 별도로
+ *    쓰지 않는다 — 같은 규칙 엔진이 같은 순서로 만든, 사실상 동일한 목록이다).
+ *  한 번 gemini/rule_based로 정착하면 세션 안에서는 다시 호출하지 않는다(요청 #10) —
+ *  실패도 재시도하지 않고 그대로 정착시킨다(재시도 조건을 따로 두면 "펼칠 때마다
+ *  다시 부를 수도 있다"는 예외가 생겨 요구사항이 흐려진다).
+ */
+type AiAnalysisState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'gemini'; text: string }
+  | { status: 'rule_based' };
+
+/** AI 분석 요약(331:320 + 2단계 Gemini 설명). 접힘 기본값으로 첫 문구(서버가 이미
+ *  심각도순으로 정렬해 보낸다)만 보여주고, 탭하면 펼쳐진다 — 처음 펼칠 때만 서버에
+ *  AI 설명을 요청하고(로딩 표시), 이후 같은 세션에서는 이미 받은 결과를 그대로
+ *  다시 쓴다.
+ *
+ *  높이 애니메이션은 food-entry-ocr-confirm.tsx의 영양성분 테이블 펼침과 같은 방식
+ *  (수동 shared value + withTiming + 완료 시 runOnJS로 auto 높이에 정착)을 쓴다 —
+ *  Reanimated의 자동 layout/entering/exiting은 가변 높이 텍스트 행에서 튄다. 내용이
+ *  두 단계(로딩 줄 → 실제 응답)로 바뀌므로 높이도 두 번 애니메이션한다: 먼저 고정
+ *  로딩 높이(AI_ANALYSIS_LOADING_HEIGHT)로, 응답이 오면 food-diary/index.tsx의
+ *  오프스크린 측정 트릭(투명하게 숨겨둔 실제 내용을 onLayout으로 재서 정확한 값을
+ *  얻는다)으로 다시 실측값까지 — 한국어 문구는 줄바꿈 폭이 일정하지 않아 고정
+ *  상수로 추정할 수 없기 때문이다.
+ */
+function AiSummaryCard({
+  summary,
+  userId,
+  period,
+  date,
+}: {
+  summary: ReportAiSummary;
+  userId: number | undefined;
+  period: ReportPeriod;
+  date: string;
+}) {
+  const [headline, ...extraMessages] = summary.messages;
+
+  const [expanded, setExpanded] = useState(false);
+  const [heightSettled, setHeightSettled] = useState(false);
+  const [analysisState, setAnalysisState] = useState<AiAnalysisState>({ status: 'idle' });
+  const measuredHeightRef = useRef(0);
+  const extraHeight = useSharedValue(0);
+  const extraOpacity = useSharedValue(0);
+  const chevronRotation = useSharedValue(0);
+
+  // 오프스크린 사본은 응답이 실제로 정착했을 때만(로딩 중엔 내용이 없으므로 잴 것도
+  // 없다) 렌더되므로, onLayout이 새로 잡히면 "막 응답이 도착해 로딩 높이에서 실제
+  // 높이로 넘어가야 하는 순간"이거나 "이미 펼쳐진 채 재측정된 순간" 둘 중 하나다.
+  // 두 경우 다 펼쳐져 있으면 그 높이로 바로 애니메이션한다.
+  const handleMeasure = (event: LayoutChangeEvent) => {
+    const height = event.nativeEvent.layout.height;
+    if (height <= 0) return;
+    measuredHeightRef.current = height;
+    if (expanded && (analysisState.status === 'gemini' || analysisState.status === 'rule_based')) {
+      extraHeight.value = withTiming(height, TOGGLE_TIMING, (finished) => {
+        if (finished) runOnJS(setHeightSettled)(true);
+      });
+    }
+  };
+
+  const toggle = () => {
+    if (expanded) {
+      // 접기 전, 정지 상태(auto)에서 실측한 높이로 shared value를 먼저 동기화한다 —
+      // 그래야 추정치로 스냅되는 튐 없이 실제 지점부터 0으로 줄어든다.
+      setHeightSettled(false);
+      extraHeight.value = measuredHeightRef.current;
+      chevronRotation.value = withTiming(0, TOGGLE_TIMING);
+      extraHeight.value = withTiming(0, TOGGLE_TIMING);
+      extraOpacity.value = withTiming(0, TOGGLE_TIMING, (finished) => {
+        if (finished) runOnJS(setExpanded)(false);
+      });
+      return;
+    }
+
+    setExpanded(true);
+    chevronRotation.value = withTiming(1, TOGGLE_TIMING);
+    extraOpacity.value = withTiming(1, TOGGLE_TIMING);
+
+    if (analysisState.status === 'idle') {
+      // 첫 펼침 — 고정 로딩 높이로 먼저 열고, 응답이 오면 handleMeasure가 실제
+      // 높이로 다시 애니메이션한다.
+      setHeightSettled(false);
+      setAnalysisState({ status: 'loading' });
+      extraHeight.value = withTiming(AI_ANALYSIS_LOADING_HEIGHT, TOGGLE_TIMING);
+
+      if (!userId) {
+        // 이론상 도달하지 않는다(이 카드는 리포트가 이미 로드된 뒤에만 그려지고,
+        // 그러려면 user_id가 있어야 한다) — 방어적으로 규칙 기반으로 바로 정착한다.
+        setAnalysisState({ status: 'rule_based' });
+        return;
+      }
+
+      getReportAiAnalysis(userId, period, date)
+        .then((res) => {
+          // res.text만 보면 " "(공백뿐인 문자열)도 truthy라 통과한다 — 실제로는
+          // 서버가 이제 빈/공백 응답을 실패로 처리해 rule_based를 내려주지만
+          // (backend/ai_report_summary.py), 프론트 쪽에서도 같은 기준으로 방어한다.
+          const trimmedText = res.text?.trim();
+          setAnalysisState(
+            res.source === 'gemini' && trimmedText
+              ? { status: 'gemini', text: trimmedText }
+              : { status: 'rule_based' }
+          );
+        })
+        .catch(() => setAnalysisState({ status: 'rule_based' }));
+    } else if (analysisState.status === 'loading') {
+      setHeightSettled(false);
+      extraHeight.value = withTiming(AI_ANALYSIS_LOADING_HEIGHT, TOGGLE_TIMING);
+    } else {
+      // 이미 응답을 받아둔 상태 — 다시 호출하지 않고 실측 높이로 바로 편다.
+      setHeightSettled(false);
+      extraHeight.value = withTiming(measuredHeightRef.current, TOGGLE_TIMING, (finished) => {
+        if (finished) runOnJS(setHeightSettled)(true);
+      });
+    }
+  };
+
+  const chevronStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${interpolate(chevronRotation.value, [0, 1], [0, 180])}deg` }],
+  }));
+  const extraStyle = useAnimatedStyle(() => ({
+    height: heightSettled ? undefined : extraHeight.value,
+    opacity: extraOpacity.value,
+    overflow: 'hidden',
+  }));
+
+  // 로딩 중엔 실제 사본을 아직 잴 수 없으니 렌더하지 않는다 — 고정 높이만 쓴다.
+  const renderResolvedContent = () => {
+    if (analysisState.status === 'gemini') {
+      return (
+        <>
+          <Text style={styles.summaryProseText}>{analysisState.text}</Text>
+          <Text style={styles.summaryDisclaimer}>{AI_ANALYSIS_DISCLAIMER}</Text>
+        </>
+      );
+    }
+    if (analysisState.status === 'rule_based') {
+      return (
+        <>
+          {extraMessages.map((message, index) => (
+            <View key={index} style={styles.summaryMessageRow}>
+              <Text style={styles.summaryBullet}>•</Text>
+              <Text style={styles.summaryMessage}>{message}</Text>
+            </View>
+          ))}
+          <Text style={styles.summaryDisclaimer}>{AI_ANALYSIS_DISCLAIMER}</Text>
+        </>
+      );
+    }
+    return null;
+  };
+
+  const isResolved = analysisState.status === 'gemini' || analysisState.status === 'rule_based';
+
+  return (
+    <View style={styles.summaryCard}>
+      <Pressable style={styles.summaryHeaderRow} onPress={toggle} hitSlop={8}>
+        <Image
+          source={require('@/assets/images/premium/spark.png')}
+          style={styles.summarySpark}
+        />
+        <Text style={styles.summaryTitle}>{summary.title}</Text>
+        <Animated.View style={[styles.summaryChevron, chevronStyle]}>
+          <DownIcon width={21} height={21} />
+        </Animated.View>
+      </Pressable>
+
+      <View style={styles.summaryBody}>
+        <View style={styles.summaryMessageRow}>
+          <Text style={styles.summaryBullet}>•</Text>
+          <Text style={styles.summaryMessage}>{headline}</Text>
+        </View>
+
+        <Animated.View style={extraStyle}>
+          <View>
+            {analysisState.status === 'loading' ? (
+              <View style={styles.summaryLoadingRow}>
+                <ActivityIndicator size="small" color={authColors.pink} />
+                <Text style={styles.summaryMessage}>AI가 분석하고 있어요...</Text>
+              </View>
+            ) : (
+              renderResolvedContent()
+            )}
+          </View>
+        </Animated.View>
+      </View>
+
+      {/* 오프스크린 측정용 사본 — 응답이 정착했을 때만 렌더된다(로딩 중엔 잴 내용이
+          없다). 화면에는 보이지 않지만(opacity 0) 실제와 같은 폭으로 그려져
+          onLayout이 정확한 펼침 높이를 알려준다. */}
+      {isResolved ? (
+        <View pointerEvents="none" style={styles.summaryMeasurement} onLayout={handleMeasure}>
+          {renderResolvedContent()}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 export default function ReportScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
@@ -341,7 +563,7 @@ export default function ReportScreen() {
         ]}>
         <View style={styles.headerRow}>
           <Pressable onPress={() => router.back()} style={styles.prevButton} hitSlop={8}>
-            <PrevIcon width={20} height={20} />
+            <PrevIcon width={15} height={15} />
           </Pressable>
           <Text style={styles.title}>건강 리포트</Text>
         </View>
@@ -395,6 +617,8 @@ export default function ReportScreen() {
           <View
             style={[styles.section, showingOtherPeriod && styles.sectionStale]}
             pointerEvents={showingOtherPeriod ? 'none' : 'auto'}>
+            <IntakeTrendChart chart={data.chart} />
+
             {/* 배치는 period(선택된 탭)가 아니라 data.period(지금 그려진 값의 기간)로 고른다 —
                 위의 흐림 구간에서 일간 숫자가 주간 배치로 튀지 않게 하려면 값과 배치가
                 같이 움직여야 한다. */}
@@ -432,23 +656,12 @@ export default function ReportScreen() {
               </View>
             )}
 
-            <View style={styles.summaryCard}>
-              <View style={styles.summaryHeaderRow}>
-                <Image
-                  source={require('@/assets/images/premium/spark.png')}
-                  style={styles.summarySpark}
-                />
-                <Text style={styles.summaryTitle}>{data.ai_summary.title}</Text>
-              </View>
-              <View style={styles.summaryBody}>
-                {data.ai_summary.messages.map((message, index) => (
-                  <View key={index} style={styles.summaryMessageRow}>
-                    <Text style={styles.summaryBullet}>•</Text>
-                    <Text style={styles.summaryMessage}>{message}</Text>
-                  </View>
-                ))}
-              </View>
-            </View>
+            <AiSummaryCard
+              summary={data.ai_summary}
+              userId={user?.user_id}
+              period={data.period}
+              date={data.period === 'daily' ? data.date : data.date_range.start}
+            />
           </View>
         ) : null}
       </ScrollView>
@@ -465,7 +678,7 @@ export default function ReportScreen() {
             <Text style={styles.infoSheetHeading}>주간</Text>
             {'\n기록한 날들의 '}
             <Text style={styles.infoSheetStrong}>하루 평균</Text>
-            {'을 기준으로 보여줘요.\n7일 합계가 아니라서, 기준량도 하루 기준 그대로예요.'}
+            {'을 기준으로 보여줘요.\n7일 합계가 아니라서, 기준량도 하루 기준 그대로예요.\n그래프는 그날 하루 값을, 아래 카드는 그 평균값을 보여줘요.'}
           </Text>
           <Pressable onPress={() => setInfoVisible(false)}>
             <Text style={styles.infoSheetCloseText}>확인</Text>
@@ -492,21 +705,19 @@ const styles = StyleSheet.create({
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 11,
+    gap: 12,
   },
   prevButton: {
-    width: 39,
-    height: 38,
-    borderRadius: 19.5,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: authColors.pinkLight,
-    borderWidth: 1,
-    borderColor: authColors.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
   title: {
-    fontFamily: fonts.medium,
-    fontSize: 29,
+    fontFamily: fonts.semiBold,
+    fontSize: 20,
     color: authColors.brown,
   },
   screenSubtitle: {
@@ -843,9 +1054,13 @@ const styles = StyleSheet.create({
     height: 20,
   },
   summaryTitle: {
+    flex: 1,
     fontFamily: fonts.medium,
     fontSize: 14,
     color: authColors.brown,
+  },
+  summaryChevron: {
+    padding: 4,
   },
   // ── 일간/주간 기준 안내 시트 ───────────────────────────
   // OCR 확인 화면의 info 시트와 같은 형태를 쓴다(BottomSheet + 흰 시트 + 확인).
@@ -884,6 +1099,16 @@ const styles = StyleSheet.create({
     marginTop: 8.5,
     paddingHorizontal: 16,
   },
+  // 오프스크린 측정 사본 — summaryCard(paddingHorizontal:10) + summaryBody
+  // (paddingHorizontal:16)와 같은 26px 인셋을 줘서 실제 펼침 블록과 같은 폭으로
+  // 줄바꿈되게 한다. opacity 0이라 top 위치는 결과에 영향이 없다.
+  summaryMeasurement: {
+    position: 'absolute',
+    left: 26,
+    right: 26,
+    top: 0,
+    opacity: 0,
+  },
   summaryMessageRow: {
     flexDirection: 'row',
     gap: 6,
@@ -900,5 +1125,33 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 20,
     color: authColors.grayDark,
+  },
+  // summaryMessage와 폰트/크기/줄간격/색은 같지만 flex:1이 없다. summaryMessage의
+  // flex:1은 나머지 세 곳(헤드라인 줄, rule_based 불릿 줄)처럼 flexDirection:'row'
+  // 안에서 불릿 옆 남은 너비를 채우기 위한 것 — 그 축(가로)에서만 의미가 있다.
+  // 이 문단은 row로 감싸지 않은 column 컨테이너의 단독 자식이라, 같은 flex:1이
+  // 세로(컬럼의 주축)에 적용되어 부모가 높이를 정의하지 않은 상태에서 flexBasis:0
+  // 으로 해석돼 높이가 0으로 붕괴한다 — 오프스크린 측정본과 실제 표시본 둘 다
+  // 이 텍스트만큼 실제 내용을 갖지 못하고 있었던 원인. 별도 스타일로 분리한다.
+  summaryProseText: {
+    fontFamily: fonts.medium,
+    fontSize: 12,
+    lineHeight: 20,
+    color: authColors.grayDark,
+  },
+  summaryLoadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    height: AI_ANALYSIS_LOADING_HEIGHT,
+  },
+  // 2단계 AI 설명 아래 저강조 안내 — infoSheetBody보다 한 단계 더 작고 옅게, 본문
+  // 문구(summaryMessage)와 시각적으로 섞이지 않도록 둔다.
+  summaryDisclaimer: {
+    fontFamily: nanumSquareRound.regular,
+    fontSize: 10,
+    lineHeight: 14,
+    color: authColors.gray,
+    marginTop: 8,
   },
 });
