@@ -21,6 +21,8 @@ from backend.nutrition_constants import (
     DAILY_CAFFEINE_LIMIT_MG,
     DAILY_SODIUM_LIMIT_MG,
     DAILY_SUGAR_LIMIT_G,
+    HEADLINE_TIEBREAK_ORDER,
+    NUTRIENT_LABELS_KO,
 )
 
 _HERE = Path(__file__).resolve().parent
@@ -34,6 +36,17 @@ DAILY_LIMITS = {
 
 STATUS_LABEL_KO = {"possible": "섭취 가능", "caution": "주의", "avoid": "비추천"}
 STATUS_RANK = {"possible": 0, "caution": 1, "avoid": 2}
+
+# 판정 대상 영양소 -> food_items/food 딕셔너리의 컬럼명.
+NUTRIENT_TO_FOOD_KEY = {
+    "caffeine": "caffeine_mg",
+    "sugar": "sugar_g",
+    "sodium": "sodium_mg",
+}
+
+# 이미 초과한 영양소가 여러 개일 때의 우선순위. 새 순서를 만들지 않고 기존 정식 순서인
+# HEADLINE_TIEBREAK_ORDER를 판정 대상 3개로 줄여서 재사용한다 (caffeine, sodium, sugar).
+EXCEEDED_PRIORITY = tuple(k for k in HEADLINE_TIEBREAK_ORDER if k in NUTRIENT_TO_FOOD_KEY)
 
 SENSITIVITY_ADJ_MIN = -0.15
 SENSITIVITY_ADJ_MAX = 0.15
@@ -58,6 +71,75 @@ def get_effective_limits(user_adj: Optional[dict] = None) -> dict:
         "sugar": _scaled("sugar"),
         "sodium": _scaled("sodium"),
     }
+
+
+# ── 오늘 남은 허용량 ────────────────────────────────────────
+def compute_nutrient_budget(
+    today_intake: dict,
+    user_adj: Optional[dict] = None,
+) -> dict:
+    """오늘 누적 섭취량 기준으로 영양소별 남은 허용량과 이미 초과한 영양소를 계산한다.
+
+    반환: {"limits": {...}, "remaining": {"caffeine": float, ...},
+           "exceeded": ["sodium", "sugar"]}  # EXCEEDED_PRIORITY 순서
+    remaining은 음수가 되지 않는다 — 0은 "더 먹을 여유가 없다"는 뜻이고,
+    얼마나 넘겼는지는 판정이 아니라 표시(정렬/경고)의 문제라 여기서 다루지 않는다.
+    """
+    limits = get_effective_limits(user_adj)
+    remaining = {
+        nutrient: max(0.0, limits[nutrient] - (today_intake.get(key) or 0.0))
+        for nutrient, key in NUTRIENT_TO_FOOD_KEY.items()
+    }
+    return {
+        "limits": limits,
+        "remaining": remaining,
+        "exceeded": [n for n in EXCEEDED_PRIORITY if remaining[n] <= 0],
+    }
+
+
+def format_exceeded_label(exceeded: list) -> Optional[str]:
+    """이미 초과한 영양소들의 한국어 라벨 (예: "당류·나트륨 초과").
+
+    개별 음식의 reason이 아니라 하루 단위 배너용 문구다 — 음식마다 붙는
+    reason/reason_nutrient은 기존 계약을 그대로 유지한다.
+    """
+    if not exceeded:
+        return None
+    return "·".join(NUTRIENT_LABELS_KO[n] for n in exceeded) + " 초과"
+
+
+def _food_amount(food: dict, nutrient: str, caffeine_missing: bool):
+    """게이트 비교에 쓸 이 음식의 영양소 값. 모르면 None을 그대로 반환한다."""
+    if nutrient == "caffeine":
+        return None if caffeine_missing else food.get("caffeine_mg")
+    return food.get(NUTRIENT_TO_FOOD_KEY[nutrient])
+
+
+def find_gate_breach(food: dict, budget: dict) -> Optional[str]:
+    """이 음식이 오늘 남은 허용량을 넘기는 첫 영양소. 없으면 None.
+
+    이미 먹은 음식은 되돌릴 수 없다. 이미 초과한 영양소(remaining == 0)로 게이트를
+    걸면 그 음식이 실제로 얼마나 들었는지와 무관하게 후보 전체가 avoid가 되어 화면이
+    비어버리는데, 그렇다고 사용자가 더 안전해지지는 않는다. 그래서 초과한 영양소는
+    게이트에서 빠지고 경고와 정렬로 드러낸다 — 절대 기준값 자체는 그대로다.
+
+    값이 None인 영양소는 비교를 건너뛴다: 0으로 바꿔 통과시키지도, 큰 값으로 간주해
+    탈락시키지도 않는다. "정보 없음"은 apply_safety_guard가 caution으로 올린다.
+
+    순회 순서는 NUTRIENT_TO_FOOD_KEY 선언 순서(카페인·당류·나트륨)이며 make_reason의
+    기존 이유 선택 순서와 같다 — 어떤 영양소 때문에 avoid가 됐는지와 화면에 뜨는
+    이유가 항상 같은 답을 내야 하기 때문이다.
+    """
+    caffeine_missing = _is_caffeine_missing(food)
+    for nutrient in NUTRIENT_TO_FOOD_KEY:
+        remaining = budget["remaining"][nutrient]
+        if remaining <= 0:
+            continue
+        amount = _food_amount(food, nutrient, caffeine_missing)
+        if amount is not None and amount > remaining:
+            return nutrient
+    return None
+
 
 # ── 소스 인식 카페인 missing 판별 ──────────────────────────
 def _is_caffeine_missing(food: dict) -> bool:
@@ -95,16 +177,9 @@ def apply_safety_guard(
     ML 예측 결과에 규칙 기반 안전장치를 적용한다.
     안전 방향(avoid/caution)으로만 올릴 수 있으며, 내리지 않는다.
     """
-    limits = get_effective_limits(user_adj)
-    today_caffeine = today_intake.get("caffeine_mg") or 0.0
-    today_sugar = today_intake.get("sugar_g") or 0.0
-    today_sodium = today_intake.get("sodium_mg") or 0.0
+    budget = compute_nutrient_budget(today_intake, user_adj)
 
     caffeine_missing = _is_caffeine_missing(food)
-    raw_caffeine = food.get("caffeine_mg")
-    food_caffeine = raw_caffeine if (raw_caffeine is not None and not caffeine_missing) else 0.0
-    food_sugar = food.get("sugar_g") or 0.0
-    food_sodium = food.get("sodium_mg") or 0.0
     caffeine_keywords = detect_caffeine_keywords(food.get("food_name") or "")
     caffeine_tier = _caffeine_tier(food)
 
@@ -113,13 +188,10 @@ def apply_safety_guard(
             return target
         return current
 
-    # 1. 알려진 영양소 기준 초과 → avoid
-    caffeine_for_ratio = food_caffeine if not caffeine_missing else 0.0
-    after_caffeine_ratio = (today_caffeine + caffeine_for_ratio) / limits["caffeine"]
-    after_sugar_ratio = (today_sugar + food_sugar) / limits["sugar"]
-    after_sodium_ratio = (today_sodium + food_sodium) / limits["sodium"]
-
-    if after_caffeine_ratio > 1.0 or after_sugar_ratio > 1.0 or after_sodium_ratio > 1.0:
+    # 1. 이 음식이 오늘 남은 허용량을 넘김 → avoid (find_gate_breach 주석 참고).
+    #    avoid는 최고 랭크라 이 반환은 언제나 상향이며, 안전장치의 escalate-only
+    #    성질을 그대로 유지한다.
+    if find_gate_breach(food, budget) is not None:
         return "avoid"
 
     # 3. 카페인 missing + 음식명 키워드 → at least caution (커피·초코 등)
@@ -157,26 +229,24 @@ def make_reason(
     user_adj: Optional[dict] = None,
 ) -> tuple:
     """반환값: (한국어 이유 메시지, reason_nutrient 태그)"""
-    limits = get_effective_limits(user_adj)
-    today_caffeine = today_intake.get("caffeine_mg") or 0.0
-    today_sugar = today_intake.get("sugar_g") or 0.0
-    today_sodium = today_intake.get("sodium_mg") or 0.0
+    budget = compute_nutrient_budget(today_intake, user_adj)
 
     caffeine_missing = _is_caffeine_missing(food)
     raw_caffeine = food.get("caffeine_mg")
     food_caffeine = raw_caffeine if (raw_caffeine is not None and not caffeine_missing) else 0.0
-    food_sugar = food.get("sugar_g") or 0.0
-    food_sodium = food.get("sodium_mg") or 0.0
     caffeine_keywords = detect_caffeine_keywords(food.get("food_name") or "")
     caffeine_tier = _caffeine_tier(food)
 
     if status == "avoid":
-        caffeine_for_ratio = food_caffeine if not caffeine_missing else 0.0
-        if (today_caffeine + caffeine_for_ratio) / limits["caffeine"] > 1.0:
+        # 판정과 똑같은 함수로 원인 영양소를 고른다. 예전처럼 (오늘+이 음식)/한도 > 1.0로
+        # 다시 계산하면, 이미 초과한 영양소는 이 음식의 함량과 무관하게 항상 참이라
+        # 실제 원인이 아닌 영양소를 이유로 지목하게 된다.
+        breach = find_gate_breach(food, budget)
+        if breach == "caffeine":
             return "카페인이 오늘 허용량을 초과할 수 있어 섭취를 권장하지 않아요.", "caffeine"
-        if (today_sugar + food_sugar) / limits["sugar"] > 1.0:
+        if breach == "sugar":
             return "당류가 오늘 허용량을 초과할 수 있어 섭취를 권장하지 않아요.", "sugar"
-        if (today_sodium + food_sodium) / limits["sodium"] > 1.0:
+        if breach == "sodium":
             return "나트륨이 오늘 허용량을 초과할 수 있어 섭취를 권장하지 않아요.", "sodium"
         return "오늘 누적 섭취량 기준으로 이 음식은 비추천이에요.", None
 
@@ -211,27 +281,14 @@ def judge_food_rules(
     today_intake: dict,
     user_adj: Optional[dict] = None,
 ) -> str:
-    limits = get_effective_limits(user_adj)
-    today_caffeine = today_intake.get("caffeine_mg") or 0.0
-    today_sugar = today_intake.get("sugar_g") or 0.0
-    today_sodium = today_intake.get("sodium_mg") or 0.0
+    budget = compute_nutrient_budget(today_intake, user_adj)
 
     caffeine_missing = _is_caffeine_missing(food)
-    raw_caffeine = food.get("caffeine_mg")
-    food_caffeine = raw_caffeine if (raw_caffeine is not None and not caffeine_missing) else 0.0
-    food_sugar = food.get("sugar_g") or 0.0
-    food_sodium = food.get("sodium_mg") or 0.0
     caffeine_keywords = detect_caffeine_keywords(food.get("food_name") or "")
 
-    caffeine_for_ratio = food_caffeine if not caffeine_missing else 0.0
-    after_caffeine_ratio = (today_caffeine + caffeine_for_ratio) / limits["caffeine"]
-    after_sugar_ratio = (today_sugar + food_sugar) / limits["sugar"]
-    after_sodium_ratio = (today_sodium + food_sodium) / limits["sodium"]
-
     # 오늘 남은 허용량 안에 들어오면 possible, 넘기면 avoid. 그 사이의 완충 구간은 없다.
-    if (after_caffeine_ratio > 1.0 or
-            after_sugar_ratio > 1.0 or
-            after_sodium_ratio > 1.0):
+    # 이미 초과한 영양소는 게이트에 참여하지 않는다 — find_gate_breach 주석 참고.
+    if find_gate_breach(food, budget) is not None:
         return "avoid"
     if caffeine_missing and caffeine_keywords:
         return "caution"

@@ -31,7 +31,7 @@ from backend.nutrition_constants import DEFAULT_AGE_BRACKET
 from .conftest import make_food_log, make_user
 
 # 임신 20주(middle) + 기본 나이대 기준 limits:
-# caffeine 200mg / sugar 50g / sodium 1500mg / carbohydrate 175g /
+# caffeine 200mg / sugar 50g / sodium 2300mg / carbohydrate 175g /
 # protein 55+15=70g / energy 2000+340=2340kcal / fat 15~30% / iron 24~45mg
 _, LIMITS = get_trimester_limits(20, DEFAULT_AGE_BRACKET)
 
@@ -183,7 +183,7 @@ class TestProjectedCapTypeStatuses:
 
     def test_item_alone_would_be_safe_but_days_total_pushes_it_to_avoid(self):
         # 브리프의 사례: 이미 1400mg 먹은 날에 1710mg 나트륨 품목 -> 3110mg.
-        # 품목만 보면 1710/1500 = 114%지만, 실제로는 207%다.
+        # 품목만 보면 1710/2300 = 74%(caution)지만, 실제로는 135%(avoid)다.
         items = build_daily_projected_statuses(
             {"sodium": 1710.0}, _day(total_sodium=1400, known_sodium_count=1), LIMITS
         )
@@ -194,10 +194,11 @@ class TestProjectedCapTypeStatuses:
         assert sodium["tier"] == "avoid"
 
     def test_small_item_on_an_already_over_limit_day_is_still_avoid(self):
-        # 반대 방향: 800mg짜리 품목은 단독으로는 안전(53%)이지만 이미 한도를 넘긴
-        # 날에는 안전하다고 말하면 안 된다.
+        # 반대 방향: 800mg짜리 품목은 단독으로는 안전(35%)이지만 이미 한도(2300mg)를
+        # 넘긴 날에는 안전하다고 말하면 안 된다. 누적값은 반드시 한도보다 커야 이
+        # 테스트가 의도한 상황("이미 초과한 날")을 실제로 만든다.
         items = build_daily_projected_statuses(
-            {"sodium": 800.0}, _day(total_sodium=1600, known_sodium_count=1), LIMITS
+            {"sodium": 800.0}, _day(total_sodium=2400, known_sodium_count=1), LIMITS
         )
 
         assert _by_key(items)["sodium"]["status"] == "avoid"
@@ -211,10 +212,10 @@ class TestProjectedCapTypeStatuses:
         assert sodium["tier"] == "safe"
 
     def test_percent_is_relative_to_the_daily_limit(self):
-        items = build_daily_projected_statuses({"sodium": 750.0}, _EMPTY_DAY, LIMITS)
+        items = build_daily_projected_statuses({"sodium": 1150.0}, _EMPTY_DAY, LIMITS)
 
         assert _by_key(items)["sodium"]["percent"] == 50.0
-        assert _by_key(items)["sodium"]["limit"] == 1500.0
+        assert _by_key(items)["sodium"]["limit"] == 2300.0
 
     def test_missing_value_on_an_empty_day_is_unknown_with_null_value(self):
         # 정보 없음 ≠ 0 — 값이 0으로 노출되면 "0mg 확정"과 구분할 수 없다.
@@ -333,7 +334,7 @@ class TestProjectedBandTypeStatuses:
 
     def test_fat_bound_comes_from_the_daily_energy_target_not_accumulated_intake(self):
         # 상한 = 하루 에너지 목표(2340) * 30% / 9kcal = 78.0g. 오늘 얼마나 먹었는지와
-        # 무관하게 그날 내내 같은 숫자다 — 나트륨 1500mg과 같은 성격의 고정 기준.
+        # 무관하게 그날 내내 같은 숫자다 — 나트륨 2300mg과 같은 성격의 고정 기준.
         low_energy_day = build_daily_projected_statuses({"fat": 10.0}, _EMPTY_DAY, LIMITS)
         high_energy_day = build_daily_projected_statuses(
             {"energy": 1800.0, "fat": 10.0}, _day(total_calories=500, known_energy_count=1), LIMITS

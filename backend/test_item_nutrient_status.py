@@ -21,7 +21,7 @@ import pytest
 from backend.intake_totals import build_item_nutrient_statuses, get_item_nutrient_status, get_trimester_limits
 from backend.nutrition_constants import DEFAULT_AGE_BRACKET
 
-# 임신 20주차, 기본 나이대 기준 limits — DAILY_SUGAR_LIMIT_G=50.0, DAILY_SODIUM_LIMIT_MG=1500.0,
+# 임신 20주차, 기본 나이대 기준 limits — DAILY_SUGAR_LIMIT_G=50.0, DAILY_SODIUM_LIMIT_MG=2300.0,
 # FAT_ENERGY_RATIO_MIN=0.15, FAT_ENERGY_RATIO_MAX=0.30 (nutrition_constants.py 참고).
 _, LIMITS = get_trimester_limits(20, DEFAULT_AGE_BRACKET)
 
@@ -41,15 +41,19 @@ def test_sugar_avoid_above_limit():
 
 
 def test_sodium_safe_below_seventy_percent():
-    assert get_item_nutrient_status("sodium", 1000.0, LIMITS, item_energy_kcal=None) == "safe"
+    # 1500mg = 2300 대비 65%. (1500은 KDRI 충분섭취량(AI)이지 상한이 아니다 —
+    # 상한 2300mg 기준으로는 아직 safe 구간이라는 점을 이 값으로 함께 못박는다.)
+    assert get_item_nutrient_status("sodium", 1500.0, LIMITS, item_energy_kcal=None) == "safe"
 
 
 def test_sodium_caution_between_seventy_and_hundred_percent():
-    assert get_item_nutrient_status("sodium", 1200.0, LIMITS, item_energy_kcal=None) == "caution"
+    # 1900mg = 83%
+    assert get_item_nutrient_status("sodium", 1900.0, LIMITS, item_energy_kcal=None) == "caution"
 
 
 def test_sodium_avoid_above_limit():
-    assert get_item_nutrient_status("sodium", 1800.0, LIMITS, item_energy_kcal=None) == "avoid"
+    # 2400mg = 104%
+    assert get_item_nutrient_status("sodium", 2400.0, LIMITS, item_energy_kcal=None) == "avoid"
 
 
 # ── band: 철분 (에너지 분모 불필요, 절대 mg 기준) ────────────────

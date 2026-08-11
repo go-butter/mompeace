@@ -18,6 +18,8 @@ from backend.recommendation_model import (
     DAILY_LIMITS,
     STATUS_RANK,
     apply_safety_guard,
+    compute_nutrient_budget,
+    format_exceeded_label,
     judge_food_rules,
     make_reason,
     recommend_food,
@@ -573,7 +575,7 @@ class TestKeywordRuleTierGate:
 
 
 # ── 임신 시기 무관성 ───────────────────────────────────────
-# 카페인 200mg·나트륨 1500mg은 임신 시기와 무관한 고정 기준이므로, 판정도 시기에
+# 카페인 200mg·나트륨 2300mg은 임신 시기와 무관한 고정 기준이므로, 판정도 시기에
 # 따라 달라지지 않는다. 시기별 민감도 규칙(초기 카페인 60%, 후기 나트륨 80%)은
 # 그 기준에 근거가 없어 제거했다.
 
@@ -600,3 +602,111 @@ class TestPregnancyStageDoesNotAffectJudgment:
         # 예전 후기 규칙(나트륨 80% 초과 → caution)에 걸리던 값.
         food = make_food(sodium_mg=DAILY_LIMITS["sodium"] * 0.81)
         assert recommend_food(food=food, today_intake=make_intake())["status"] == "possible"
+
+
+# ── 이미 초과한 영양소는 게이트를 걸지 않는다 ──────────────
+# 예전에는 세 영양소를 `> 1.0`으로 OR 판정해서, 어느 하나라도 오늘 한도를 넘긴 순간
+# after_<n>_ratio가 모든 음식에 대해 참이 되어 후보 전체가 avoid로 떨어졌다(화면이 빔).
+# 이미 먹은 음식은 되돌릴 수 없으므로 그렇게 막아도 사용자가 더 안전해지지 않는다.
+
+class TestExceededNutrientDoesNotGateEveryFood:
+    def test_food_is_still_possible_when_an_unrelated_nutrient_is_exceeded(self):
+        # 오늘 당류를 이미 넘긴 상태. 당류가 0인 음식까지 avoid가 되면 안 된다.
+        intake = make_intake(sugar_g=DAILY_LIMITS["sugar"] * 1.5)
+        food = make_food(sugar_g=0.0, sodium_mg=0.0, caffeine_mg=0.0)
+
+        assert judge_food_rules(food, intake) == "possible"
+
+    def test_food_high_in_the_exceeded_nutrient_is_also_still_possible(self):
+        # 초과한 영양소는 게이트에서 아예 빠진다 — 그 영양소를 많이 가진 음식이라도
+        # 이 규칙만으로는 avoid가 되지 않는다. 경고와 정렬로 드러내는 것이 새 규칙이다.
+        intake = make_intake(sodium_mg=DAILY_LIMITS["sodium"] * 1.2)
+        food = make_food(sodium_mg=DAILY_LIMITS["sodium"] * 0.9)
+
+        assert judge_food_rules(food, intake) == "possible"
+
+    def test_a_nutrient_with_budget_left_still_gates_normally(self):
+        # 초과 규칙이 나머지 영양소의 판정까지 느슨하게 만들면 안 된다.
+        intake = make_intake(sugar_g=DAILY_LIMITS["sugar"] * 1.5)
+        food = make_food(sodium_mg=DAILY_LIMITS["sodium"] * 1.1)
+
+        assert judge_food_rules(food, intake) == "avoid"
+
+    def test_safety_guard_agrees_with_judge_on_an_exceeded_day(self):
+        # 안전장치에도 같은 게이트가 있어서, 여기만 고치지 않으면 버그가 그대로 돌아온다.
+        intake = make_intake(sodium_mg=DAILY_LIMITS["sodium"] * 1.2)
+        food = make_food(sodium_mg=10.0)
+
+        assert apply_safety_guard("possible", food, today_intake=intake) == "possible"
+
+    def test_exact_limit_leaves_no_budget_and_stops_gating(self):
+        # remaining == 0 경계: 정확히 한도만큼 먹은 날은 "남은 허용량 없음"이므로
+        # 그 영양소는 게이트에서 빠진다.
+        intake = make_intake(sodium_mg=DAILY_LIMITS["sodium"])
+        food = make_food(sodium_mg=500.0)
+
+        assert judge_food_rules(food, intake) == "possible"
+
+
+class TestNutrientBudget:
+    def test_remaining_is_clamped_at_zero_and_lists_exceeded(self):
+        intake = make_intake(
+            sugar_g=DAILY_LIMITS["sugar"] * 2,
+            sodium_mg=DAILY_LIMITS["sodium"] * 1.1,
+        )
+        budget = compute_nutrient_budget(intake)
+
+        assert budget["remaining"]["sugar"] == 0.0
+        assert budget["remaining"]["sodium"] == 0.0
+        assert budget["remaining"]["caffeine"] == DAILY_LIMITS["caffeine"]
+        # EXCEEDED_PRIORITY 순서(카페인·나트륨·당류)를 따른다.
+        assert budget["exceeded"] == ["sodium", "sugar"]
+
+    def test_nothing_exceeded_on_an_empty_day(self):
+        budget = compute_nutrient_budget(make_intake())
+
+        assert budget["exceeded"] == []
+        assert budget["remaining"]["sodium"] == DAILY_LIMITS["sodium"]
+
+    def test_label_joins_exceeded_nutrients_in_korean(self):
+        assert format_exceeded_label(["sugar", "sodium"]) == "당류·나트륨 초과"
+        assert format_exceeded_label(["sodium"]) == "나트륨 초과"
+        assert format_exceeded_label([]) is None
+
+
+class TestNullIsNotCoercedToZeroInTheGate:
+    def test_null_nutrient_does_not_pass_the_gate_as_zero(self):
+        # NULL은 "0mg 확정"이 아니다. 게이트 비교를 건너뛰되(0으로 바꿔 통과시키지 않음),
+        # 값을 믿을 수 없다는 사실은 caution으로 드러난다.
+        food = make_food(sodium_mg=None)
+        intake = make_intake()
+
+        assert recommend_food(food=food, today_intake=intake)["status"] == "caution"
+
+    def test_null_nutrient_is_never_excluded_from_candidates(self):
+        # 반대 방향: NULL을 큰 값처럼 취급해 avoid로 떨어뜨려서도 안 된다.
+        food = make_food(sugar_g=None)
+
+        assert recommend_food(food=food, today_intake=make_intake())["status"] != "avoid"
+
+    def test_null_on_an_exceeded_day_still_does_not_become_avoid(self):
+        food = make_food(sodium_mg=None)
+        intake = make_intake(sodium_mg=DAILY_LIMITS["sodium"] * 1.5)
+
+        assert recommend_food(food=food, today_intake=intake)["status"] == "caution"
+
+
+class TestReasonNamesTheNutrientThatActuallyCausedAvoid:
+    def test_reason_does_not_blame_an_already_exceeded_nutrient(self):
+        # 회귀 가드: 예전 make_reason은 (오늘+음식)/한도 > 1.0을 카페인부터 다시
+        # 계산했다. 카페인을 이미 넘긴 날에는 그 식이 음식과 무관하게 참이라,
+        # 나트륨 때문에 avoid가 된 음식의 이유로 카페인이 나왔다.
+        intake = make_intake(caffeine_mg=DAILY_LIMITS["caffeine"] * 2)
+        food = make_food(sodium_mg=DAILY_LIMITS["sodium"] * 1.1)
+
+        status = judge_food_rules(food, intake)
+        reason, reason_nutrient = make_reason(status, food, intake)
+
+        assert status == "avoid"
+        assert reason_nutrient == "sodium"
+        assert "나트륨" in reason

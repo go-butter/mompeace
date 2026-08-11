@@ -49,8 +49,8 @@ class TestBuildOcrStatusView:
         assert all(item["tier"] == "unknown" for item in view["nutrient_statuses"])
 
     def test_days_saved_logs_push_a_scanned_item_over_the_limit(self, db):
-        # 브리프의 사례. 품목 단독 판정이면 1710/1500 = 114%지만, 이미 1400mg을
-        # 먹은 날이라 실제 투영은 3110mg(207%)다.
+        # 브리프의 사례. 품목 단독 판정이면 1710/2300 = 74%(caution)지만, 이미 1400mg을
+        # 먹은 날이라 실제 투영은 3110mg(135%, avoid)다.
         user_id = make_user(db)
         make_food_log(db, user_id, sodium_mg=1400)
         user = _user_row(db, user_id)

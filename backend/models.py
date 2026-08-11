@@ -1,5 +1,5 @@
-from pydantic import BaseModel
-from typing import Optional
+from pydantic import BaseModel, field_validator
+from typing import Optional, Union
 
 
 class RegisterRequest(BaseModel):
@@ -88,8 +88,20 @@ class UserFoodItemCreate(BaseModel):
 class RecommendationRequest(BaseModel):
     user_id: int
     query: Optional[str] = None
-    category: Optional[str] = None
+    # 문자열 하나(기존 클라이언트) 또는 리스트(다중 선택) 둘 다 받는다. 어느 쪽으로
+    # 들어오든 아래 validator가 list[str]로 정규화하므로 라우터는 한 가지 형태만 다룬다.
+    # 빈 리스트는 "카테고리 필터 없음"(전체)이며, None과 같은 의미다.
+    category: Optional[Union[str, list[str]]] = None
     limit: int = 10
+
+    @field_validator("category", mode="after")
+    @classmethod
+    def _normalize_category(cls, value):
+        if value is None:
+            return []
+        if isinstance(value, str):
+            return [value] if value else []
+        return [c for c in value if c]
 
 
 class FeedbackRequest(BaseModel):

@@ -74,7 +74,7 @@ def test_avoid_present_but_empty_product_name_skips_classification(db, monkeypat
     monkeypatch.setattr(ocr_router, "classify_food", lambda name, db: classify_calls.append(1) or (None, None))
 
     result = get_ocr_alternatives(
-        OcrAlternativesRequest(user_id=user_id, product_name=product_name, nutrients=_nutrients(sodium=2000.0)),
+        OcrAlternativesRequest(user_id=user_id, product_name=product_name, nutrients=_nutrients(sodium=2400.0)),
         db=db,
     )
 
@@ -88,7 +88,7 @@ def test_classification_failure_returns_unavailable(db, monkeypatch):
     monkeypatch.setattr(ocr_router, "classify_food", lambda name, db: (None, None))
 
     result = get_ocr_alternatives(
-        OcrAlternativesRequest(user_id=user_id, product_name="알수없는제품", nutrients=_nutrients(sodium=2000.0)),
+        OcrAlternativesRequest(user_id=user_id, product_name="알수없는제품", nutrients=_nutrients(sodium=2400.0)),
         db=db,
     )
 
@@ -105,7 +105,7 @@ def test_classification_succeeds_but_no_candidates_returns_unavailable(db, monke
     monkeypatch.setattr(ocr_router, "classify_food", lambda name, db: ("빵 및 과자류", "과자"))
 
     result = get_ocr_alternatives(
-        OcrAlternativesRequest(user_id=user_id, product_name="포카칩", nutrients=_nutrients(sodium=2000.0)),
+        OcrAlternativesRequest(user_id=user_id, product_name="포카칩", nutrients=_nutrients(sodium=2400.0)),
         db=db,
     )
 
@@ -121,7 +121,7 @@ def test_happy_path_returns_available_with_sorted_alternatives(db, monkeypatch):
     monkeypatch.setattr(ocr_router, "classify_food", lambda name, db: ("면 및 만두류", "라면"))
 
     result = get_ocr_alternatives(
-        OcrAlternativesRequest(user_id=user_id, product_name="신라면", nutrients=_nutrients(sodium=2000.0)),
+        OcrAlternativesRequest(user_id=user_id, product_name="신라면", nutrients=_nutrients(sodium=2400.0)),
         db=db,
     )
 
@@ -145,7 +145,7 @@ def test_gemini_daily_limit_during_classification_degrades_to_unavailable_not_42
     monkeypatch.setattr(ocr_category_classifier, "_call_gemini_enum_choice", _raise)
 
     result = get_ocr_alternatives(
-        OcrAlternativesRequest(user_id=user_id, product_name="신라면", nutrients=_nutrients(sodium=2000.0)),
+        OcrAlternativesRequest(user_id=user_id, product_name="신라면", nutrients=_nutrients(sodium=2400.0)),
         db=db,
     )
 

@@ -124,15 +124,16 @@ def test_scan_happy_path_returns_additive_fields(db):
 def test_scan_projects_onto_todays_saved_totals(db):
     # T5의 핵심: 확인 화면 카드 제목이 "오늘 섭취 안전도"인 만큼, 판정은 품목
     # 단독이 아니라 "오늘 누적 + 이 품목"이어야 한다. 목 데이터의 나트륨은
-    # 178mg/100g * 0.3 = 53.4mg으로 단독으로는 안전하지만, 이미 1450mg을 먹은
-    # 날이라면 합계가 한도를 넘는다.
+    # 178mg/100g * 0.3 = 53.4mg으로 단독으로는 안전(2.3%)하지만, 이미 2250mg을 먹은
+    # 날이라면 합계가 한도(2300mg)를 넘는다. 품목이 아니라 누적이 판정을 뒤집는
+    # 상황을 유지하려면 누적값이 "한도 - 품목값"(2246.6mg)보다 커야 한다.
     user_id = make_user(db)
-    make_food_log(db, user_id, sodium_mg=1450)
+    make_food_log(db, user_id, sodium_mg=2250)
 
     result = scan_nutrition_label(OcrScanRequest(image="ZmFrZQ==", user_id=user_id), db=db)
 
     sodium = next(i for i in result["nutrient_statuses"] if i["key"] == "sodium")
-    assert sodium["value"] == pytest.approx(1503.4)
+    assert sodium["value"] == pytest.approx(2303.4)
     assert sodium["tier"] == "avoid"
 
 

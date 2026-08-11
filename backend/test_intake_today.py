@@ -88,18 +88,18 @@ class TestGetTodayIntakeIronStatus:
 class TestGetTodayIntakeKnownValuePartialData:
     """회귀 가드: 오늘 기록된 음식 중 일부만 특정 영양소 값이 NULL이어도, 다른 음식에
     실제 값이 있으면 그 값 기준으로 상태를 판정해야 한다 — 하나라도 NULL이면 그날
-    전체를 "정보없음"으로 뭉개버리던 버그(예: 실제 나트륨 1629mg짜리 음식을 기록했는데
+    전체를 "정보없음"으로 뭉개버리던 버그(예: 실제 나트륨 2629mg짜리 음식을 기록했는데
     같은 날 나트륨 NULL인 다른 음식 때문에 "정보없음"으로 보이던 문제)의 회귀 가드."""
 
     def test_known_sodium_value_used_even_when_another_food_has_null_sodium(self, db):
         user_id = make_user(db)
-        make_food_log(db, user_id, sodium_mg=1629)       # 확인된 값
+        make_food_log(db, user_id, sodium_mg=2629)       # 확인된 값
         make_food_log(db, user_id, sodium_mg=None)        # 같은 날, 나트륨 unknown
 
         result = get_today_intake(user_id=user_id, db=db)
 
-        assert result["intake"]["total_sodium"] == 1629
-        assert result["status"]["sodium_status"] == "avoid"  # 1629 > 상한(1500mg)
+        assert result["intake"]["total_sodium"] == 2629
+        assert result["status"]["sodium_status"] == "avoid"  # 2629 > 상한(2300mg)
         assert result["status_label"]["sodium"] == "위험"
 
     def test_status_stays_resolved_after_a_later_unknown_food_is_logged(self, db):

@@ -308,7 +308,7 @@ class TestGetReportWeekly:
         assert result["comparison"]["caffeine_vs_previous_pct"] is not None
         assert result["comparison"]["sodium_vs_previous_pct"] is not None
         assert result["comparison"]["caffeine_vs_previous_pct"] == 25.0  # 50% - 25%
-        assert result["comparison"]["sodium_vs_previous_pct"] == 3.4     # 6.7% - 3.3% (limit 1500mg)
+        assert result["comparison"]["sodium_vs_previous_pct"] == 2.1     # 4.3% - 2.2% (limit 2300mg)
 
 
 class TestGetReportNutrientItems:
@@ -701,7 +701,7 @@ class TestChartItemStatusExcludesFloorType:
 class TestGetReportAiSummary:
     """ai_summary가 chart_keys(카페인 + 선택 영양소) 전체를 따라가는지, 그리고
     ceiling/floor/band 타입별로 올바른 문구·심각도를 고르는지 검증한다.
-    pregnancy_week=20(middle) 기준 한도: 카페인 200mg, 당류 50g, 나트륨 1500mg,
+    pregnancy_week=20(middle) 기준 한도: 카페인 200mg, 당류 50g, 나트륨 2300mg,
     탄수화물 최소 175g, 에너지 목표 2340kcal, 단백질 70g, 지방 상한 78g(2340*0.30/9),
     철분 권장 24mg/상한 45mg.
     """
@@ -821,7 +821,7 @@ class TestGetReportAiSummary:
         user_id = make_user(db, pregnancy_week=20, selected_nutrients="sugar,sodium,fat")
         make_food_log(
             db, user_id,
-            caffeine_mg=250, sugar_g=60, sodium_mg=2000,      # 전부 avoid
+            caffeine_mg=250, sugar_g=60, sodium_mg=2400,      # 전부 avoid
             calories_kcal=2340, fat_g=90,                      # avoid
             eaten_at="2030-03-09 09:00:00",
         )

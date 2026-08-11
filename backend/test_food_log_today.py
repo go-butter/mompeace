@@ -129,7 +129,7 @@ class TestExtraNutrients:
 
 class TestPerItemStatusMatchesSharedThresholds:
     """회귀 가드: 개별 항목 상태 판정이 하드코딩 밴드(caffeine<=70, sugar<=30, sodium<=500)
-    대신 get_status()의 트라이메스터 무관 절대 기준(200mg/50g/1500mg, ratio<=0.7 safe/
+    대신 get_status()의 트라이메스터 무관 절대 기준(200mg/50g/2300mg, ratio<=0.7 safe/
     <=1.0 caution)을 그대로 재사용하는지 확인한다. 하드코딩 시절에는 이 구간들의 값이
     실제와 다른 상태로 잘못 표시됐다."""
 
@@ -148,7 +148,7 @@ class TestPerItemStatusMatchesSharedThresholds:
         assert self._status_by_name(result, "카페인") == "safe"
 
     def test_sodium_in_previously_divergent_zone_is_safe(self, db):
-        # 800mg: 예전 하드코딩(<=500 safe)로는 caution이었지만, get_status()(<=1050 safe)로는 safe.
+        # 800mg: 예전 하드코딩(<=500 safe)로는 caution이었지만, get_status()(<=1610 safe)로는 safe.
         user_id = make_user(db)
         today_dt = date.today().isoformat() + " 08:00:00"
         make_food_log(db, user_id, sodium_mg=800, eaten_at=today_dt)
@@ -168,13 +168,13 @@ class TestPerItemStatusMatchesSharedThresholds:
         assert self._status_by_name(result, "당류") == "caution"
 
     def test_avoid_boundary_parity_at_shared_limits(self, db):
-        # 기준값과 정확히 같은 값(200/1500/50)은 세 영양소 모두 caution이어야 한다
+        # 기준값과 정확히 같은 값(200/2300/50)은 세 영양소 모두 caution이어야 한다
         # (ratio<=1.0 경계, get_status() 정의상 <=이지 <가 아님).
         user_id = make_user(db)
         today_dt = date.today().isoformat() + " 08:00:00"
         make_food_log(
             db, user_id,
-            caffeine_mg=200, sodium_mg=1500, sugar_g=50,
+            caffeine_mg=200, sodium_mg=2300, sugar_g=50,
             eaten_at=today_dt,
         )
 
@@ -189,7 +189,7 @@ class TestPerItemStatusMatchesSharedThresholds:
         today_dt = date.today().isoformat() + " 08:00:00"
         make_food_log(
             db, user_id,
-            caffeine_mg=201, sodium_mg=1501, sugar_g=51,
+            caffeine_mg=201, sodium_mg=2301, sugar_g=51,
             eaten_at=today_dt,
         )
 
