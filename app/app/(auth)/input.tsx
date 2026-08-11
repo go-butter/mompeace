@@ -15,6 +15,7 @@ import {
   View,
 } from 'react-native';
 
+import AgeIcon from '@/assets/images/onboarding/age.svg';
 import BabyIcon from '@/assets/images/onboarding/baby.svg';
 import CalIcon from '@/assets/images/onboarding/cal.svg';
 import InformationIcon from '@/assets/images/onboarding/information.svg';
@@ -300,7 +301,7 @@ export default function PregnancyInputScreen() {
         <View style={styles.card}>
           <View style={styles.row}>
             <View style={styles.iconCircle}>
-              <BabyIcon width={24} height={24} />
+              <AgeIcon width={24} height={24} />
             </View>
             <Text style={styles.rowTitle}>나이대</Text>
           </View>

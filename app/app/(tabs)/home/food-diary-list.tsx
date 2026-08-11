@@ -109,7 +109,7 @@ export default function FoodDiaryListScreen() {
         <Pressable onPress={() => router.back()} style={styles.prevButton} hitSlop={8}>
           <PrevIcon width={15} height={15} />
         </Pressable>
-        <Text style={styles.title}>오늘 먹은 음식</Text>
+        <Text style={styles.title}>오늘 식사 기록</Text>
       </View>
 
       <View style={styles.card}>
@@ -193,7 +193,7 @@ const styles = StyleSheet.create({
   rowFoodName: {
     fontFamily: fonts.medium,
     fontSize: 12,
-    color: '#000000',
+    color: authColors.gray,
     flex: 1,
   },
   deleteButton: {

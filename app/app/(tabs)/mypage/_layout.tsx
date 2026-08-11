@@ -34,7 +34,14 @@ export default function MyPageLayout() {
   const shouldHideTabBar = HIDDEN_TAB_BAR_ROUTES.has(currentLeaf);
 
   useEffect(() => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    // LayoutAnimation is global, not scoped to the tab bar — it also animates the scene
+    // container's height growth, so on hide, centered/bottom-anchored screen content visibly
+    // slides down over 300ms. Skip it on hide to remove that interpolation entirely; keep it
+    // on show since the tab bar sliding back in reads as polish and the content shift there is
+    // masked by the outgoing screen's own transition.
+    if (!shouldHideTabBar) {
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    }
     navigation.setOptions({
       tabBarStyle: shouldHideTabBar
         ? { display: 'none' }
@@ -43,7 +50,7 @@ export default function MyPageLayout() {
   }, [navigation, shouldHideTabBar, insets.bottom]);
 
   return (
-    <Stack screenOptions={{ headerShown: false }}>
+    <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#FEFAF9' } }}>
       <Stack.Screen name="index" />
       <Stack.Screen name="edit-profile" />
       <Stack.Screen name="contact" />

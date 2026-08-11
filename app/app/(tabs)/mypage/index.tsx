@@ -7,6 +7,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import NextIcon from '@/assets/images/common/next.svg';
 import CalendarIcon from '@/assets/images/mypage/mypage_calendar.svg';
+import DeleteAccountIcon from '@/assets/images/mypage/mypage_delete_account.svg';
+import NutritionLimitsIcon from '@/assets/images/mypage/mypage_nutrition_limits.svg';
 import { authColors } from '@/components/auth/colors';
 import { fonts, nanumSquareRound } from '@/constants/fonts';
 import { useAuth } from '@/context/auth-context';
@@ -24,20 +26,18 @@ function MenuRow({
   subtitle,
   onPress,
   chevron = true,
-  danger = false,
 }: {
   icon: React.ReactNode;
   title: string;
   subtitle?: string;
   onPress: () => void;
   chevron?: boolean;
-  danger?: boolean;
 }) {
   return (
     <Pressable style={styles.menuRow} onPress={onPress}>
       <View style={styles.menuIconCircle}>{icon}</View>
       <View style={styles.menuTextArea}>
-        <Text style={[styles.menuTitle, danger && styles.menuTitleDanger]}>{title}</Text>
+        <Text style={styles.menuTitle}>{title}</Text>
         {subtitle && <Text style={styles.menuSubtitle}>{subtitle}</Text>}
       </View>
       {chevron && <NextIcon width={16} height={16} />}
@@ -131,7 +131,7 @@ export default function MyPageScreen() {
       <Text style={styles.sectionLabel}>기타</Text>
       <View style={styles.card}>
         <MenuRow
-          icon={<Ionicons name="nutrition-outline" size={22} color={authColors.pink} />}
+          icon={<NutritionLimitsIcon width={22} height={22} color={authColors.pink} />}
           title="초/중/후기별 제한사항"
           subtitle="현재 시기 기준 1일 영양 기준값"
           onPress={() => router.push('/(tabs)/mypage/nutrition-limits')}
@@ -146,7 +146,7 @@ export default function MyPageScreen() {
         <MenuRow
           icon={<Ionicons name="document-text-outline" size={22} color={authColors.pink} />}
           title="개인정보 처리방침"
-          onPress={() => Alert.alert('준비중입니다', '빠른 시일 내에 준비하겠습니다.')}
+          onPress={() => router.push('/privacy-policy')}
         />
         <View style={styles.menuDivider} />
         <MenuRow
@@ -157,11 +157,10 @@ export default function MyPageScreen() {
         />
         <View style={styles.menuDivider} />
         <MenuRow
-          icon={<Ionicons name="person-remove-outline" size={22} color="#DC2626" />}
+          icon={<DeleteAccountIcon width={22} height={22} color={authColors.pink} />}
           title={deletingAccount ? '탈퇴 처리 중...' : '회원탈퇴'}
           onPress={handleDeleteAccount}
           chevron={false}
-          danger
         />
       </View>
     </ScrollView>
@@ -248,9 +247,6 @@ const styles = StyleSheet.create({
     fontFamily: fonts.medium,
     fontSize: 16,
     color: authColors.brown,
-  },
-  menuTitleDanger: {
-    color: '#DC2626',
   },
   menuSubtitle: {
     fontFamily: fonts.regular,

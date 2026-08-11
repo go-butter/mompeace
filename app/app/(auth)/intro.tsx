@@ -1,10 +1,11 @@
 import { router } from 'expo-router';
 import { useEffect } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import Animated, {
-  FadeInDown,
+  Easing,
   useAnimatedStyle,
   useSharedValue,
+  withDelay,
   withTiming,
 } from 'react-native-reanimated';
 
@@ -39,24 +40,134 @@ const FEATURES = [
   },
 ] as const;
 
-// Splash hands off here at full opacity, centered; Reanimated has no cross-route
-// shared-element transition in v4, so we fake the "settle into place" continuity
-// by starting the logo lower/opaque and animating it up + fading it on mount.
-const LOGO_START_OFFSET = 160;
+// Splash hands off here at full opacity, centered; expo-router replaces the
+// route with `animation: 'none'` (see (auth)/_layout.tsx) so there's no nav
+// transition to hide a mismatch. The logo starts exactly where the splash's
+// centered logo sat and rises from there, computed from window height so it
+// lines up on any device.
+const LOGO_SIZE = 161;
+const CONTENT_PADDING_TOP = 60;
+const LOGO_RISE_DURATION = 1300;
+const TEXT_FADE_DURATION = 900;
+const SUBTITLE_DELAY = 150;
+const CARD_FADE_DURATION = 700;
+const CARD_STAGGER = 350;
+const TEXT_RISE_OFFSET = 16;
+const FADE_EASING = Easing.inOut(Easing.cubic);
 
 export default function IntroScreen() {
-  const logoTranslateY = useSharedValue(LOGO_START_OFFSET);
+  const { height: windowHeight } = useWindowDimensions();
+  // Splash centers the logo at (windowHeight - LOGO_SIZE) / 2; intro's resting
+  // position (post-animation) is CONTENT_PADDING_TOP. The gap between them is
+  // the initial translateY offset the logo rises through.
+  const logoStartOffset = (windowHeight - LOGO_SIZE) / 2 - CONTENT_PADDING_TOP;
+
+  const logoTranslateY = useSharedValue(logoStartOffset);
   const logoOpacity = useSharedValue(1);
 
+  const titleOpacity = useSharedValue(0);
+  const titleTranslateY = useSharedValue(TEXT_RISE_OFFSET);
+  const subtitleOpacity = useSharedValue(0);
+  const subtitleTranslateY = useSharedValue(TEXT_RISE_OFFSET);
+
+  const card0Opacity = useSharedValue(0);
+  const card0TranslateY = useSharedValue(TEXT_RISE_OFFSET);
+  const card1Opacity = useSharedValue(0);
+  const card1TranslateY = useSharedValue(TEXT_RISE_OFFSET);
+  const card2Opacity = useSharedValue(0);
+  const card2TranslateY = useSharedValue(TEXT_RISE_OFFSET);
+
   useEffect(() => {
-    logoTranslateY.value = withTiming(0, { duration: 1300 });
-    logoOpacity.value = withTiming(0.4, { duration: 1300 });
-  }, [logoOpacity, logoTranslateY]);
+    // Chain each stage off the previous one's actual `finished` callback rather
+    // than hardcoded absolute delays, so the text can never appear before the
+    // logo has genuinely settled.
+    logoTranslateY.value = withTiming(
+      0,
+      { duration: LOGO_RISE_DURATION, easing: FADE_EASING },
+      (finished) => {
+        'worklet';
+        if (!finished) return;
+
+        titleOpacity.value = withTiming(
+          1,
+          { duration: TEXT_FADE_DURATION, easing: FADE_EASING },
+          (titleFinished) => {
+            'worklet';
+            if (!titleFinished) return;
+
+            card0Opacity.value = withTiming(1, { duration: CARD_FADE_DURATION, easing: FADE_EASING });
+            card0TranslateY.value = withTiming(0, { duration: CARD_FADE_DURATION, easing: FADE_EASING });
+            card1Opacity.value = withDelay(
+              CARD_STAGGER,
+              withTiming(1, { duration: CARD_FADE_DURATION, easing: FADE_EASING }),
+            );
+            card1TranslateY.value = withDelay(
+              CARD_STAGGER,
+              withTiming(0, { duration: CARD_FADE_DURATION, easing: FADE_EASING }),
+            );
+            card2Opacity.value = withDelay(
+              CARD_STAGGER * 2,
+              withTiming(1, { duration: CARD_FADE_DURATION, easing: FADE_EASING }),
+            );
+            card2TranslateY.value = withDelay(
+              CARD_STAGGER * 2,
+              withTiming(0, { duration: CARD_FADE_DURATION, easing: FADE_EASING }),
+            );
+          },
+        );
+        titleTranslateY.value = withTiming(0, { duration: TEXT_FADE_DURATION, easing: FADE_EASING });
+
+        subtitleOpacity.value = withDelay(
+          SUBTITLE_DELAY,
+          withTiming(1, { duration: TEXT_FADE_DURATION, easing: FADE_EASING }),
+        );
+        subtitleTranslateY.value = withDelay(
+          SUBTITLE_DELAY,
+          withTiming(0, { duration: TEXT_FADE_DURATION, easing: FADE_EASING }),
+        );
+      },
+    );
+    logoOpacity.value = withTiming(0.4, { duration: LOGO_RISE_DURATION, easing: FADE_EASING });
+  }, [
+    logoTranslateY,
+    logoOpacity,
+    titleOpacity,
+    titleTranslateY,
+    subtitleOpacity,
+    subtitleTranslateY,
+    card0Opacity,
+    card0TranslateY,
+    card1Opacity,
+    card1TranslateY,
+    card2Opacity,
+    card2TranslateY,
+  ]);
 
   const logoAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: logoTranslateY.value }],
     opacity: logoOpacity.value,
   }));
+  const titleAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: titleOpacity.value,
+    transform: [{ translateY: titleTranslateY.value }],
+  }));
+  const subtitleAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: subtitleOpacity.value,
+    transform: [{ translateY: subtitleTranslateY.value }],
+  }));
+  const card0AnimatedStyle = useAnimatedStyle(() => ({
+    opacity: card0Opacity.value,
+    transform: [{ translateY: card0TranslateY.value }],
+  }));
+  const card1AnimatedStyle = useAnimatedStyle(() => ({
+    opacity: card1Opacity.value,
+    transform: [{ translateY: card1TranslateY.value }],
+  }));
+  const card2AnimatedStyle = useAnimatedStyle(() => ({
+    opacity: card2Opacity.value,
+    transform: [{ translateY: card2TranslateY.value }],
+  }));
+  const cardAnimatedStyles = [card0AnimatedStyle, card1AnimatedStyle, card2AnimatedStyle];
 
   return (
     <View style={styles.container}>
@@ -68,13 +179,13 @@ export default function IntroScreen() {
           resizeMode="contain"
         />
 
-        <Animated.View entering={FadeInDown.delay(0).duration(900)}>
+        <Animated.View style={titleAnimatedStyle}>
           <Text style={styles.title}>
             <Text style={{ color: authColors.brown }}>안전한 선택을, </Text>
             <Text style={{ color: authColors.pink }}>맘편하게</Text>
           </Text>
         </Animated.View>
-        <Animated.View entering={FadeInDown.delay(350).duration(900)}>
+        <Animated.View style={subtitleAnimatedStyle}>
           <Text style={styles.subtitle}>
             임신 중 먹거리 걱정을{'\n'}맘편하게가 함께 해결해 드려요
           </Text>
@@ -84,8 +195,7 @@ export default function IntroScreen() {
           {FEATURES.map(({ key, iconBg, Icon, title, subtitle }, index) => (
             <Animated.View
               key={key}
-              entering={FadeInDown.delay(700 + index * 350).duration(900)}
-              style={styles.card}>
+              style={[styles.card, cardAnimatedStyles[index]]}>
               <View style={[styles.iconCircle, { backgroundColor: iconBg }]}>
                 <Icon width={28} height={28} />
               </View>
@@ -116,12 +226,12 @@ const styles = StyleSheet.create({
   },
   content: {
     alignItems: 'center',
-    paddingTop: 60,
+    paddingTop: CONTENT_PADDING_TOP,
     paddingHorizontal: 24,
   },
   logo: {
-    width: 161,
-    height: 161,
+    width: LOGO_SIZE,
+    height: LOGO_SIZE,
   },
   title: {
     fontSize: 29,

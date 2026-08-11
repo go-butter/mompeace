@@ -20,6 +20,7 @@ const HEART_ASPECT_RATIO = 696 / 588;
 import FoodIcon from '@/assets/images/home/food.svg';
 import WaterIcon from '@/assets/images/home/water.svg';
 import ReportIcon from '@/assets/images/home/report.svg';
+import ScanIcon from '@/assets/images/home/scan.svg';
 import RemainCoffeeIcon from '@/assets/images/home/home_remain_coffee.svg';
 import ProfileIcon from '@/assets/images/common/profile_circle.svg';
 import InformationIcon from '@/assets/images/onboarding/information.svg';
@@ -79,7 +80,15 @@ function ShortcutButton({
 }) {
   return (
     <Pressable style={styles.shortcutButton} onPress={onPress}>
-      <View style={styles.shortcutIconCircle}>{icon}</View>
+      <View style={styles.shortcutIconCircle}>
+        <LinearGradient
+          colors={['#FFF5F3', '#FFE0E0']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 0, y: 1 }}
+          style={StyleSheet.absoluteFillObject}
+        />
+        {icon}
+      </View>
       <Text style={styles.shortcutTitle}>{title}</Text>
       <Text style={styles.shortcutSubtitle}>{subtitle}</Text>
     </Pressable>
@@ -311,19 +320,30 @@ export default function HomeScreen() {
 
       <View style={styles.shortcutCard}>
         <ShortcutButton
-          icon={<FoodIcon width={24} height={24} />}
+          icon={<ScanIcon width={28} height={28} />}
+          title="영양성분 스캔"
+          subtitle="라벨 촬영 기록"
+          onPress={() =>
+            router.push({
+              pathname: '/(tabs)/food-diary/food-entry-ocr-capture',
+              params: { date: intake.date },
+            })
+          }
+        />
+        <ShortcutButton
+          icon={<FoodIcon width={28} height={28} />}
           title="음식 추가하기"
           subtitle="빠른 식사 기록"
           onPress={() => setPopupVisible(true)}
         />
         <ShortcutButton
-          icon={<WaterIcon width={24} height={24} />}
+          icon={<WaterIcon width={28} height={28} />}
           title="수분 다이어리"
           subtitle="물 섭취 기록"
           onPress={() => router.push('/water-diary')}
         />
         <ShortcutButton
-          icon={<ReportIcon width={24} height={24} />}
+          icon={<ReportIcon width={28} height={28} />}
           title="건강 리포트"
           subtitle="식습관 분석"
           onPress={() => router.push('/report')}
@@ -341,7 +361,7 @@ export default function HomeScreen() {
                 '임신 초·중·후기별로 매일 정보가 달라져요! 임산부 공통 상식은 식습관과 관련한 정보를 제공해요 :)'
               )
             }>
-            <InformationIcon width={20} height={20} />
+            <InformationIcon width={20} height={20} color={authColors.pink} />
           </Pressable>
         </View>
 
@@ -375,7 +395,7 @@ export default function HomeScreen() {
       {hasEntries && (
         <View style={styles.card}>
           <View style={styles.cardHeaderRow}>
-            <Text style={styles.cardTitle}>오늘 먹은 음식</Text>
+            <Text style={styles.cardTitle}>오늘 식사 기록</Text>
             <Text
               style={styles.viewAllText}
               onPress={() => router.push('/(tabs)/home/food-diary-list')}>
@@ -493,9 +513,9 @@ const styles = StyleSheet.create({
     marginTop: 20,
     shadowColor: authColors.pink,
     shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.12,
-    shadowRadius: 16,
-    elevation: 4,
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 3,
   },
   cardHeaderRow: {
     flexDirection: 'row',
@@ -625,16 +645,9 @@ const styles = StyleSheet.create({
   },
   shortcutCard: {
     flexDirection: 'row',
-    backgroundColor: authColors.white,
-    borderRadius: 24,
-    padding: 16,
+    paddingHorizontal: 16,
     marginTop: 20,
     justifyContent: 'space-between',
-    shadowColor: authColors.pink,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.12,
-    shadowRadius: 16,
-    elevation: 4,
   },
   shortcutButton: {
     alignItems: 'center',
@@ -643,8 +656,8 @@ const styles = StyleSheet.create({
   shortcutIconCircle: {
     width: 48,
     height: 48,
-    borderRadius: 16,
-    backgroundColor: '#FFF0F0',
+    borderRadius: 10,
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -678,7 +691,7 @@ const styles = StyleSheet.create({
   foodName: {
     fontFamily: fonts.medium,
     fontSize: 14,
-    color: authColors.brown,
+    color: authColors.gray,
     flex: 1,
   },
   tipRow: {

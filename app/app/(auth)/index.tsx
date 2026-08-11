@@ -7,7 +7,7 @@ import { GradientBackground } from '@/components/auth/gradient-background';
 export default function SplashScreen() {
   useEffect(() => {
     const timer = setTimeout(() => {
-      router.push('/(auth)/intro');
+      router.replace('/(auth)/intro');
     }, 1800);
     return () => clearTimeout(timer);
   }, []);

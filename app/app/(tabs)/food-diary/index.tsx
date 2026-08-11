@@ -3,7 +3,14 @@ import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Animated, { interpolate, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
+import Animated, {
+  Easing,
+  Extrapolation,
+  interpolate,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 
 import PrevIcon from '@/assets/images/common/prev.svg';
 import DownIcon from '@/assets/images/common/down.svg';
@@ -19,7 +26,7 @@ import { useAuth } from '@/context/auth-context';
 import { useFoodDiary } from '@/context/food-diary-context';
 import { ApiError, deleteFoodLog, FoodLogEntry } from '@/lib/api-client';
 
-const EXPAND_SPRING_CONFIG = { damping: 16, stiffness: 100, mass: 1 };
+const TOGGLE_TIMING = { duration: 300, easing: Easing.inOut(Easing.cubic) };
 
 function FoodLogRow({ entry, onDelete }: { entry: FoodLogEntry; onDelete: (entry: FoodLogEntry) => void }) {
   return (
@@ -33,7 +40,7 @@ function FoodLogRow({ entry, onDelete }: { entry: FoodLogEntry; onDelete: (entry
         }}
         hitSlop={8}
         style={styles.deleteButton}>
-        <XIcon width={19} height={19} color={authColors.pink} />
+        <XIcon width={19} height={19} color={authColors.gray} />
       </Pressable>
     </View>
   );
@@ -90,13 +97,20 @@ export default function FoodDiaryScreen() {
   const toggleSummaryExpanded = () => {
     const next = !summaryExpanded;
     setSummaryExpanded(next);
-    expandProgress.value = withSpring(next ? 1 : 0, EXPAND_SPRING_CONFIG);
+    expandProgress.value = withTiming(next ? 1 : 0, TOGGLE_TIMING);
   };
 
   const summaryContentAnimatedStyle = useAnimatedStyle(() => ({
-    height: interpolate(expandProgress.value, [0, 1], [0, summaryContentHeight.value]),
+    height: interpolate(
+      expandProgress.value,
+      [0, 1],
+      [0, summaryContentHeight.value],
+      Extrapolation.CLAMP
+    ),
     opacity: expandProgress.value,
-    transform: [{ scaleY: interpolate(expandProgress.value, [0, 1], [0.85, 1]) }],
+    transform: [
+      { scaleY: interpolate(expandProgress.value, [0, 1], [0.85, 1], Extrapolation.CLAMP) },
+    ],
   }));
 
   const chevronAnimatedStyle = useAnimatedStyle(() => ({

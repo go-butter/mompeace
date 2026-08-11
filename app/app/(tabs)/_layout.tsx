@@ -36,6 +36,7 @@ export default function TabLayout() {
       screenOptions={{
         headerShown: false,
         tabBarButton: HapticTab,
+        sceneStyle: { backgroundColor: '#FEFAF9' },
         tabBarStyle: {
           backgroundColor: '#fff',
           borderTopLeftRadius: 15,

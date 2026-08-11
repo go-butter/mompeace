@@ -4,7 +4,7 @@ export default function AuthLayout() {
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="index" options={{ gestureEnabled: false }} />
-      <Stack.Screen name="intro" />
+      <Stack.Screen name="intro" options={{ animation: 'none' }} />
       <Stack.Screen name="login" />
       <Stack.Screen name="register" />
       <Stack.Screen name="input" />

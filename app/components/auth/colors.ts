@@ -6,4 +6,6 @@ export const authColors = {
   grayDark: '#4A4A4A',
   border: '#ECDEDD',
   white: '#FFFFFF',
+  pinkChipBg: '#FFD0D1',
+  pinkChipBorder: '#E9999B',
 };

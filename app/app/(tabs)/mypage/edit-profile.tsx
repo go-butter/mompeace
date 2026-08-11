@@ -15,6 +15,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import PrevIcon from '@/assets/images/common/prev.svg';
+import AgeIcon from '@/assets/images/mypage/mypage_edit_age.svg';
 import BabyIcon from '@/assets/images/mypage/mypage_edit_baby.svg';
 import CalIcon from '@/assets/images/mypage/mypage_edit_calendar.svg';
 import CalButtonIcon from '@/assets/images/mypage/mypage_edit_cal_button.svg';
@@ -265,7 +266,7 @@ export default function EditProfileScreen() {
         <View style={[styles.card, styles.secondCard]}>
           <View style={styles.row}>
             <View style={styles.iconCircle}>
-              <BabyIcon width={24} height={24} />
+              <AgeIcon width={24} height={24} />
             </View>
             <Text style={styles.rowTitle}>나이대</Text>
           </View>
