@@ -299,15 +299,19 @@ function PeriodToggle({
 }
 
 /** AI 분석 요약 카드가 펼쳐졌을 때 무엇을 보여줄지의 상태 기계.
- *  idle: 아직 펼친 적 없음(펼침 API를 호출하지 않았다)
+ *  idle: 아직 펼친 적 없음(펼침 API를 호출하지 않았다) — period/date가 바뀌면
+ *    gemini/rule_based에서 다시 idle로 되돌아간다(아래 useEffect 참고).
  *  loading: 첫 펼침 — 응답 대기 중, 고정 높이 로딩 줄만 보인다
- *  gemini: 2단계 AI 설명 성공 — text를 그대로 보여준다
+ *  gemini: 2단계 AI 설명 성공 — text를 그대로 보여준다("\n"으로 구분된 포인트들,
+ *    renderResolvedContent() 참고)
  *  rule_based: 무엇이 실패했든(쿼터 초과/네트워크 오류 등) 규칙 기반 문구로 대체 —
  *    카드가 이미 갖고 있던 extraMessages를 그대로 쓴다(서버 응답의 messages를 별도로
  *    쓰지 않는다 — 같은 규칙 엔진이 같은 순서로 만든, 사실상 동일한 목록이다).
- *  한 번 gemini/rule_based로 정착하면 세션 안에서는 다시 호출하지 않는다(요청 #10) —
- *  실패도 재시도하지 않고 그대로 정착시킨다(재시도 조건을 따로 두면 "펼칠 때마다
- *  다시 부를 수도 있다"는 예외가 생겨 요구사항이 흐려진다).
+ *  같은 period/date로 머무는 동안 gemini/rule_based에 한 번 정착하면 다시 펼쳐도
+ *  재호출하지 않는다(요청 #10) — 실패도 재시도하지 않고 그대로 정착시킨다(재시도
+ *  조건을 따로 두면 "펼칠 때마다 다시 부를 수도 있다"는 예외가 생겨 요구사항이
+ *  흐려진다). period나 date 자체가 바뀌면 얘기가 다르다 — 아래 useEffect가 그
+ *  경계를 담당한다.
  */
 type AiAnalysisState =
   | { status: 'idle' }
@@ -317,8 +321,17 @@ type AiAnalysisState =
 
 /** AI 분석 요약(331:320 + 2단계 Gemini 설명). 접힘 기본값으로 첫 문구(서버가 이미
  *  심각도순으로 정렬해 보낸다)만 보여주고, 탭하면 펼쳐진다 — 처음 펼칠 때만 서버에
- *  AI 설명을 요청하고(로딩 표시), 이후 같은 세션에서는 이미 받은 결과를 그대로
- *  다시 쓴다.
+ *  AI 설명을 요청하고(로딩 표시), 이후 같은 period/date로 머무는 동안에는 이미 받은
+ *  결과를 그대로 다시 쓴다.
+ *
+ *  이 컴포넌트는 일간/주간 토글 때마다 리마운트되지 않는다(부모가 key={period}를
+ *  주지 않는다) — 리마운트하면 카드가 펼쳐진 채로 토글했을 때 접히는 애니메이션 없이
+ *  그 프레임에 바로 닫힌 모습으로 다시 나타난다(state/shared value가 전부 초기화되며
+ *  진행 중이던 접힘 애니메이션도 함께 사라진다). 대신 아래 useEffect가 period/date
+ *  변화를 감지해 이미 있는 접힘 애니메이션(toggle()의 접기 분기와 동일한 코드)으로
+ *  부드럽게 접고, analysisState만 idle로 되돌려 다음 펼침이 새 period/date로 다시
+ *  fetch하게 만든다 — 예전에는 이 리셋이 없어 다른 기간의 문구가 그대로 남아있었다
+ *  (일간/주간 텍스트가 동일하게 보이던 버그의 원인).
  *
  *  높이 애니메이션은 food-entry-ocr-confirm.tsx의 영양성분 테이블 펼침과 같은 방식
  *  (수동 shared value + withTiming + 완료 시 runOnJS로 auto 높이에 정착)을 쓴다 —
@@ -349,6 +362,32 @@ function AiSummaryCard({
   const extraHeight = useSharedValue(0);
   const extraOpacity = useSharedValue(0);
   const chevronRotation = useSharedValue(0);
+  // period/date가 바뀔 때마다 올라간다. 펼침 시점에 캡처해 두었다가 fetch가 돌아왔을
+  // 때 그 사이 값이 바뀌었으면(=사용자가 응답을 기다리는 동안 토글을 눌렀으면) 결과를
+  // 버린다 — ReportScreen.fetchReport()의 seqRef와 같은 패턴이다.
+  const requestTokenRef = useRef(0);
+
+  // 이 카드는 일간/주간 토글에도 리마운트되지 않으므로(위 컴포넌트 docstring 참고),
+  // period/date가 바뀌었다는 사실을 직접 감지해 이전 기간의 analysisState를 버려야
+  // 한다 — 그렇지 않으면 toggle()의 "이미 응답 받아둔 상태" 분기가 다른 기간의 문구를
+  // 그대로 재사용한다(일간/주간 텍스트가 같아 보이던 버그의 근본 원인).
+  useEffect(() => {
+    requestTokenRef.current += 1;
+    if (expanded) {
+      // toggle()의 접기 분기와 완전히 동일한 애니메이션이다 — 새 애니메이션을
+      // 만들지 않고 이미 있는 접힘 경로를 그대로 재사용한다.
+      setHeightSettled(false);
+      extraHeight.value = measuredHeightRef.current;
+      chevronRotation.value = withTiming(0, TOGGLE_TIMING);
+      extraHeight.value = withTiming(0, TOGGLE_TIMING);
+      extraOpacity.value = withTiming(0, TOGGLE_TIMING, (finished) => {
+        if (finished) runOnJS(setExpanded)(false);
+      });
+    }
+    setAnalysisState({ status: 'idle' });
+    measuredHeightRef.current = 0;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [period, date]);
 
   // 오프스크린 사본은 응답이 실제로 정착했을 때만(로딩 중엔 내용이 없으므로 잴 것도
   // 없다) 렌더되므로, onLayout이 새로 잡히면 "막 응답이 도착해 로딩 높이에서 실제
@@ -397,8 +436,13 @@ function AiSummaryCard({
         return;
       }
 
+      // 이 요청이 도착했을 때도 여전히 같은 period/date인지 확인할 토큰 — 응답을
+      // 기다리는 동안 사용자가 토글을 눌렀으면(위 useEffect가 토큰을 올려둔다) 이제
+      // 다른 기간을 보고 있는 것이므로 이 결과는 버려야 한다.
+      const requestToken = requestTokenRef.current;
       getReportAiAnalysis(userId, period, date)
         .then((res) => {
+          if (requestTokenRef.current !== requestToken) return;
           // res.text만 보면 " "(공백뿐인 문자열)도 truthy라 통과한다 — 실제로는
           // 서버가 이제 빈/공백 응답을 실패로 처리해 rule_based를 내려주지만
           // (backend/ai_report_summary.py), 프론트 쪽에서도 같은 기준으로 방어한다.
@@ -409,7 +453,10 @@ function AiSummaryCard({
               : { status: 'rule_based' }
           );
         })
-        .catch(() => setAnalysisState({ status: 'rule_based' }));
+        .catch(() => {
+          if (requestTokenRef.current !== requestToken) return;
+          setAnalysisState({ status: 'rule_based' });
+        });
     } else if (analysisState.status === 'loading') {
       setHeightSettled(false);
       extraHeight.value = withTiming(AI_ANALYSIS_LOADING_HEIGHT, TOGGLE_TIMING);
@@ -434,9 +481,25 @@ function AiSummaryCard({
   // 로딩 중엔 실제 사본을 아직 잴 수 없으니 렌더하지 않는다 — 고정 높이만 쓴다.
   const renderResolvedContent = () => {
     if (analysisState.status === 'gemini') {
+      // 계약: 이 "\n" split은 backend/ai_report_summary.py의
+      // _generate_analysis_text()가 points를 "\n"으로 조인하는 것과 짝을 이룬다 —
+      // 조인 문자를 바꾸면 여기도 같이 바꿔야 한다(그렇지 않으면 다시 포인트 구분
+      // 없는 한 덩어리로 보인다). points 배열 자체는 이미 Gemini 응답 스키마로
+      // 구조화되어 백엔드가 만들어 보낸 것이라, 여기서 하는 일은 그 구분자로 다시
+      // 나누는 것뿐이다 — 정규식으로 문장/불릿 경계를 추측하는 게 아니다. "\r"은
+      // 방어적으로만 제거한다("\r\n"이 섞여 와도 빈 줄로 보이지 않게).
+      const points = analysisState.text
+        .split('\n')
+        .map((point) => point.split('\r').join('').trim())
+        .filter((point) => point.length > 0);
       return (
         <>
-          <Text style={styles.summaryProseText}>{analysisState.text}</Text>
+          {points.map((point, index) => (
+            <View key={index} style={styles.summaryMessageRow}>
+              <Text style={styles.summaryBullet}>•</Text>
+              <Text style={styles.summaryMessage}>{point}</Text>
+            </View>
+          ))}
           <Text style={styles.summaryDisclaimer}>{AI_ANALYSIS_DISCLAIMER}</Text>
         </>
       );
@@ -1119,21 +1182,12 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     color: authColors.grayDark,
   },
+  // flex:1은 flexDirection:'row' 컨테이너(summaryMessageRow) 안에서 불릿 옆 남은
+  // 너비를 채우기 위한 것 — row로 감싸지 않은 column의 단독 자식으로 쓰면 그
+  // flex:1이 세로축에 적용되어 높이가 0으로 붕괴한다(과거 이 카드의 AI 문단이
+  // 화면에 보이지 않던 원인). 항상 summaryMessageRow와 짝지어 쓸 것.
   summaryMessage: {
     flex: 1,
-    fontFamily: fonts.medium,
-    fontSize: 12,
-    lineHeight: 20,
-    color: authColors.grayDark,
-  },
-  // summaryMessage와 폰트/크기/줄간격/색은 같지만 flex:1이 없다. summaryMessage의
-  // flex:1은 나머지 세 곳(헤드라인 줄, rule_based 불릿 줄)처럼 flexDirection:'row'
-  // 안에서 불릿 옆 남은 너비를 채우기 위한 것 — 그 축(가로)에서만 의미가 있다.
-  // 이 문단은 row로 감싸지 않은 column 컨테이너의 단독 자식이라, 같은 flex:1이
-  // 세로(컬럼의 주축)에 적용되어 부모가 높이를 정의하지 않은 상태에서 flexBasis:0
-  // 으로 해석돼 높이가 0으로 붕괴한다 — 오프스크린 측정본과 실제 표시본 둘 다
-  // 이 텍스트만큼 실제 내용을 갖지 못하고 있었던 원인. 별도 스타일로 분리한다.
-  summaryProseText: {
     fontFamily: fonts.medium,
     fontSize: 12,
     lineHeight: 20,

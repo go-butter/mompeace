@@ -126,17 +126,20 @@ _SYSTEM_INSTRUCTION = """\
 - 입력에 trimester가 주어집니다. reference_notes 안에 지금 시기(초기/중기/후기)와 관련된
   근거가 있을 때만 그 영양소의 중요성을 시기와 연결해 말하세요. reference_notes에 시기별
   근거가 없으면 시기를 언급하지 말고 일반적으로만 설명하세요.
-- 자연스러운 문단으로 쓰되 순서를 지키세요: (1) 현재 상태를 요약하는 한 문장,
-  (2) 그와 관련해 실천할 수 있는 구체적 제안 1~2개(음식 제안 포함), (3) 해당하면 지금
-  임신 시기와 관련된 조언 한 문장. 전체 4~6문장 정도로 씁니다.
+- 응답은 points 배열로 주세요. 보통 2~3개입니다: (1) 현재 상태를 요약하는 포인트 하나,
+  (2) 그와 관련해 실천할 수 있는 구체적 제안(음식 제안 포함) 포인트 하나, (3) 해당하면
+  지금 임신 시기와 관련된 조언 포인트 하나(해당 없으면 생략). 각 포인트는 그 자체로
+  완결된 한국어 문장 1~2개로 쓰세요. 포인트 앞에 번호나 기호(1., -, • 등)를 직접 붙이지
+  마세요 — 화면이 표시합니다.
 """
 
 
-class _AiAnalysisText(BaseModel):
-    # min_length=1은 ""만 걸러낸다 — 공백만 있는 문자열(" ", "\n")은 길이가
-    # 0이 아니라서 여기를 통과한다. 그 경우는 _generate_analysis_text()의
-    # .strip() 체크가 잡는다. 스키마와 .strip() 둘 다 필요한 이유가 이것이다.
-    text: str = Field(min_length=1)
+class _AiAnalysisPoints(BaseModel):
+    # min_length=1은 "빈 배열"만 걸러낸다 — 원소가 공백뿐인 문자열이어도(" ", "\n")
+    # 배열 길이 자체는 0이 아니라서 여기를 통과한다. 그 경우는
+    # _generate_analysis_text()가 각 원소를 strip()해 걸러낸다. 스키마와 strip() 둘
+    # 다 필요한 이유가 이것이다(과거 _AiAnalysisText.text의 min_length=1과 같은 이유).
+    points: list[str] = Field(min_length=1, max_length=3)
 
 
 def _serialize_nutrient_items(nutrient_items: dict) -> list[dict]:
@@ -314,38 +317,49 @@ def _generate_analysis_text(client: genai.Client, payload: dict) -> str:
         config=types.GenerateContentConfig(
             system_instruction=_SYSTEM_INSTRUCTION,
             response_mime_type="application/json",
-            response_schema=_AiAnalysisText,
+            response_schema=_AiAnalysisPoints,
         ),
     )
-    parsed = _AiAnalysisText.model_validate_json(response.text)
-    # 스키마의 min_length=1은 ""만 막는다 — " "/"\n" 같은 공백만 있는 값은 길이가
-    # 0이 아니라서 그대로 통과한다. 여기서 잡지 않으면 카드가 빈 문단을 그대로
-    # 보여준다(성공으로 취급돼 except에 걸리지 않으므로 rule_based로도 안 내려간다).
-    # ValueError를 던져 _call_gemini()의 except Exception으로 흘려보낸다 —
-    # get_ai_report_analysis()가 이미 "무엇이 실패하든 rule_based"로 처리하므로
-    # 별도 분기가 필요 없다. 이 경로는 _is_transient_gemini_error()가 아니므로
-    # 재시도 없이 곧장 실패로 처리된다(빈 응답은 네트워크 문제가 아니라 모델이
-    # 실제로 낸 값이라 재시도 대상이 아니다).
-    if not parsed.text.strip():
-        raise ValueError("Gemini가 빈 문자열(또는 공백만 있는 문자열)을 반환했습니다.")
-    return parsed.text
+    parsed = _AiAnalysisPoints.model_validate_json(response.text)
+    # 스키마의 min_length=1(배열)은 빈 배열만 막는다 — 원소가 " "/"\n" 같은 공백뿐이어도
+    # 배열 길이는 0이 아니라서 그대로 통과한다. 여기서 각 원소를 strip()해 빈 것만 골라낸다.
+    points = [p.strip() for p in parsed.points if p.strip()]
+    # 전부 공백이었다면(스키마는 통과했지만 실질적으로 내용이 없는 경우) 카드가 빈
+    # 문단을 그대로 보여준다(성공으로 취급돼 except에 걸리지 않으므로 rule_based로도
+    # 안 내려간다). ValueError를 던져 _call_gemini()의 except Exception으로 흘려보낸다 —
+    # get_ai_report_analysis()가 이미 "무엇이 실패하든 rule_based"로 처리하므로 별도
+    # 분기가 필요 없다. 이 경로는 _is_transient_gemini_error()가 아니므로 재시도 없이
+    # 곧장 실패로 처리된다(빈 응답은 네트워크 문제가 아니라 모델이 실제로 낸 값이라
+    # 재시도 대상이 아니다).
+    if not points:
+        raise ValueError("Gemini가 빈 포인트만 반환했습니다(배열은 있었지만 전부 공백).")
+    # 계약: 이 "\n" 조인은 app/app/report.tsx의 AiSummaryCard.renderResolvedContent()
+    # (gemini 분기)의 text.split("\n")과 짝을 이룬다 — 구분자를 여기서 바꾸면 그쪽도
+    # 같이 바꿔야 한다(그렇지 않으면 화면이 다시 포인트 구분 없이 한 덩어리로 보인다).
+    # points 배열 자체는 이미 Gemini 응답 스키마로 구조화되어 있으므로, 프론트가 하는
+    # 일은 이 구분자로 다시 나누는 것뿐이지 자유 문장을 정규식으로 추측해 자르는 게
+    # 아니다.
+    return "\n".join(points)
 
 
 def _mock_text(period: str) -> str:
     """REPORT_AI_USE_MOCK_GEMINI=true일 때 쓰는 고정 문구. 실제 응답과 같은 모양
-    (4~6문장 안팎, ~해요 어체)을 유지해 이후 경로를 그대로 통과시킨다."""
+    (points 2~3개를 "\\n"으로 조인한 문자열, ~해요 어체)을 유지해 이후 경로를 그대로
+    통과시킨다 — _generate_analysis_text()의 "\\n" 조인 계약과 같은 모양이라야, 이
+    mock 경로로도 프론트(report.tsx)의 포인트별 렌더링을 그대로 검증할 수 있다."""
     if period == "weekly":
-        return (
-            "이번 주 하루 평균 섭취 흐름을 보면 전반적으로 기준 안에서 관리되고 있어요. "
-            "지금처럼 세 끼를 규칙적으로 챙기면서, 부족한 항목이 있다면 관련 식품을 "
-            "조금씩 늘려보는 정도면 충분해요. 지금 시기에 중요한 영양소가 있다면 "
-            "특히 신경 써서 챙겨보세요."
-        )
-    return (
-        "오늘 섭취 흐름을 보면 대체로 기준 안에서 잘 유지하고 있어요. 부족한 항목이 "
-        "있다면 다음 식사에서 관련 식품으로 조금씩 채워보는 것을 추천해요. 지금 시기에 "
-        "중요한 영양소가 있다면 특히 신경 써서 챙겨보세요."
-    )
+        points = [
+            "이번 주 하루 평균 섭취 흐름을 보면 전반적으로 기준 안에서 관리되고 있어요.",
+            "지금처럼 세 끼를 규칙적으로 챙기면서, 부족한 항목이 있다면 관련 식품을 조금씩 늘려보는 정도면 충분해요.",
+            "지금 시기에 중요한 영양소가 있다면 특히 신경 써서 챙겨보세요.",
+        ]
+    else:
+        points = [
+            "오늘 섭취 흐름을 보면 대체로 기준 안에서 잘 유지하고 있어요.",
+            "부족한 항목이 있다면 다음 식사에서 관련 식품으로 조금씩 채워보는 것을 추천해요.",
+            "지금 시기에 중요한 영양소가 있다면 특히 신경 써서 챙겨보세요.",
+        ]
+    return "\n".join(points)
 
 
 # (user_id, period, date_key, fingerprint) -> Gemini 응답 텍스트. 성공한 응답만
@@ -366,7 +380,10 @@ def get_ai_report_analysis(
 ) -> dict:
     """리포트 카드가 펼쳐질 때 호출된다.
 
-    성공: {"source": "gemini", "text": str}
+    성공: {"source": "gemini", "text": str} — text는 여러 포인트를 "\\n"으로 조인한
+    문자열이다(_generate_analysis_text() 참고). app/app/report.tsx가 이 "\\n"을 다시
+    나눠 포인트별로 렌더링하므로, 이 응답 모양(하나의 문자열)과 그 안의 "\\n" 구분자는
+    api-client.ts의 ReportAiAnalysis 타입과 별개로 지켜야 하는 계약이다.
     실패(쿼터 초과/키 없음/네트워크 오류/스키마 불일치 등 무엇이든): 절대 예외를
     올리지 않고 {"source": "rule_based", "messages": rule_messages} — 카드는 이미
     갖고 있던 규칙 기반 문구를 그대로 보여주면 되므로 에러 상태가 없다

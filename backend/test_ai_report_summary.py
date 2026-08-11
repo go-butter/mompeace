@@ -415,31 +415,63 @@ class _FakeGeminiClient:
 class TestGenerateAnalysisTextRejectsBlankText:
     """빈 회귀 가드 — backend/ai_report_summary.py:242 부근에서 발견된 버그:
     Gemini가 스키마상 유효하지만 내용이 비어 있는 text를 돌려주면(""든 공백뿐이든)
-    성공으로 취급돼 카드가 빈 문단을 그대로 보여줬다. 이제는 둘 다 예외를 올려야 한다."""
+    성공으로 취급돼 카드가 빈 문단을 그대로 보여줬다. points 배열로 바뀐 뒤에도 같은
+    가드가 유지되어야 한다 — 배열 자체가 비어 있거나, 원소가 전부 공백뿐이면 예외를
+    올려야 한다."""
 
-    def test_schema_rejects_exact_empty_string(self):
+    def test_schema_rejects_empty_points_array(self):
         from pydantic import ValidationError
 
-        client = _FakeGeminiClient('{"text": ""}')
+        client = _FakeGeminiClient('{"points": []}')
         with pytest.raises(ValidationError):
             ai_summary_module._generate_analysis_text(client, {"period": "daily"})
 
-    def test_strip_check_rejects_whitespace_only_text(self):
-        # 스키마의 min_length=1은 길이가 0이 아니면 통과시킨다 — " "는 길이 1이라
-        # 스키마를 통과하지만, .strip() 체크가 이걸 잡아야 한다.
-        client = _FakeGeminiClient('{"text": "   "}')
+    def test_schema_rejects_more_than_three_points(self):
+        # max_length=3 회귀 가드 — 카드가 무한정 길어지지 않도록 스키마 자체가 막는다.
+        from pydantic import ValidationError
+
+        client = _FakeGeminiClient(
+            '{"points": ["하나.", "둘.", "셋.", "넷."]}'
+        )
+        with pytest.raises(ValidationError):
+            ai_summary_module._generate_analysis_text(client, {"period": "daily"})
+
+    def test_strip_check_rejects_whitespace_only_single_point(self):
+        # 스키마의 min_length=1(배열)은 배열이 비어있지 않으면 통과시킨다 — 원소
+        # 하나가 " "뿐이어도 배열 길이는 1이라 스키마를 통과하지만, strip() 필터가
+        # 이걸 잡아야 한다.
+        client = _FakeGeminiClient('{"points": ["   "]}')
         with pytest.raises(ValueError):
             ai_summary_module._generate_analysis_text(client, {"period": "daily"})
 
-    def test_strip_check_rejects_newline_and_tab_only_text(self):
-        client = _FakeGeminiClient('{"text": "\\n\\t\\n"}')
+    def test_strip_check_rejects_all_blank_points(self):
+        client = _FakeGeminiClient('{"points": ["", "  ", "\\n\\t\\n"]}')
         with pytest.raises(ValueError):
             ai_summary_module._generate_analysis_text(client, {"period": "daily"})
 
-    def test_valid_non_empty_text_still_passes_through_unchanged(self):
-        client = _FakeGeminiClient('{"text": "정상적인 응답입니다."}')
+    def test_strip_check_filters_blank_points_and_keeps_valid_ones(self):
+        # 일부만 공백인 경우 — 공백 원소만 걸러내고 나머지는 살려서 조인한다.
+        client = _FakeGeminiClient('{"points": ["첫 문장.", "   ", "둘째 문장."]}')
+        result = ai_summary_module._generate_analysis_text(client, {"period": "daily"})
+        assert result == "첫 문장.\n둘째 문장."
+
+    def test_valid_single_point_passes_through_unchanged(self):
+        client = _FakeGeminiClient('{"points": ["정상적인 응답입니다."]}')
         result = ai_summary_module._generate_analysis_text(client, {"period": "daily"})
         assert result == "정상적인 응답입니다."
+
+    def test_valid_multi_point_response_joins_with_newline(self):
+        # 계약 회귀 가드: 이 "\n" 조인은 app/app/report.tsx의
+        # AiSummaryCard.renderResolvedContent()가 text.split("\n")으로 다시 나누는
+        # 것과 짝을 이룬다(_generate_analysis_text() 주석 참고) — 이 테스트가 실패하면
+        # 조인 문자가 바뀌었다는 뜻이고, 프론트도 같이 바꾸지 않으면 화면이 다시 포인트
+        # 구분 없는 한 덩어리로 보인다.
+        client = _FakeGeminiClient(
+            '{"points": ["첫 문장.", "둘째 문장.", "셋째 문장."]}'
+        )
+        result = ai_summary_module._generate_analysis_text(client, {"period": "daily"})
+        assert "\n" in result
+        assert result == "첫 문장.\n둘째 문장.\n셋째 문장."
 
 
 class TestBlankTextEndToEndDegradesToRuleBasedAndIsNotCached:
@@ -451,7 +483,7 @@ class TestBlankTextEndToEndDegradesToRuleBasedAndIsNotCached:
     def test_whitespace_only_response_degrades_to_rule_based_end_to_end(self, monkeypatch):
         monkeypatch.setattr(ai_summary_module, "GEMINI_API_KEY", "dummy-key")
         monkeypatch.setattr(
-            ai_summary_module.genai, "Client", lambda api_key: _FakeGeminiClient('{"text": "   "}')
+            ai_summary_module.genai, "Client", lambda api_key: _FakeGeminiClient('{"points": ["   "]}')
         )
 
         result = get_ai_report_analysis(
@@ -460,10 +492,10 @@ class TestBlankTextEndToEndDegradesToRuleBasedAndIsNotCached:
 
         assert result == {"source": "rule_based", "messages": ["규칙 메시지"]}
 
-    def test_empty_string_response_degrades_to_rule_based_end_to_end(self, monkeypatch):
+    def test_empty_points_array_response_degrades_to_rule_based_end_to_end(self, monkeypatch):
         monkeypatch.setattr(ai_summary_module, "GEMINI_API_KEY", "dummy-key")
         monkeypatch.setattr(
-            ai_summary_module.genai, "Client", lambda api_key: _FakeGeminiClient('{"text": ""}')
+            ai_summary_module.genai, "Client", lambda api_key: _FakeGeminiClient('{"points": []}')
         )
 
         result = get_ai_report_analysis(
@@ -478,7 +510,7 @@ class TestBlankTextEndToEndDegradesToRuleBasedAndIsNotCached:
 
         def make_client(api_key):
             call_count["n"] += 1
-            return _FakeGeminiClient('{"text": "   "}')
+            return _FakeGeminiClient('{"points": ["   "]}')
 
         monkeypatch.setattr(ai_summary_module.genai, "Client", make_client)
 
