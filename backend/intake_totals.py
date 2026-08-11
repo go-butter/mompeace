@@ -18,6 +18,7 @@ from backend.nutrition_constants import (
     KCAL_PER_GRAM_FAT,
     NUTRIENT_LABELS_KO,
     NUTRIENT_STATUS_TYPE,
+    PANEL_NUTRIENT_KEYS,
     SATURATED_FAT_ENERGY_RATIO_MAX,
     TRANS_FAT_ENERGY_RATIO_MAX,
     TRIMESTER_ENERGY_ADD_KCAL,
@@ -295,6 +296,117 @@ def build_nutrient_summary_item(
         "status": status,
         "status_label": simplified_status_label(spec["type"], status),
     }
+
+
+## 추천 화면 상단 패널 ────────────────────────────────────────
+# 카페인(항상) + 사용자가 고른 영양소를 한 리스트로 돌려준다. build_nutrient_summary_item과
+# 형제 관계지만 답하는 질문이 다르다: 저쪽은 "오늘 얼마나 먹었나"(total/percent 중심),
+# 이쪽은 "앞으로 얼마나 더 먹어도/먹어야 하나"(remaining 중심)다. 방향은 새로 정의하지
+# 않고 NUTRIENT_SUMMARY_FIELDS의 type을 그대로 읽는다 — NUTRIENT_STATUS_TYPE에는 카페인이
+# 없어서(nutrition_constants.py 상단 주석 참고) 그쪽을 쓰면 카페인만 특례가 되어야 한다.
+
+
+def _band_bounds(key: str, limits: dict) -> tuple[float, float]:
+    """band형 영양소의 (하한, 상한). 새 기준값을 만들지 않고 기존 상수/한도에서 유도한다 —
+    철분은 KDRI 권장량/상한섭취량 상수를 그대로, 지방은 get_fat_status가 쓰는 것과 똑같은
+    식(하루 에너지 목표 * 비율 / 9kcal)을 쓴다."""
+    if key == "iron":
+        return IRON_RECOMMENDED_MG, IRON_UPPER_LIMIT_MG
+    if key == "fat":
+        energy = limits["energy_kcal"]
+        return (
+            energy * limits["fat_ratio_min"] / KCAL_PER_GRAM_FAT,
+            energy * limits["fat_ratio_max"] / KCAL_PER_GRAM_FAT,
+        )
+    raise ValueError(f"band형이 아닌 영양소입니다: {key}")
+
+
+def build_panel_nutrients(selected_keys: list[str], totals: dict, limits: dict) -> list[dict]:
+    """카페인 + selected_keys를 하나의 리스트로. 카페인이 항상 첫 번째다.
+
+    각 항목이 자기 방향을 직접 들고 다니므로 호출부(앱)는 어떤 영양소가 상한형이고
+    어떤 것이 하한형인지 따로 알 필요가 없다:
+    - ceiling: remaining = 남은 허용량, limit 동봉, 0이면 exceeded=True
+    - floor:   remaining = 목표까지 더 필요한 양, target 동봉 (limit이라는 이름을 재사용하지
+               않는다 — 방향이 반대인 값에 같은 이름을 쓰면 읽는 쪽이 반드시 헷갈린다)
+    - band:    remaining=None. 경계가 둘이라 remaining 하나로는 반드시 한쪽을 속이게 된다.
+               대신 lower/upper를 동봉해 화면이 숫자를 그릴 수 있게 한다.
+    exceeded는 ceiling형에만 True가 될 수 있다. 하한 미달은 "초과"가 아니라 status
+    "insufficient"이며, 이 둘을 한 필드로 합치면 방향 구분이 사라진다.
+    """
+    logged_count = totals["logged_count"]
+    keys = ["caffeine"] + [k for k in selected_keys if k != "caffeine"]
+
+    items = []
+    for key in keys:
+        if key not in PANEL_NUTRIENT_KEYS:
+            continue
+        spec = NUTRIENT_SUMMARY_FIELDS[key]
+        projection = DAILY_PROJECTION_NUTRIENTS[key]
+        nutrient_type = spec["type"]
+        value = totals[projection["total_key"]]
+        known_count = totals[projection["known_key"]]
+
+        # "정보 없음"의 두 가지 경로. 어느 쪽이든 0으로 노출하지 않는다.
+        # 1) 오늘 기록은 있는데 이 영양소만 한 번도 확인되지 않음 (_is_data_unresolved).
+        # 2) 오늘 아무것도 기록하지 않음(logged_count == 0) — 단, floor/band에만 해당한다.
+        #    상한형은 정말로 허용량이 통째로 남아 있으므로 그대로 노출하는 게 사실이다.
+        #    반면 "부족하다"는 주장은 데이터가 있어야 할 수 있다. 빈 하루는 부족의
+        #    증거가 아니라 데이터의 부재이고, 아침에 아무것도 안 먹은 사용자에게
+        #    "단백질 부족"이라고 말하는 것은 측정이 아니라 추측이다.
+        #    get_floor_status 자체는 건드리지 않는다 — /intake/summary·리포트·OCR 투영이
+        #    그 계약을 그대로 쓰고 있고, 이건 이 패널의 표시 정책이다.
+        unresolved = _is_data_unresolved(known_count, logged_count)
+        empty_day_guard = logged_count == 0 and nutrient_type in ("floor", "band")
+
+        item = {
+            "key": key,
+            "label": NUTRIENT_LABELS_KO[key],
+            "type": nutrient_type,
+            "unit": projection["unit"],
+        }
+
+        if unresolved or empty_day_guard:
+            item.update({"total": None, "remaining": None, "status": "unknown", "exceeded": False})
+        elif nutrient_type == "ceiling":
+            limit = limits[spec["limit_key"]]
+            remaining = round(max(0.0, limit - value), 2)
+            item.update({
+                "total": round(value, 2),
+                "remaining": remaining,
+                "status": get_status(value, limit, known_count, logged_count),
+                "exceeded": remaining == 0,
+            })
+        elif nutrient_type == "floor":
+            target = limits[spec["limit_key"]]
+            item.update({
+                "total": round(value, 2),
+                "remaining": round(max(0.0, target - value), 2),
+                "status": get_floor_status(value, target, known_count, logged_count),
+                "exceeded": False,
+            })
+        else:  # band
+            item.update({
+                "total": round(value, 2),
+                "remaining": None,
+                "status": spec["judge_fn"](value, known_count, logged_count, limits),
+                "exceeded": False,
+            })
+
+        # 경계값은 방향별로 이름이 다르고, 해당 없는 항목에는 아예 넣지 않는다
+        # (null로 넣으면 "값이 없다"와 "이 방향에는 그런 개념이 없다"가 섞인다).
+        if nutrient_type == "ceiling":
+            item["limit"] = limits[spec["limit_key"]]
+        elif nutrient_type == "floor":
+            item["target"] = limits[spec["limit_key"]]
+        else:
+            lower, upper = _band_bounds(key, limits)
+            item["lower"] = round(lower, 2)
+            item["upper"] = round(upper, 2)
+
+        items.append(item)
+
+    return items
 
 
 _ITEM_NUTRIENT_UNITS = {

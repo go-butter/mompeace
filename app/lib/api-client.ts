@@ -636,7 +636,40 @@ export interface ReportNutrientItems {
   nutrients: NutrientSummaryItem[];
 }
 
-// 응답에는 여기 타입에 없는 블록(totals/limits/percentages/status/chart)도 함께 온다.
+/** chart.items[].nutrients의 값 하나. 카페인 + 사용자가 선택한 최대 3개 영양소(최대 4개)가
+ *  키로 온다 — 어떤 키가 오는지는 요청마다 다르므로 화면은 Object.keys()로 동적으로 읽는다.
+ *  value/pct는 build_nutrient_summary_item()의 NULL 가드를 그대로 물려받는다: 무언가는
+ *  기록됐는데 이 영양소만 확인되지 않았으면 null이다(0이 아니다). pct는 band형(지방/철분)
+ *  이면 데이터가 있어도 항상 null이다 — 단일 퍼센트 개념 자체가 없기 때문이다(하한+상한).
+ *  그 경우에도 status/tier는 실제로 계산된 값이 온다. */
+export interface ReportChartNutrient {
+  label: string;
+  value: number | null;
+  pct: number | null;
+  status: string;
+  tier: string;
+  status_label: string;
+}
+
+/** chart.items[] 한 칸 — 일간은 4개(새벽/오전/오후/저녁), 주간은 7개(월~일)가 항상 온다. */
+export interface ReportChartItem {
+  label: string;
+  /** 주간 항목에만 있다(예: "2026-08-03"). 일간 항목에는 없다. */
+  date?: string;
+  /** 이 항목에 포함된 전체 영양소를 합친 종합 판정(overall_status 어휘). */
+  status: string;
+  tier: string;
+  status_label: string;
+  nutrients: Record<string, ReportChartNutrient>;
+}
+
+export interface ReportChart {
+  type: 'weekday' | 'time_slot';
+  title: string;
+  items: ReportChartItem[];
+}
+
+// 응답에는 여기 타입에 없는 블록(totals/limits/percentages/status)도 함께 온다.
 // comparison은 주간 응답에만 있어 WeeklyReportResponse에서 따로 타입을 붙인다.
 interface ReportResponseBase {
   user_id: number;
@@ -645,6 +678,7 @@ interface ReportResponseBase {
   title: string;
   summary_card: ReportSummaryCard;
   nutrient_items: ReportNutrientItems;
+  chart: ReportChart;
   ai_summary: ReportAiSummary;
 }
 
@@ -685,6 +719,28 @@ export function getReport(
   return get(`/report/${userId}?period=${period}${date ? `&date=${date}` : ''}`);
 }
 
+/** AI 분석 요약 카드가 펼쳐질 때만 호출되는 2단계 설명. source가 'gemini'면 text가,
+ *  'rule_based'면(쿼터 초과/키 없음/호출 실패 등 무엇이든) messages가 온다 — 서버가
+ *  이미 갖고 있던 규칙 기반 문구를 그대로 돌려준 것이라 화면은 절대 에러 상태를
+ *  보여줄 필요가 없다. date는 화면에 그려진 리포트가 실제로 가리키는 날짜를 명시적으로
+ *  넘긴다 — 생략 시 서버의 "오늘"과 화면이 로드된 시점의 데이터가 자정을 넘겨
+ *  어긋날 수 있기 때문이다. */
+export interface ReportAiAnalysis {
+  source: 'gemini' | 'rule_based';
+  // 서버는 source에 맞는 필드 하나만 내려준다(dict 리터럴 반환이라 나머지 키 자체가
+  // 응답에 없다) — 둘 다 optional로 둔다.
+  text?: string;
+  messages?: string[];
+}
+
+export function getReportAiAnalysis(
+  userId: number,
+  period: ReportPeriod,
+  date: string
+): Promise<ReportAiAnalysis> {
+  return post('/report/ai-analysis', { user_id: userId, period, date });
+}
+
 export function createPersonalFoodItem(
   body: UserFoodItemCreateRequest
 ): Promise<UserFoodItemCreateResponse> {
@@ -694,8 +750,9 @@ export function createPersonalFoodItem(
 export interface RecommendationRequest {
   user_id: number;
   query?: string | null;
-  category?: string | null;
+  category?: string | string[] | null;
   limit?: number;
+  sort_nutrient?: string | null;
 }
 
 export interface RecommendationNutrients {
@@ -704,6 +761,32 @@ export interface RecommendationNutrients {
   sodium_mg: number | null;
   carbohydrate_g: number | null;
   protein_g: number | null;
+  fat_g: number | null;
+  iron_mg: number | null;
+  calories_kcal: number | null;
+}
+
+/**
+ * 상단 패널의 영양소 한 개. 방향(type)이 항목 안에 들어 있으므로 화면은 어떤 영양소가
+ * 상한형이고 어떤 것이 하한형인지 따로 알 필요가 없다.
+ * - ceiling: remaining = 남은 허용량, limit 동봉. remaining 0이면 exceeded=true
+ * - floor:   remaining = 목표까지 더 필요한 양, target 동봉 (limit이 아니다)
+ * - band:    remaining = null, lower/upper 동봉 (경계가 둘이라 remaining 하나로 못 줄인다)
+ * remaining/total이 null이면 "정보 없음"이며 0이 아니다.
+ */
+export interface PanelNutrient {
+  key: string;
+  label: string;
+  type: 'ceiling' | 'floor' | 'band';
+  unit: string;
+  total: number | null;
+  remaining: number | null;
+  status: string;
+  exceeded: boolean;
+  limit?: number;
+  target?: number;
+  lower?: number;
+  upper?: number;
 }
 
 export interface RecommendationDataConfidence {
@@ -756,6 +839,9 @@ export interface RecommendationResponse {
   trimester: string;
   today_intake: RecommendationTodayIntake;
   week_pattern: RecommendationWeekPattern;
+  exceeded_nutrients: string[];
+  exceeded_label: string | null;
+  panel_nutrients: PanelNutrient[];
   recommendations: RecommendationItem[];
   message?: string;
 }

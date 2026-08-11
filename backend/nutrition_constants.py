@@ -68,6 +68,12 @@ SELECTABLE_NUTRIENT_KEYS = ("carbohydrate", "sugar", "energy", "fat", "iron", "p
 DEFAULT_SELECTED_NUTRIENTS = ("carbohydrate", "sugar", "sodium")
 MAX_SELECTED_NUTRIENTS = 3
 
+# 추천 화면 상단 패널이 다루는 영양소 = 항상 표시하는 카페인 + 선택형 7개.
+# NUTRIENT_SUMMARY_FIELDS(intake_totals.py)의 키 집합과 정확히 같아야 한다 — 그쪽이
+# 방향(ceiling/floor/band)과 판정 함수를 들고 있고, 이쪽은 "무엇을 보여줄 수 있는가"만
+# 정한다. /recommendations의 sort_nutrient 검증도 이 튜플을 쓴다.
+PANEL_NUTRIENT_KEYS = ("caffeine",) + SELECTABLE_NUTRIENT_KEYS
+
 # app/constants/nutrients.ts의 NUTRIENT_LABELS_KO와 값을 맞춰서 유지한다
 # (두 언어 간 공유 코드젠이 없어 수동 동기화 — 파일 상단 주석 참고).
 NUTRIENT_LABELS_KO = {

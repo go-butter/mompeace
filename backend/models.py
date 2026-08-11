@@ -1,6 +1,8 @@
 from pydantic import BaseModel, field_validator
 from typing import Optional, Union
 
+from backend.nutrition_constants import PANEL_NUTRIENT_KEYS
+
 
 class RegisterRequest(BaseModel):
     nickname: str
@@ -93,6 +95,18 @@ class RecommendationRequest(BaseModel):
     # 빈 리스트는 "카테고리 필터 없음"(전체)이며, None과 같은 의미다.
     category: Optional[Union[str, list[str]]] = None
     limit: int = 10
+    # 화면의 영양소 칩. 정렬 기준일 뿐 후보를 걸러내지는 않는다 — 어떤 칩을 골라도
+    # 목록에서 음식이 사라지지 않아야 한다.
+    sort_nutrient: Optional[str] = None
+
+    @field_validator("sort_nutrient", mode="after")
+    @classmethod
+    def _validate_sort_nutrient(cls, value):
+        if value is None or value == "":
+            return None
+        if value not in PANEL_NUTRIENT_KEYS:
+            raise ValueError("정렬 기준으로 사용할 수 없는 영양소예요.")
+        return value
 
     @field_validator("category", mode="after")
     @classmethod
