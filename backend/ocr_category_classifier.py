@@ -28,7 +28,14 @@ from pydantic import BaseModel, create_model
 
 from backend.gemini_vision import GEMINI_API_KEY, GeminiDailyLimitExceededError
 
-MODEL_NAME = "gemini-2.5-flash"
+# gemini-2.5-flash는 신규 API 키에 더 이상 제공되지 않는다(운영 로그에서 확인된
+# 404: "This model models/gemini-2.5-flash is no longer available to new
+# users") — classify_food()가 "절대 예외를 올리지 않는" 설계(위 모듈 docstring)라
+# 이 404가 조용히 삼켜져 왔을 가능성이 크다. gemini_vision.py가 이미 실제로
+# 성공시키고 있는 모델로 맞춘다 — 이 파일의 GenerateContentConfig도
+# response_mime_type/response_schema만 쓰고 temperature/top_p/top_k/
+# thinking_budget 같은 2.5 전용 파라미터는 쓰지 않으므로 모델명만 바꾸면 된다.
+MODEL_NAME = "gemini-3.6-flash"
 
 # 추출(gemini_vision.py)과는 별개의 하루 호출 상한 — 대체 메뉴는 부가 기능이므로
 # 핵심 기능인 OCR 추출의 호출 상한을 잠식해서는 안 된다.

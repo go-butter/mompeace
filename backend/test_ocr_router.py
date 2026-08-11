@@ -7,14 +7,18 @@ TestClient/실제 HTTP 요청이 아니라 라우터 함수를 직접 호출한�
 conftest.py의 인메모리 DB 격리 원칙과 충돌하므로 그 경로를 피한다.
 
 핵심 검증 대상:
-- user_id가 유효하면(목 Gemini 경로) 응답에 기존 필드(sugar_g/sodium_mg/scale_method/...)와
+- user_id가 유효하면(목 call_gemini_vision) 응답에 기존 필드(sugar_g/sodium_mg/scale_method/...)와
   새 필드(nutrients/nutrient_statuses/total_content_value)가 모두 존재한다 (additive)
 - needs_review=True인 경우 실제 값과 무관하게 7개 nutrient_statuses가 전부 정보없음이다
 - 존재하지 않는 user_id는 404
-- (실제 Gemini 경로, USE_MOCK_GEMINI=False로 monkeypatch) LabelNotDetectedError -> 422,
+- (call_gemini_vision을 직접 monkeypatch) LabelNotDetectedError -> 422,
   GeminiNotConfiguredError -> 503(error_code=OCR_UNAVAILABLE),
   GeminiDailyLimitExceededError -> 429(error_code=DAILY_LIMIT_REACHED),
   기타 예외 -> 502(error_code=GEMINI_CALL_FAILED) — 기존 라벨 미인식 422 경로는 그대로 유지
+
+프로덕션의 OCR_USE_MOCK_GEMINI 목 경로(routers/ocr.py)는 삭제됐다 — /ocr/scan은
+항상 call_gemini_vision()을 호출한다. 이 파일의 테스트는 그 함수 자체를
+monkeypatch해 실제 네트워크 호출 없이 같은 커버리지를 유지한다.
 """
 import pytest
 from fastapi import HTTPException
@@ -36,16 +40,45 @@ from backend.routers.ocr import (
 from .conftest import make_food_log, make_user
 
 
+def _fake_extraction() -> dict:
+    """call_gemini_vision()이 돌려주는 것과 같은 모양의 테스트 전용 고정값.
+
+    옛 프로덕션 목 경로(routers/ocr.py의 _mock_extraction(), OCR_USE_MOCK_GEMINI 삭제와
+    함께 제거됨)와 같은 값을 그대로 옮겨왔다 — 이 파일의 "해피 패스" 테스트들이
+    검증하는 스케일/needs_review 계산이 그 값에 맞춰져 있어(예: 355g 총 내용량,
+    30g 1회 제공량), 값을 바꾸면 그 테스트들의 기대값도 함께 바꿔야 한다.
+    """
+    return {
+        "product_name": "테스트 과자",
+        "nutrition_table_found": True,
+        "reference_amount_display_method": "per_basis_with_total",
+        "basis_amount_value": 100.0,
+        "basis_amount_unit": "g",
+        "total_content_value": 355.0,
+        "total_content_unit": "g",
+        "servings_per_container": None,
+        "serving_size_value": 30.0,
+        "serving_size_unit": "g",
+        "carbohydrate_g_per_basis": 70.0,
+        "sugar_g_per_basis": 12.0,
+        "energy_kcal_per_basis": 450.0,
+        "fat_g_per_basis": 18.0,
+        "iron_mg_per_basis": 1.2,
+        "protein_g_per_basis": 6.0,
+        "sodium_mg_per_basis": 178.0,
+    }
+
+
 @pytest.fixture(autouse=True)
-def force_mock_gemini(monkeypatch):
+def stub_call_gemini_vision(monkeypatch):
     """이 파일의 테스트는 절대 실제 Gemini를 호출하지 않는다.
 
-    USE_MOCK_GEMINI가 소스 상수(True 고정)에서 환경변수(OCR_USE_MOCK_GEMINI, 기본
-    false)로 바뀌면서 "테스트에서는 항상 목"이 더 이상 기본값에 딸려오지 않는다 —
-    여기서 명시적으로 고정한다. 실제 호출 경로를 검증하는 테스트는 각자 다시
-    False로 monkeypatch하며, 같은 monkeypatch 인스턴스라 나중 setattr이 이긴다.
+    /ocr/scan이 이제 항상 call_gemini_vision()을 호출하므로(옛 USE_MOCK_GEMINI
+    분기 삭제), 여기서 고정 데이터로 갈아끼워 기본값을 안전하게 만든다. 실패
+    경로를 검증하는 테스트는 각자 다시 monkeypatch하며, 같은 monkeypatch
+    인스턴스라 나중 setattr이 이긴다.
     """
-    monkeypatch.setattr(ocr_router, "USE_MOCK_GEMINI", True)
+    monkeypatch.setattr(ocr_router, "call_gemini_vision", lambda image: _fake_extraction())
 
 
 def test_scan_happy_path_returns_additive_fields(db):
@@ -138,7 +171,6 @@ def test_scan_needs_review_forces_all_statuses_unknown(db, monkeypatch):
 
 
 def test_scan_label_not_detected_returns_422(db, monkeypatch):
-    monkeypatch.setattr(ocr_router, "USE_MOCK_GEMINI", False)
     monkeypatch.setattr(
         ocr_router,
         "call_gemini_vision",
@@ -154,7 +186,6 @@ def test_scan_label_not_detected_returns_422(db, monkeypatch):
 def test_scan_not_configured_returns_503_with_error_code(db, monkeypatch):
     # 키 미설정은 502(호출 실패)와 구분되어야 한다 — 재촬영으로 해결되지 않는
     # 서버 설정 문제라, 화면이 다른 안내를 보여줄 수 있어야 한다.
-    monkeypatch.setattr(ocr_router, "USE_MOCK_GEMINI", False)
     monkeypatch.setattr(
         ocr_router,
         "call_gemini_vision",
@@ -169,7 +200,6 @@ def test_scan_not_configured_returns_503_with_error_code(db, monkeypatch):
 
 
 def test_scan_daily_limit_exceeded_returns_429_with_error_code(db, monkeypatch):
-    monkeypatch.setattr(ocr_router, "USE_MOCK_GEMINI", False)
     monkeypatch.setattr(
         ocr_router,
         "call_gemini_vision",
@@ -184,7 +214,6 @@ def test_scan_daily_limit_exceeded_returns_429_with_error_code(db, monkeypatch):
 
 
 def test_scan_generic_gemini_failure_returns_502_with_error_code(db, monkeypatch):
-    monkeypatch.setattr(ocr_router, "USE_MOCK_GEMINI", False)
     monkeypatch.setattr(
         ocr_router,
         "call_gemini_vision",
