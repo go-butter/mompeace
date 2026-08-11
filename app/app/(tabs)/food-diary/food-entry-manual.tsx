@@ -697,7 +697,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    flexShrink: 1,
+    width: 88,
   },
   nutrientLabel: {
     fontSize: 12,
