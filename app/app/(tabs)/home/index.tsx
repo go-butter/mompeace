@@ -645,9 +645,16 @@ const styles = StyleSheet.create({
   },
   shortcutCard: {
     flexDirection: 'row',
-    paddingHorizontal: 16,
+    padding: 16,
     marginTop: 20,
     justifyContent: 'space-between',
+    backgroundColor: authColors.white,
+    borderRadius: 24,
+    shadowColor: authColors.pink,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 3,
   },
   shortcutButton: {
     alignItems: 'center',
