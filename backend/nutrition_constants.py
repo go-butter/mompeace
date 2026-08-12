@@ -163,7 +163,7 @@ def validate_selected_nutrients(selected: list[str] | None) -> str | None:
 
     None(미지정)은 그대로 None을 반환한다 — PUT에서는 "값을 바꾸지 않음"으로,
     회원가입에서는 컬럼을 NULL로 남겨 조회 시 DEFAULT_SELECTED_NUTRIENTS로 해석되게 한다.
-    빈 리스트는 유효한 입력(사용자가 4자리를 모두 명시적으로 비움)이며 ""로 저장된다.
+    빈 리스트는 유효한 입력(사용자가 3자리를 모두 명시적으로 비움)이며 ""로 저장된다.
     """
     if selected is None:
         return None

@@ -109,7 +109,7 @@ def update_nutrient_preferences(
     prefs: NutrientPreferenceUpdate,
     db: sqlite3.Connection = Depends(get_db)
 ):
-    """홈 화면 요약에 표시할 선택 영양소 수정 (최대 4개).
+    """홈 화면 요약에 표시할 선택 영양소 수정 (최대 3개).
     selected_nutrients가 None이면 값을 바꾸지 않고 현재 상태를 그대로 반환한다
     (update_pregnancy_info의 부분 업데이트 방식과 동일)."""
 
