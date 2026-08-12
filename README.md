@@ -70,7 +70,7 @@ Gemini는 세 곳에서 쓰입니다. 영양성분표 이미지에서 값을 **�
 **백엔드** — FastAPI · SQLite · Python · bcrypt · google-genai
 **프론트엔드** — React Native (Expo) · expo-router · expo-camera · react-native-reanimated · react-native-svg · expo-media-library · react-native-view-shot
 **외부 서비스** — Gemini (영양성분표 OCR, 카테고리 분류, 리포트 요약)
-**식품 데이터** — 공공데이터포털(data.go.kr)의 식품영양성분 데이터를 오프라인으로 가공해 로컬 DB(`food_items`)로 사용합니다.
+**식품 데이터** — 공공데이터포털(data.go.kr)의 식품영양성분 데이터를 오프라인으로 가공해 로컬 DB(`food_items`)로 사용
 **디자인** — Figma
 
 ## Getting Started
