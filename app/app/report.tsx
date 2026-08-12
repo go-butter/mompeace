@@ -111,8 +111,8 @@ function resolveNutrientDisplay(item: NutrientSummaryItem) {
 }
 
 /** 지난주 대비를 가진 영양소는 카페인/당류/나트륨 셋뿐이다. 나머지(철분·지방 등)는
- *  서버가 아예 비교를 계산하지 않으므로 여기에 없고, 정보 없음으로 표시된다. */
-const COMPARISON_FIELDS: Record<string, keyof Omit<ReportComparison, 'previous_period'>> = {
+ *  서버가 아예 비교를 계산하지 않으므로 여기에 없고, 빈 자리("-")로 그린다. */
+const COMPARISON_FIELDS: Partial<Record<string, keyof Omit<ReportComparison, 'previous_period'>>> = {
   caffeine: 'caffeine_vs_previous_pct',
   sugar: 'sugar_vs_previous_pct',
   sodium: 'sodium_vs_previous_pct',
@@ -127,10 +127,16 @@ const COMPARISON_FIELDS: Record<string, keyof Omit<ReportComparison, 'previous_p
  *  비교 대상에 추가한다면 이 규칙은 뒤집어야 한다. */
 function resolveComparisonDisplay(key: string, comparison: ReportComparison) {
   const field = COMPARISON_FIELDS[key];
-  const delta = field ? comparison[field] : null;
+
+  if (field === undefined) {
+    // 서버가 이 영양소의 비교를 계산하지 않는다. "정보 없음"은 NULL ≠ 0이라는 뜻이라 쓸 수 없다.
+    return { text: '-', color: authColors.gray, textStyle: styles.compareDelta };
+  }
+
+  const delta = comparison[field];
 
   if (delta == null) {
-    // 비교 대상이 아닌 영양소이거나, 지난주에 확인된 값이 없어 서버가 null을 준 경우.
+    // 비교 대상이지만 두 주 중 한쪽이라도 확인된 값이 없어 서버가 null을 준 경우.
     // 0으로 대신 그리면 "지난주와 같았다"는 없는 사실을 만들어내게 된다.
     return { text: '- 정보 없음', color: authColors.gray, textStyle: styles.compareMissing };
   }
