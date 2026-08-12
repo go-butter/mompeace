@@ -301,15 +301,7 @@ def recommend_food(
     today_intake: dict,
     user_adj: Optional[dict] = None,
 ) -> dict:
-    """
-    식품 1개에 대한 추천 결과를 반환한다.
-
-    Returns:
-        status: possible / caution / avoid
-        label: 추천 / 주의 / 비추천 (한국어)
-        reason: 한국어 이유
-        reason_nutrient: caffeine / sugar / sodium / None
-    """
+    """식품 1개에 대한 추천 결과를 반환한다."""
     status = judge_food_rules(food, today_intake, user_adj)
 
     # 안전장치: 판정 결과를 안전 방향으로만 보정

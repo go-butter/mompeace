@@ -29,13 +29,6 @@ def search_food(
     user_id: Optional[int] = None,
     db: sqlite3.Connection = Depends(get_db)
 ):
-    """
-    음식명 검색
-
-    1. (user_id가 주어진 경우) user_food_items에서 개인 기록 먼저 검색
-    2. food_items 테이블의 dish_db_download 카탈로그에서 음식명으로 검색
-    """
-
     if not query or query.strip() == "":
         raise HTTPException(
             status_code=400,
@@ -113,12 +106,7 @@ def search_food(
 
 @router.get("/categories")
 def get_food_categories(db: sqlite3.Connection = Depends(get_db)):
-    """
-    추천 후보로 사용 가능한 식품의 카테고리 목록 (오늘의 추천 화면 필터용)
-
-    신뢰 가능한 출처(dish_db_download)의 food_items에 실제로
-    존재하는 category 값만 반환한다.
-    """
+    """오늘의 추천 화면 카테고리 필터가 쓰는 목록."""
     cursor = db.cursor()
     cursor.execute(
         "SELECT DISTINCT category FROM food_items "

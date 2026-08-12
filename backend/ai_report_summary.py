@@ -427,12 +427,6 @@ def get_ai_report_analysis(
         traceback.print_exc()
         return {"source": "rule_based", "messages": rule_messages}
 
-    # 실패 경로/캐시 히트/mock은 전부 로그를 남기는데 정작 "성공한 실제 호출"만
-    # 아무것도 남기지 않아서, 빈 문자열이 조용히 성공으로 지나가도 로그만 보고는
-    # 알아챌 방법이 없었다(이번 버그의 원인). 길이만 봐도 바로 알 수 있었을
-    # 것이므로 길이 + 앞부분 일부를 남긴다. 여기 도달했다는 것 자체가 이미
-    # _generate_analysis_text()의 빈/공백 검사를 통과했다는 뜻이라 text는 항상
-    # 비어 있지 않다.
     preview = text[:40]
     print(
         f"[ai_report_summary] Gemini 응답 성공 (user_id={user_id}, period={period}, "
