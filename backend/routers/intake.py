@@ -31,12 +31,6 @@ from backend.routers.water_log import fetch_water_summary_for_date
 router = APIRouter()
 
 
-def _get_percent(value, standard):
-    if standard is None or standard <= 0:
-        return 0
-    return round(value / standard * 100, 1)
-
-
 # 집계 컬럼명 → build_nutrient_summary_item()에 넘길 (값, known 개수).
 # 판정 방식/단위/라벨은 intake_totals.NUTRIENT_SUMMARY_FIELDS가 들고 있고, 여기서는
 # 이 엔드포인트의 집계 쿼리 컬럼명만 매핑한다.

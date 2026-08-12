@@ -7,6 +7,7 @@ from backend.database import get_db
 from backend.models import RecommendationRequest
 from backend.recommendation_model import (
     NUTRIENT_TO_FOOD_KEY,
+    STATUS_RANK,
     compute_nutrient_budget,
     format_exceeded_label,
     recommend_food,
@@ -39,7 +40,9 @@ PANEL_NUTRIENT_TO_FOOD_KEY = {
 
 _ALLOWED_SOURCE = "dish_db_download"
 _CANDIDATE_POOL_LIMIT = 500
-_STATUS_TIERS = ("possible", "caution", "avoid")
+# 등급 순서(possible < caution < avoid)는 recommendation_model.STATUS_RANK 하나만
+# 정본으로 두고 여기서는 파생시킨다 — 같은 순서를 두 곳에 적으면 언젠가 어긋난다.
+_STATUS_TIERS = tuple(sorted(STATUS_RANK, key=STATUS_RANK.get))
 
 
 def _build_nutrient_where(budget: dict) -> tuple[list, list]:
@@ -304,7 +307,6 @@ def get_recommendations(
     #     행은 뒤로 보내고 나머지는 하한 기준 내림차순"이지만, 그건 이 저장소에서 유일하게
     #     두 경계로 정렬하는 규칙이 되므로 다시 다룰 때 도입한다.
     # 칩이 있으면 자동 초과 정렬보다 우선한다 — 사용자가 명시적으로 고른 기준이기 때문.
-    STATUS_ORDER = {"possible": 0, "caution": 1, "avoid": 2}
     sort_key = None
     sort_descending = False
     if req.sort_nutrient:
@@ -329,7 +331,7 @@ def get_recommendations(
         return (0, -value if sort_descending else value)
 
     results.sort(key=lambda x: (
-        STATUS_ORDER.get(x["status"], 99),
+        STATUS_RANK.get(x["status"], 99),
         _burden(x),
         -(x["data_confidence"]["score"] or 0)
     ))

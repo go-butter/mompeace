@@ -252,7 +252,7 @@ NUTRIENT_SUMMARY_FIELDS = {
 
 
 def _summary_percent(value, standard):
-    """routers/intake.py의 _get_percent와 같은 규칙(None/0 이하는 0)."""
+    """기준값 대비 백분율. 기준이 None이거나 0 이하면 0을 반환한다."""
     if standard is None or standard <= 0:
         return 0
     return round(value / standard * 100, 1)

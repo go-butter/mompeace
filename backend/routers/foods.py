@@ -5,28 +5,20 @@ from fastapi import APIRouter, HTTPException, Depends
 
 from backend.database import get_db
 from backend.models import UserFoodItemCreate
-from backend.risk import calculate_current_pregnancy_age
 
 router = APIRouter()
 
 
-def _resolve_pregnancy_week(user_id: Optional[int], db: sqlite3.Connection) -> int:
-    """user_id로 사용자를 조회해 pregnancy_entered_at 기준 현재 임신 주차를 계산한다.
-    user_id가 없으면 기본값 20을 반환한다."""
+def _assert_user_exists(user_id: Optional[int], db: sqlite3.Connection) -> None:
+    """user_id가 주어졌으면 users에 실재하는지 확인하고, 없으면 404를 던진다.
+    user_id가 None이면(비로그인 검색) 아무것도 하지 않는다."""
     if user_id is None:
-        return 20
+        return
 
     cursor = db.cursor()
     cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
-    user = cursor.fetchone()
-    if not user:
+    if not cursor.fetchone():
         raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
-
-    user = dict(user)
-    computed_age = calculate_current_pregnancy_age(
-        user.get("pregnancy_week"), user.get("pregnancy_day"), user.get("pregnancy_entered_at")
-    )
-    return computed_age["week"] or 20
 
 
 @router.get("/foods/search")
@@ -52,7 +44,7 @@ def search_food(
 
     # 결과에 위험도 판정을 싣던 시절의 주차 계산은 제거됐지만, 알 수 없는 user_id에
     # 404를 반환하는 검증 동작은 유지한다.
-    _resolve_pregnancy_week(user_id, db)
+    _assert_user_exists(user_id, db)
 
     personal_results = []
     if user_id is not None:
