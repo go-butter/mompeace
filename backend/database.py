@@ -251,7 +251,9 @@ def init_db():
     """)
 
     # food_nutrition_api 소스는 카페인 미제공 API임.
-    # 구 food_repository.py 가 caffeine_mg = 0 으로 잘못 저장한 레코드를 NULL 로 정정.
+    # 폐기된 /foods/search 외부 API 저장 경로가 caffeine_mg = 0 으로 잘못 저장한
+    # 레코드를 NULL 로 정정. 그 경로는 dish_db_download 임포트로 대체됐지만,
+    # 이미 0 이 박힌 기존 설치본의 행은 이 UPDATE 로만 복구된다.
     cursor.execute("""
         UPDATE food_items
         SET caffeine_mg = NULL
