@@ -11,7 +11,7 @@ export default function FoodEntryOcrFailureScreen() {
   const { date } = useLocalSearchParams<{ date: string }>();
 
   const goRetake = () => {
-    router.replace({ pathname: '/(tabs)/food-diary/food-entry-ocr-capture', params: { date } });
+    router.replace({ pathname: '/(tabs)/food-diary/food-entry-ocr-guide', params: { date } });
   };
 
   const goSearch = () => {

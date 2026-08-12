@@ -24,7 +24,7 @@ const HIDDEN_TAB_BAR_ROUTES = new Set([
   'food-entry-search',
   'food-entry-manual',
   'food-entry-coffee',
-  'food-entry-ocr-capture',
+  'food-entry-ocr-guide',
   'food-entry-ocr-confirm',
   'food-entry-ocr-failure',
 ]);
@@ -58,7 +58,7 @@ export default function FoodDiaryLayout() {
       <Stack.Screen name="food-entry-search" />
       <Stack.Screen name="food-entry-manual" />
       <Stack.Screen name="food-entry-coffee" />
-      <Stack.Screen name="food-entry-ocr-capture" />
+      <Stack.Screen name="food-entry-ocr-guide" />
       <Stack.Screen name="food-entry-ocr-confirm" />
       <Stack.Screen name="food-entry-ocr-failure" />
     </Stack>

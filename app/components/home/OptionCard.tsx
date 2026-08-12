@@ -60,7 +60,7 @@ const styles = StyleSheet.create({
   optionLabel: {
     fontFamily: fonts.medium,
     fontSize: 14,
-    color: '#000000',
+    color: authColors.pink,
     textAlign: 'center',
     marginTop: 8,
   },

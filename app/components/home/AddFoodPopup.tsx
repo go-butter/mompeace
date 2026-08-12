@@ -39,7 +39,7 @@ export default function AddFoodPopup({
 
   const goToOcrScan = () => {
     onClose();
-    router.push({ pathname: '/(tabs)/food-diary/food-entry-ocr-capture', params: { date: selectedDate } });
+    router.push({ pathname: '/(tabs)/food-diary/food-entry-ocr-guide', params: { date: selectedDate } });
   };
 
   const d = new Date();
@@ -58,14 +58,14 @@ export default function AddFoodPopup({
         <View style={styles.buttonRow}>
           <OptionCard
             icon={<OcrScanIcon width={31} height={31} color={authColors.pink} />}
-            label={'영양성분표\n스캔'}
+            label="영양성분표 스캔"
             description={'포장식품 라벨\n촬영으로 기록'}
             onPress={goToOcrScan}
           />
           <OptionCard
             icon={<CoffeeIcon width={30} height={30} color={authColors.pink} />}
             label="커피 계산하기"
-            description={'브랜드 메뉴로\n카페인 확인'}
+            description={'브랜드 메뉴·홈메이드\n커피로 카페인 확인'}
             onPress={goToCoffeeCalculator}
           />
         </View>
