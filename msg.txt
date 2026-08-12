@@ -1,1 +1,1 @@
-﻿Remove one-off debug scripts from repo root
+﻿Remove unused endpoints and single-use model

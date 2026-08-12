@@ -4,7 +4,7 @@ from datetime import date
 from fastapi import APIRouter, HTTPException, Depends
 
 from backend.database import get_db
-from backend.models import FoodLogCreate, FoodLogFromFood, FeedbackRequest
+from backend.models import FoodLogCreate, FeedbackRequest
 from backend.nutrition_constants import (
     EXTRA_NUTRIENT_NAME_TO_COLUMN,
     DAILY_CAFFEINE_LIMIT_MG,
@@ -267,79 +267,6 @@ def create_food_log(
     }
 
 
-@router.post("/food-log/from-food")
-def create_food_log_from_food(
-    log: FoodLogFromFood,
-    db: sqlite3.Connection = Depends(get_db)
-):
-    """
-    food_id + amount로 Food Diary에 기록
-
-    food_items에서 food_id로 식품 정보를 조회한 뒤,
-    영양소 값에 amount를 곱해 food_log에 저장한다.
-    """
-
-    cursor = db.cursor()
-
-    # 사용자 존재 확인
-    cursor.execute("SELECT * FROM users WHERE user_id = ?", (log.user_id,))
-    user = cursor.fetchone()
-    if not user:
-        raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
-    user = dict(user)
-
-    # 식품 존재 확인
-    cursor.execute("SELECT * FROM food_items WHERE food_id = ?", (log.food_id,))
-    food = cursor.fetchone()
-    if not food:
-        raise HTTPException(status_code=404, detail="해당 식품 정보를 찾을 수 없습니다.")
-
-    food = dict(food)
-    amount = log.amount
-
-    judged = _judge_food_log_from_food_item(food, amount, user, db)
-    nutrients = judged["nutrients"]
-    recommendation = judged["recommendation"]
-
-    cursor.execute("""
-        INSERT INTO food_log
-        (user_id, food_id, food_name, category, input_type, amount, unit,
-         caffeine_mg, sugar_g, sodium_mg, carbohydrate_g, protein_g,
-         fat_g, cholesterol_mg, iron_mg,
-         recommendation_status, reason_nutrient)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (
-        log.user_id,
-        log.food_id,
-        food["food_name"],
-        food.get("category"),
-        "food_id",
-        amount,
-        log.unit,
-        nutrients["caffeine_mg"],
-        nutrients["sugar_g"],
-        nutrients["sodium_mg"],
-        nutrients["carbohydrate_g"],
-        nutrients["protein_g"],
-        nutrients["fat_g"],
-        nutrients["cholesterol_mg"],
-        nutrients["iron_mg"],
-        recommendation["status"],
-        recommendation["reason_nutrient"],
-    ))
-
-    db.commit()
-
-    return {
-        "log_id": cursor.lastrowid,
-        "food_name": food["food_name"],
-        "amount": amount,
-        "unit": log.unit,
-        "nutrients": nutrients,
-        "message": "음식 기록 완료"
-    }
-
-
 def _fetch_food_log_for_date(user_id: int, target_date: str, db: sqlite3.Connection) -> dict:
     """주어진 날짜에 먹은 음식 목록 조회: Food Diary 전체 보기 화면용"""
 
@@ -514,6 +441,9 @@ def delete_food_log(
     return {"log_id": log_id, "message": "음식 기록이 삭제되었습니다."}
 
 
+# 아직 화면에서 호출하지 않는다 — 피드백 → 민감도 재계산은 2단계(사용자 데이터
+# 기반 개인화) 기능이고, 지금은 1단계 규칙 엔진만 운영 중이기 때문이다.
+# 이후 클라이언트가 연동될 진입점이므로 삭제하지 말 것.
 @router.post("/food-log/{log_id}/feedback")
 def submit_feedback(
     log_id: int,
@@ -541,33 +471,3 @@ def submit_feedback(
     recalculate_sensitivity(req.user_id, db)
 
     return {"log_id": log_id, "feedback": req.feedback, "message": "피드백이 저장되었습니다."}
-
-
-@router.get("/food-log/feedback/summary/{user_id}")
-def get_feedback_summary(
-    user_id: int,
-    db: sqlite3.Connection = Depends(get_db)
-):
-    """사용자 피드백 요약 조회 (재학습 데이터용)"""
-    cursor = db.cursor()
-    cursor.execute(
-        """
-        SELECT log_id, food_name, feedback, risk_level, eaten_at
-        FROM food_log
-        WHERE user_id = ? AND feedback != 0
-        ORDER BY eaten_at DESC
-        """,
-        (user_id,)
-    )
-    rows = [dict(r) for r in cursor.fetchall()]
-
-    helpful     = sum(1 for r in rows if r["feedback"] == 1)
-    not_helpful = sum(1 for r in rows if r["feedback"] == -1)
-
-    return {
-        "user_id": user_id,
-        "total": len(rows),
-        "helpful": helpful,
-        "not_helpful": not_helpful,
-        "records": rows,
-    }

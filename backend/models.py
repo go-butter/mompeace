@@ -62,13 +62,6 @@ class FoodLogCreate(BaseModel):
     serving_multiplier: Optional[float] = None
 
 
-class FoodLogFromFood(BaseModel):
-    user_id: int
-    food_id: int
-    amount: float = 1.0
-    unit: str = "개"
-
-
 class WaterLogCreate(BaseModel):
     user_id: int
     amount_ml: float

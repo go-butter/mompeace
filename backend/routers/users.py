@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from backend.database import get_db
 from backend.models import AccountDeleteRequest, NutrientPreferenceUpdate, PregnancyUpdate
 from backend.nutrition_constants import parse_selected_nutrients, validate_age_bracket, validate_selected_nutrients
-from backend.sensitivity import get_user_adj, recalculate_sensitivity
+from backend.sensitivity import recalculate_sensitivity
 
 router = APIRouter()
 
@@ -141,38 +141,9 @@ def update_nutrient_preferences(
     }
 
 
-@router.get("/users/{user_id}/sensitivity")
-def get_user_sensitivity(
-    user_id: int,
-    db: sqlite3.Connection = Depends(get_db)
-):
-    """사용자의 현재 영양소별 민감도 조정값과 최근 조정 이력을 조회한다."""
-    cursor = db.cursor()
-    cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
-    user = cursor.fetchone()
-    if not user:
-        raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
-    user = dict(user)
-
-    cursor.execute(
-        """
-        SELECT log_id, nutrient, old_adj, new_adj, trigger_reason, created_at
-        FROM user_sensitivity_log
-        WHERE user_id = ?
-        ORDER BY created_at DESC
-        LIMIT 20
-        """,
-        (user_id,),
-    )
-    history = [dict(r) for r in cursor.fetchall()]
-
-    return {
-        "user_id": user_id,
-        "sensitivity_adj": get_user_adj(user),
-        "history": history,
-    }
-
-
+# 현재 호출하는 클라이언트가 없다 — 사용자 데이터 기반 개인화(2단계)에서 연결될
+# 수동 재계산 트리거다. 1단계 규칙 엔진이 우선이라 아직 미연동 상태이며,
+# 삭제하지 말 것.
 @router.post("/users/{user_id}/sensitivity/recalculate")
 def recalculate_user_sensitivity(
     user_id: int,
