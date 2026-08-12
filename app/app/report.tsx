@@ -1,8 +1,10 @@
 import { LinearGradient } from 'expo-linear-gradient';
+import * as MediaLibrary from 'expo-media-library';
 import { router, useFocusEffect } from 'expo-router';
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Image,
   LayoutChangeEvent,
   Pressable,
@@ -21,6 +23,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { captureRef } from 'react-native-view-shot';
 
 import DownIcon from '@/assets/images/common/down.svg';
 import PrevIcon from '@/assets/images/common/prev.svg';
@@ -575,6 +578,14 @@ export default function ReportScreen() {
   const [loading, setLoading] = useState(true);
   const [errorText, setErrorText] = useState<string | null>(null);
   const [infoVisible, setInfoVisible] = useState(false);
+  // 리포트 본문을 통째로 캡처하기 위한 래퍼 ref. 캡처는 즉시 끝나지 않으므로(긴 뷰)
+  // saving 동안 버튼을 스피너로 바꾼다. 저장은 add-only(writeOnly) 권한이면 충분하다 —
+  // saveToLibraryAsync는 앨범을 만들지 않고 사진 앱에 바로 저장하므로 읽기 권한이 없어도 된다.
+  const reportRef = useRef<View>(null);
+  const [saving, setSaving] = useState(false);
+  const [mediaPermission, requestMediaPermission] = MediaLibrary.usePermissions({
+    writeOnly: true,
+  });
   // 일간↔주간을 빠르게 오가면 먼저 보낸 요청이 나중에 도착할 수 있다. 최신 요청 번호와
   // 다른 응답은 성공이든 실패든 버려서, 늦게 온 이전 기간의 값이 화면을 덮지 못하게 한다.
   const seqRef = useRef(0);
@@ -616,6 +627,33 @@ export default function ReportScreen() {
   const showingOtherPeriod = data != null && data.period !== period;
   const nutrients = data?.nutrient_items.nutrients ?? [];
 
+  const handleSaveImage = async () => {
+    if (saving || !reportRef.current) return;
+    setSaving(true);
+    try {
+      // 권한 — OCR 카메라 흐름(food-entry-ocr-guide.tsx)과 같은 패턴: 이미 허용됐으면
+      // 그대로, 아니면 요청하고, 그래도 거부면 안내 후 중단(조용히 실패하지 않는다).
+      const permission = mediaPermission?.granted
+        ? mediaPermission
+        : await requestMediaPermission();
+      if (!permission.granted) {
+        Alert.alert('저장 권한 필요', '사진 앱에 저장하려면 권한이 필요해요');
+        return;
+      }
+
+      // 스크롤로 가려진 부분까지 포함해 리포트 래퍼 전체를 PNG로 캡처한다.
+      const uri = await captureRef(reportRef, { format: 'png', quality: 1 });
+      await MediaLibrary.saveToLibraryAsync(uri);
+
+      Alert.alert('저장 완료', '건강 리포트를 사진 앱에 저장했어요.');
+    } catch {
+      // 권한 외 실패(캡처/저장 오류)도 조용히 넘기지 않는다.
+      Alert.alert('저장 실패', '이미지를 저장하지 못했어요. 잠시 후 다시 시도해 주세요.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <View style={styles.container}>
       <ScrollView
@@ -628,8 +666,22 @@ export default function ReportScreen() {
           <Pressable onPress={() => router.back()} style={styles.prevButton} hitSlop={8}>
             <PrevIcon width={15} height={15} />
           </Pressable>
-          <Text style={styles.title}>건강 리포트</Text>
         </View>
+
+        {/* 캡처 대상 래퍼 — 저장 이미지에 담길 리포트 본문 전체를 감싼다. 위 headerRow
+            (뒤로가기 + 화면 타이틀)는 내비 크롬이라 이 래퍼 밖에 두어 PNG에 담기지
+            않는다. 대신 이미지가 스스로 무엇인지 알 수 있도록 래퍼 맨 위에 제목과
+            기간을 다시 적는다. 아래 자식들의 들여쓰기는 diff를 최소화하려 그대로 뒀다. */}
+        <View ref={reportRef} collapsable={false} style={styles.captureArea}>
+        {data ? (
+          <View style={styles.captureHeader}>
+            <Text style={styles.title}>건강 리포트</Text>
+            <Text style={styles.captureMeta}>
+              {`${data.period === 'daily' ? '일간' : '주간'} · ${data.summary_card.date_range}`}
+            </Text>
+          </View>
+        ) : null}
+
         <Text style={styles.screenSubtitle}>{SCREEN_SUBTITLE}</Text>
 
         {data ? (
@@ -727,7 +779,27 @@ export default function ReportScreen() {
             />
           </View>
         ) : null}
+        </View>
       </ScrollView>
+
+      {/* 저장 버튼 — 캡처 래퍼 밖(ScrollView 형제)이라 버튼/스피너 자체는 PNG에
+          담기지 않는다. top은 headerRow와 같은 높이(insets.top + 7)로 맞춘다.
+          리포트가 그려졌을 때만 노출한다. */}
+      {data ? (
+        <Pressable
+          style={[styles.saveButton, { top: insets.top + 7 }]}
+          onPress={handleSaveImage}
+          disabled={saving}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel="건강 리포트를 이미지로 저장">
+          {saving ? (
+            <ActivityIndicator size="small" color={authColors.pink} />
+          ) : (
+            <Text style={styles.saveButtonText}>이미지로 저장</Text>
+          )}
+        </Pressable>
+      ) : null}
 
       <BottomSheet visible={infoVisible} onClose={() => setInfoVisible(false)}>
         <View
@@ -761,7 +833,48 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
+    // 좌우 여백(19)은 captureArea로 옮겼다 — 캡처 PNG가 카드를 화면 끝까지 붙이지
+    // 않고 여백을 갖도록. 세로 여백(paddingTop/Bottom)은 contentContainerStyle 배열에
+    // 인라인으로 붙는다.
+  },
+
+  // ── 이미지 저장 (캡처 래퍼 + 버튼) ─────────────────────
+  // 화면 배경과 같은 색을 줘서 PNG 배경이 투명해지지 않게 한다(화면상 변화 없음).
+  // paddingHorizontal은 content에서 옮겨온 값 — 화면상 카드 위치는 그대로면서 캡처
+  // 이미지에는 좌우 여백이 생긴다.
+  captureArea: {
+    backgroundColor: '#FEFAF9',
     paddingHorizontal: 19,
+  },
+  // 저장 이미지 맨 위의 제목 블록. 내비 헤더는 캡처에 담기지 않으므로 이미지에는
+  // 이 블록이 유일한 제목이다. 위 headerRow와 시각적으로 붙지 않도록 위 여백을 둔다.
+  captureHeader: {
+    marginTop: 16,
+    marginBottom: 4,
+  },
+  captureMeta: {
+    fontFamily: nanumSquareRound.regular,
+    fontSize: 12,
+    letterSpacing: -0.12,
+    color: authColors.grayDark,
+    marginTop: 4,
+  },
+  saveButton: {
+    position: 'absolute',
+    right: 19,
+    height: 36,
+    minWidth: 96,
+    paddingHorizontal: 14,
+    borderRadius: 18,
+    backgroundColor: authColors.pinkLight,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  saveButtonText: {
+    fontFamily: nanumSquareRound.bold,
+    fontSize: 13,
+    color: authColors.pink,
   },
 
   // ── 헤더 ───────────────────────────────────────────────
@@ -769,6 +882,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+    // content에서 좌우 패딩을 걷어냈으므로 내비 헤더는 자체 패딩으로 원래 위치(x=19)를
+    // 유지한다 — 캡처 래퍼 밖이라 captureArea 패딩의 영향을 받지 않는다.
+    paddingHorizontal: 19,
   },
   prevButton: {
     width: 36,
