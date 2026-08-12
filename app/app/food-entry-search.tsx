@@ -254,7 +254,7 @@ export default function FoodEntrySearchScreen() {
       eaten_at: `${date} ${time}`,
     })
       .then(() => {
-        router.replace('/(tabs)/food-diary');
+        router.dismissTo('/(tabs)/food-diary');
       })
       .catch((err) => {
         setError(err instanceof ApiError ? err.message : (err as Error).message);
@@ -293,7 +293,7 @@ export default function FoodEntrySearchScreen() {
       })
     )
       .then(() => {
-        router.replace('/(tabs)/food-diary');
+        router.dismissTo('/(tabs)/food-diary');
       })
       .catch((err) => {
         setError(err instanceof ApiError ? err.message : (err as Error).message);

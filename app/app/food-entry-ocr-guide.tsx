@@ -85,18 +85,18 @@ export default function FoodEntryOcrGuideScreen() {
 
       const result = await scanNutritionLabel({ image: photo.base64, user_id: user.user_id });
       router.push({
-        pathname: '/(tabs)/food-diary/food-entry-ocr-confirm',
+        pathname: '/food-entry-ocr-confirm',
         params: { date, scan_result: JSON.stringify(result) },
       });
     } catch {
-      router.replace({ pathname: '/(tabs)/food-diary/food-entry-ocr-failure', params: { date } });
+      router.replace({ pathname: '/food-entry-ocr-failure', params: { date } });
     } finally {
       setAnalyzing(false);
     }
   };
 
   const goToManual = () => {
-    router.push({ pathname: '/(tabs)/food-diary/food-entry-manual', params: { date } });
+    router.push({ pathname: '/food-entry-manual', params: { date } });
   };
 
   return (

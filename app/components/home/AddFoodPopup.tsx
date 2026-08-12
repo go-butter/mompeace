@@ -24,22 +24,22 @@ export default function AddFoodPopup({
 
   const goToSearch = () => {
     onClose();
-    router.push({ pathname: '/(tabs)/food-diary/food-entry-search', params: { date: selectedDate } });
+    router.push({ pathname: '/food-entry-search', params: { date: selectedDate } });
   };
 
   const goToManualEntry = () => {
     onClose();
-    router.push({ pathname: '/(tabs)/food-diary/food-entry-manual', params: { date: selectedDate } });
+    router.push({ pathname: '/food-entry-manual', params: { date: selectedDate } });
   };
 
   const goToCoffeeCalculator = () => {
     onClose();
-    router.push({ pathname: '/(tabs)/food-diary/food-entry-coffee', params: { date: selectedDate } });
+    router.push({ pathname: '/food-entry-coffee', params: { date: selectedDate } });
   };
 
   const goToOcrScan = () => {
     onClose();
-    router.push({ pathname: '/(tabs)/food-diary/food-entry-ocr-guide', params: { date: selectedDate } });
+    router.push({ pathname: '/food-entry-ocr-guide', params: { date: selectedDate } });
   };
 
   const d = new Date();

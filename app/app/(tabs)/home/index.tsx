@@ -325,7 +325,7 @@ export default function HomeScreen() {
           subtitle="라벨 촬영 기록"
           onPress={() =>
             router.push({
-              pathname: '/(tabs)/food-diary/food-entry-ocr-guide',
+              pathname: '/food-entry-ocr-guide',
               params: { date: intake.date },
             })
           }

@@ -276,7 +276,7 @@ export default function FoodEntryManualScreen() {
         })
       )
       .then(() => {
-        router.replace('/(tabs)/food-diary');
+        router.dismissTo('/(tabs)/food-diary');
       })
       .catch((err: Error) => {
         if (err.message.startsWith('LOG_FAILED')) {

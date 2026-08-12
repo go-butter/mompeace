@@ -71,7 +71,6 @@ export default function TabLayout() {
       <Tabs.Screen
         name="food-diary"
         options={{
-          popToTopOnBlur: true,
           tabBarLabel: ({ focused }) => <TabLabel focused={focused} label="푸드다이어리" />,
           tabBarIcon: ({ focused }) => (
             <FoodDiaryIcon width={28} height={28} color={focused ? ACTIVE_COLOR : INACTIVE_COLOR} />

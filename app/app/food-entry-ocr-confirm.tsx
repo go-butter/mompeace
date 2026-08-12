@@ -516,7 +516,7 @@ export default function FoodEntryOcrConfirmScreen() {
 
   useEffect(() => {
     if (!scanResult) {
-      router.replace({ pathname: '/(tabs)/food-diary/food-entry-ocr-failure', params: { date: params.date } });
+      router.replace({ pathname: '/food-entry-ocr-failure', params: { date: params.date } });
     }
     // scanResult가 없으면(잘못된 딥링크 등) 캡처 화면의 기존 실패 흐름을 그대로 재사용한다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1029,7 +1029,7 @@ export default function FoodEntryOcrConfirmScreen() {
         .map((r) => ({ name: r.name.trim(), value: r.value.trim() })),
     })
       .then(() => {
-        router.replace('/(tabs)/food-diary');
+        router.dismissTo('/(tabs)/food-diary');
       })
       .catch((err) => {
         const message = err instanceof ApiError ? err.message : (err as Error).message;
@@ -1042,7 +1042,7 @@ export default function FoodEntryOcrConfirmScreen() {
   // 확인 화면이 스택에 쌓이지 않고, 이 화면이 언마운트되면서 모든 OCR state가 폐기된다
   // (전부 scan_result 파라미터로 초기화되는 useState/useRef라 다음 스캔에서 새로 마운트됨).
   const handleRescan = () => {
-    router.replace({ pathname: '/(tabs)/food-diary/food-entry-ocr-guide', params: { date: params.date } });
+    router.replace({ pathname: '/food-entry-ocr-guide', params: { date: params.date } });
   };
 
   // 오늘 섭취 안전도 헤드라인 — 서버가 고른 성분을 그대로 읽는다. 클라이언트는 더 이상

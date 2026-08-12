@@ -11,15 +11,15 @@ export default function FoodEntryOcrFailureScreen() {
   const { date } = useLocalSearchParams<{ date: string }>();
 
   const goRetake = () => {
-    router.replace({ pathname: '/(tabs)/food-diary/food-entry-ocr-guide', params: { date } });
+    router.replace({ pathname: '/food-entry-ocr-guide', params: { date } });
   };
 
   const goSearch = () => {
-    router.replace({ pathname: '/(tabs)/food-diary/food-entry-search', params: { date } });
+    router.replace({ pathname: '/food-entry-search', params: { date } });
   };
 
   const goManual = () => {
-    router.replace({ pathname: '/(tabs)/food-diary/food-entry-manual', params: { date } });
+    router.replace({ pathname: '/food-entry-manual', params: { date } });
   };
 
   return (

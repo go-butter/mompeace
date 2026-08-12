@@ -55,6 +55,12 @@ export default function RootLayout() {
             <Stack.Screen name="report" options={{ headerShown: false }} />
             <Stack.Screen name="privacy-policy" options={{ headerShown: false }} />
             <Stack.Screen name="food-alternatives" options={{ headerShown: false }} />
+            <Stack.Screen name="food-entry-search" options={{ headerShown: false }} />
+            <Stack.Screen name="food-entry-manual" options={{ headerShown: false }} />
+            <Stack.Screen name="food-entry-coffee" options={{ headerShown: false }} />
+            <Stack.Screen name="food-entry-ocr-guide" options={{ headerShown: false }} />
+            <Stack.Screen name="food-entry-ocr-confirm" options={{ headerShown: false }} />
+            <Stack.Screen name="food-entry-ocr-failure" options={{ headerShown: false }} />
             <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
           </Stack>
           <StatusBar style="auto" />
