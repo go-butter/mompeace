@@ -310,6 +310,32 @@ class TestGetReportWeekly:
         assert result["comparison"]["caffeine_vs_previous_pct"] == 25.0  # 50% - 25%
         assert result["comparison"]["sodium_vs_previous_pct"] == 2.1     # 4.3% - 2.2% (limit 2300mg)
 
+    def test_comparison_is_null_only_for_nutrient_unknown_on_every_current_week_row(self, db):
+        # 위 테스트의 이번 주 버전. 이번 주에 기록은 있지만 sugar_g만 모든 행에서
+        # NULL이고, 지난 주에는 값이 확인되는 경우.
+        #
+        # COALESCE(SUM(...), 0) 때문에 이번 주 sugar 평균이 0.0이 되므로, 가드가 없으면
+        # 0% - 20% = -20.0이 되어 화면에 "▼ 20%p"(파란색, 개선)로 그려진다 — 같은 카드가
+        # sugar를 "정보 없음"으로 표시하는 동안. 없는 사실을 만들어내면 안 된다 (NULL ≠ 0).
+        user_id = make_user(db, pregnancy_week=20)
+        for i in range(7):
+            day = 14 + i
+            make_food_log(db, user_id, caffeine_mg=100, sugar_g=None, sodium_mg=100,
+                           eaten_at=f"2030-01-{day:02d} 09:00:00")
+        for i in range(7):
+            day = 7 + i
+            make_food_log(db, user_id, caffeine_mg=50, sugar_g=10, sodium_mg=50,
+                           eaten_at=f"2030-01-{day:02d} 09:00:00")
+
+        result = get_report(user_id=user_id, period="weekly", date="2030-01-14", db=db)
+
+        assert result["percentages"]["sugar"] is None
+        assert result["comparison"]["sugar_vs_previous_pct"] is None
+        # 나머지 두 영양소는 영향을 받지 않는다.
+        assert result["percentages"]["caffeine"] == 50.0
+        assert result["comparison"]["caffeine_vs_previous_pct"] == 25.0  # 50% - 25%
+        assert result["comparison"]["sodium_vs_previous_pct"] == 2.1     # 4.3% - 2.2% (limit 2300mg)
+
 
 class TestGetReportNutrientItems:
     """/intake/summary와 같은 형태로 미리 해석된 nutrient_items 블록."""

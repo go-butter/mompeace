@@ -791,9 +791,14 @@ def get_report(
     sodium_status   = get_status(avg_sodium,   sodium_limit,   known_sodium_count, week_row_count)
     overall_status  = compute_overall_status(caffeine_status, sugar_status, sodium_status)
 
-    caffeine_avg_pct = _get_percent(avg_caffeine, caffeine_limit)
-    sugar_avg_pct    = _get_percent(avg_sugar,    sugar_limit)
-    sodium_avg_pct   = _get_percent(avg_sodium,   sodium_limit)
+    # 이번 주도 아래 지난주 비교와 같은 규칙을 따른다. 기록은 있는데 이 영양소만 전부
+    # NULL이면 집계가 COALESCE(SUM(...), 0) 때문에 avg 0.0이 되므로, 그대로 퍼센트로
+    # 바꾸면 "정보 없음"인 영양소가 0%로 노출된다 (NULL ≠ 0). 판정은 바로 아래 totals
+    # 블록과 같은 _is_data_unresolved()로 한다 — 기록 자체가 없는 주(week_row_count==0)는
+    # 여전히 실제 0%다(build_nutrient_summary_item()과 동일한 원칙).
+    caffeine_avg_pct = None if _is_data_unresolved(known_caffeine_count, week_row_count) else _get_percent(avg_caffeine, caffeine_limit)
+    sugar_avg_pct    = None if _is_data_unresolved(known_sugar_count,    week_row_count) else _get_percent(avg_sugar,    sugar_limit)
+    sodium_avg_pct   = None if _is_data_unresolved(known_sodium_count,   week_row_count) else _get_percent(avg_sodium,   sodium_limit)
 
     # 요일별 정규화 점수 (AI 요약용)
     day_scores = [
@@ -843,6 +848,9 @@ def get_report(
     # nutrient별로 "확인된 값이 하나도 없음"을 따로 판정한다.
     # 지난 주 기록 자체가 없는 경우와, 기록은 있는데 그 nutrient만 전부 NULL인 경우를
     # 모두 포괄한다 (두 경우 다 known_count == 0).
+    # 같은 판정을 이번 주(known_*_count)에도 건다 — 어느 한쪽이라도 확인된 값이 없으면
+    # 뺄 수 있는 두 수가 없는 것이라 비교 자체가 성립하지 않는다. 이번 주만 빠져 있으면
+    # avg 0.0이 0%로 들어가 "지난주보다 좋아졌다"는 없는 사실이 만들어진다.
     prev_known_caffeine_count = sum(d["known"]["caffeine"] for d in prev_week_days)
     prev_known_sugar_count    = sum(d["known"]["sugar"]    for d in prev_week_days)
     prev_known_sodium_count   = sum(d["known"]["sodium"]   for d in prev_week_days)
@@ -854,19 +862,19 @@ def get_report(
     prev_days_with_data = sum(1 for d in prev_week_days if d["log_count"] > 0)
     prev_divisor = prev_days_with_data or 1
 
-    if prev_known_caffeine_count == 0:
+    if known_caffeine_count == 0 or prev_known_caffeine_count == 0:
         caffeine_vs_previous_pct = None
     else:
         prev_avg_caffeine_pct = _get_percent(round(prev_total_caffeine / prev_divisor, 1), caffeine_limit)
         caffeine_vs_previous_pct = round(caffeine_avg_pct - prev_avg_caffeine_pct, 1)
 
-    if prev_known_sugar_count == 0:
+    if known_sugar_count == 0 or prev_known_sugar_count == 0:
         sugar_vs_previous_pct = None
     else:
         prev_avg_sugar_pct = _get_percent(round(prev_total_sugar / prev_divisor, 1), sugar_limit)
         sugar_vs_previous_pct = round(sugar_avg_pct - prev_avg_sugar_pct, 1)
 
-    if prev_known_sodium_count == 0:
+    if known_sodium_count == 0 or prev_known_sodium_count == 0:
         sodium_vs_previous_pct = None
     else:
         prev_avg_sodium_pct = _get_percent(round(prev_total_sodium / prev_divisor, 1), sodium_limit)
