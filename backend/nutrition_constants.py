@@ -193,7 +193,7 @@ def parse_selected_nutrients(raw: str | None) -> list[str]:
 DAILY_WATER_TARGET_ML = 2300.0
 
 TRIMESTER_NOTES = {
-    "early": "임신 초기에는 카페인 섭취량과 알레르기 유발 성분을 특히 꼼꼼히 확인해 주세요.",
+    "early": "임신 초기에는 카페인 섭취량과 하루 영양소 기준을 특히 꼼꼼히 확인해 주세요.",
     "middle": "임신 중기에는 당류 섭취가 누적되지 않도록 확인하고, 카페인 섭취량도 함께 관리해 주세요.",
     "late": "임신 후기에는 나트륨과 당류 섭취가 과도하게 누적되지 않도록 주의해 주세요.",
 }

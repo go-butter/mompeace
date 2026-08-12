@@ -213,7 +213,7 @@ def _fetch_intake_summary_for_date(user_id: int, target_date: str, db: sqlite3.C
 
     if total_caffeine == 0 and total_sugar == 0 and total_sodium == 0:
         summary_title = "아직 기록된 음식이 없어요 :)"
-        messages.append("Food Diary 혹은 바코드 스캔을 통해 음식을 추가해 주세요.")
+        messages.append("Food Diary 혹은 영양성분표 스캔을 통해 음식을 추가해 주세요.")
     else:
         if overall_status == "safe":
             summary_title = "오늘은 아직 기준 이내예요 :)"
@@ -250,7 +250,7 @@ def _fetch_intake_summary_for_date(user_id: int, target_date: str, db: sqlite3.C
             messages.append("나트륨 섭취량이 기준을 넘었어요. 오늘은 짠 음식 섭취를 줄여 주세요.")
 
         if trimester == "early":
-            messages.append("임신 초기에는 카페인과 알레르기 정보를 꼼꼼히 확인해 주세요.")
+            messages.append("임신 초기에는 카페인과 하루 영양소 기준을 꼼꼼히 확인해 주세요.")
         elif trimester == "middle":
             messages.append("임신 중기에는 당류와 카페인 섭취 흐름을 함께 확인해 주세요.")
         else:

@@ -1,1 +1,1 @@
-﻿Remove unused endpoints and single-use model
+﻿fix: 삭제된 기능(바코드/알레르기)을 안내하던 사용자 노출 문구 수정

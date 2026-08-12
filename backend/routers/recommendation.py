@@ -250,7 +250,7 @@ def get_recommendations(
             "exceeded_label": format_exceeded_label(exceeded_nutrients),
             "panel_nutrients": panel_nutrients,
             "recommendations": [],
-            "message": "해당 조건의 식품 데이터가 없습니다. 바코드 스캔 또는 음식 검색으로 데이터를 먼저 추가해 주세요."
+            "message": "해당 조건의 식품 데이터가 없습니다. 영양성분표 스캔이나 음식 검색으로 데이터를 먼저 추가해 주세요."
         }
 
     # 4. 각 식품 추천 판정
