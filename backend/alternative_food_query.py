@@ -1,10 +1,8 @@
 """
 OCR 스캔 품목이 위험(avoid) 판정을 받았을 때, 같은 subcategory 안에서 그 원인이 된
-특정 영양소 기준으로 정렬한 대체 후보를 찾는다.
-
-trigger nutrient 결정과 후보 조회를 분리한 이유: 전자는 순수 함수(nutrient_statuses
-리스트만 있으면 됨)라 라우터/분류 로직과 독립적으로 테스트하기 쉽고, 후자는
-food_items 조회라는 별개의 관심사이기 때문이다.
+특정 영양소 기준으로 정렬한 대체 후보를 찾는다. trigger nutrient 결정은 순수 함수
+(nutrient_statuses 리스트만 있으면 됨)라 라우터/분류 로직과 독립적으로 테스트하기
+쉽고, 후보 조회는 food_items 조회라는 별개의 관심사라 분리해 둔다.
 """
 from __future__ import annotations
 

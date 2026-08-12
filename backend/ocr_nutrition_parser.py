@@ -118,39 +118,17 @@ def compute_total_content_value(
 
 def resolve_ocr_nutrients(extraction: dict) -> dict:
     """
-    Gemini 추출 결과(dict)를 받아 최종 응답을 만든다.
+    Gemini 추출 결과(dict)를 받아 최종 응답을 만든다. 목표 값은 항상 "1회 제공량
+    (official serving) 기준"이다 (이유는 모듈 docstring 참고).
 
-    목표 값은 항상 "1회 제공량(official serving) 기준"이다 — 총 내용량(전체 포장)
-    기준이 아니다. 사용자가 실제로 먹은 인분수/그램은 이후 확인 화면에서 입력받아
-    이 값에 곱해진다 (food_log.py의 serving_multiplier, food_id 경로의 _multiply()와
-    동일한 패턴).
+    Gemini가 스스로 분류한 reference_amount_display_method를 신뢰하되, 그 방식을
+    계산하는 데 필요한 값이 실제로는 빠져 있으면 scale_factor를 None으로 남기고
+    needs_review=True로 둔다 — 라벨을 읽었어도 1회 제공량이 확정되지 않은 경우이기
+    때문. total_value는 scale_factor와 무관하게 계산되므로 이때도 항상 값이 있다.
 
-    Gemini가 스스로 분류한 reference_amount_display_method를 신뢰하되,
-    그 방식을 계산하는 데 필요한 값이 실제로는 빠져 있으면(예: per_basis_with_total로
-    분류했는데 serving_size_value가 없음) scale_factor를 None으로 남긴다 — 라벨을
-    읽었어도 1회 제공량이 실제로는 확정되지 않은 경우이기 때문. 이 경우
-    needs_review=True이고, basis_amount_value는 있을 수 있으므로(예: "100g당") 확인
-    화면에서 그램 직접 입력 대체 흐름을 제공할 수 있다.
-
-    추적 대상 7개 영양소(_NUTRIENT_EXTRACTION_FIELDS) 전부에 대해 basis_value(라벨의
-    기준량당 값)/serving_value(1회 제공량 기준, scale_factor 적용)/total_value(총
-    내용량 기준, compute_total_content_value로 절사)를 계산해 "nutrients" 아래
-    반환한다. total_value는 scale_factor(1회 제공량 스케일)와 무관하게 basis_amount_value/
-    total_content_value만으로 계산되므로 needs_review=True여도 항상 계산된다.
-
-    반환: {product_name, sugar_g, sodium_mg, scale_method, scale_factor_applied,
-           basis_amount_value, basis_amount_unit, total_content_value,
-           total_content_unit, serving_size_unit, needs_review, nutrients}
-    기존 sugar_g/sodium_mg 필드는 nutrients["sugar"/"sodium"]["serving_value"]와
-    동일한 값을 그대로 유지한다 (기존 소비자와의 하위 호환 — additive 변경).
-
-    basis_amount_unit/total_content_unit/serving_size_unit: extraction에 없으면
-    "g"로 기본값을 채운다 — GeminiLabelExtraction 쪽에도 동일한 기본값(Field
-    default="g")이 있지만, 이 함수는 테스트 등에서 raw dict를 직접 받기도 하므로
-    여기서도 방어적으로 채운다. serving_size_value 자체는 스케일 계산에만 쓰이고
-    응답에 노출되지 않는 것과 달리, serving_size_unit은 그대로 반환한다(값 없이
-    단위만 있는 것이 어색해 보일 수 있으나, 상위 계층 전체에 단위 필드를 일관되게
-    통과시킨다는 이번 변경의 목적에 따른 것이다).
+    기존 sugar_g/sodium_mg는 nutrients["sugar"/"sodium"]["serving_value"]와 같은
+    값을 유지하고(기존 소비자와의 하위 호환), 단위 기본값 "g"는 이 함수가 테스트 등
+    에서 raw dict를 직접 받기도 하므로 여기서도 방어적으로 채운다.
     """
     declared_method = extraction.get("reference_amount_display_method")
     if declared_method not in _VALID_METHODS:

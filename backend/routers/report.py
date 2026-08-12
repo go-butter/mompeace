@@ -173,10 +173,8 @@ def _slot_for_hour(hour: int) -> str:
 def _aggregate_day_slots(cursor, user_id: int, date_str: str, keys: list[str]) -> tuple[dict, int]:
     """하루를 4개 시간대(새벽/오전/오후/저녁)로 나눠 keys에 담긴 영양소들의 합계 +
     known 카운트를 집계한다. _aggregate_week()의 일간 버전 — keys를 받는 이유,
-    values/known 중첩 구조인 이유 모두 동일하다.
-
-    반환: (slot_data, row_count). slot_data는 DAY_SLOTS 순서 그대로 삽입되므로
-    (Python dict는 삽입 순서를 보존한다) 호출부가 순서를 다시 정하지 않아도 된다.
+    values/known 중첩 구조인 이유 모두 동일하다. 반환: (slot_data, row_count)이며
+    slot_data는 DAY_SLOTS 순서 그대로라 호출부가 순서를 다시 정하지 않아도 된다.
     """
     columns = [_NUTRIENT_TO_COLUMN[k] for k in keys]
     column_sql = ", ".join(columns)
@@ -352,21 +350,13 @@ def _build_extra_nutrient_report_block(totals: dict, limits: dict, divisor: int)
 def _chart_item_status(nutrients: dict, chart_keys: list[str]) -> str:
     """차트 항목(시간대/요일 버킷) 하나의 종합 status.
 
-    compute_overall_status()는 원래 하루 전체 합계용으로 설계되어 있어, floor형
-    (탄수화물/에너지/단백질)의 "미달"이 의미 있는 신호다 — 하루가 다 지나야 채워지는
-    값이니까. 하지만 버킷 단위에서는 "이 새벽 시간대에 하루치 탄수화물 최소량을 못
-    채웠다"가 사실상 항상 참이라 아무 의미가 없다(mompeace_ocr_design.md §7:
-    "neutral은 경고로 렌더하면 안 됩니다 — 아침에 탄수화물이 부족으로 뜨는 것은
-    의도된 정상 동작"). 그래서 버킷 롤업에는 ceiling/band형만 넣는다 — "이 버킷에서
-    상한을 넘었는가"만 판정하고, floor형의 미달은 nutrients[key] 안에 그대로 남아
-    있으니 화면이 원하면 개별적으로 볼 수 있다.
+    버킷 단위에서는 floor형(탄수화물/에너지/단백질)의 미달이 사실상 항상 참이라
+    아무 의미가 없으므로 ceiling/band형만 롤업한다 — floor형의 미달은 nutrients[key]
+    안에 그대로 남아 있어 화면이 원하면 개별적으로 볼 수 있다.
 
-    ceiling/band형이 하나도 없으면(현재는 카페인이 항상 chart_keys 맨 앞에 있어
-    도달 불가능하지만 방어적으로 대비한다) compute_overall_status()를 빈 인자로
-    호출하지 않는다 — 그 경우 기본값이 "safe"인데, 아무것도 판정하지 않고 "안전"
-    이라고 말하는 것은 과장이다. 대신 "unknown"을 쓴다 — 데이터가 없어서가 아니라
-    판정할 ceiling/band 대상 자체가 없다는 뜻이지만, "정보없음"이 이 상황을 가장
-    정직하게 표현하는 기존 어휘이기 때문이다.
+    ceiling/band형이 하나도 없으면(현재는 도달 불가능하지만 방어적으로 대비한다)
+    "safe"가 아니라 "unknown"을 쓴다 — 아무것도 판정하지 않고 "안전"이라고 말하는
+    것은 과장이기 때문이다.
     """
     rollup_statuses = [
         nutrients[k]["status"] for k in chart_keys
@@ -380,12 +370,9 @@ def _chart_item_status(nutrients: dict, chart_keys: list[str]) -> str:
 def _build_nutrient_items(
     selected_keys: list[str], values: dict, known_counts: dict, logged_count: int, limits: dict
 ) -> dict:
-    """/intake/summary와 같은 형태로 미리 해석된 영양소 블록.
-
-    화면이 키→라벨/단위/색을 스스로 매핑하지 않아도 되도록 label/unit/status_label까지
-    서버가 채운다. 카페인은 항상 포함하고, nutrients는 users.selected_nutrients에
-    저장된 순서를 그대로 따른다. 물은 이 블록에 넣지 않는다(리포트 화면에 없음).
-    """
+    """/intake/summary와 같은 형태로 미리 해석된 영양소 블록. 화면이 키→라벨/단위를
+    스스로 매핑하지 않아도 되도록 서버가 채운다. 카페인은 항상 포함하고 nutrients는
+    users.selected_nutrients 순서를 그대로 따르며, 물은 넣지 않는다(리포트 화면에 없음)."""
     def item(key: str) -> dict:
         return build_nutrient_summary_item(
             key, values[key], limits, known_counts[key], logged_count
@@ -577,9 +564,7 @@ def get_report(
     db: sqlite3.Connection = Depends(get_db)
 ):
     """
-    일간/주간 섭취 리포트.
-    period: "daily" | "weekly"
-    date: YYYY-MM-DD (기본값: 오늘)
+    일간/주간 섭취 리포트 (period: "daily" | "weekly", date 미지정 시 오늘).
     공식 의학 기준 아님.
     """
     cursor = db.cursor()

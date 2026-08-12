@@ -415,13 +415,8 @@ def get_ai_report_analysis(
     try:
         text = _call_gemini(period, nutrient_items, rule_messages, trimester, weekday_pattern)
     except Exception:
-        # 무엇이 실패했든(키 없음/쿼터 초과/네트워크 오류/스키마 불일치/버그) 카드에는
-        # 절대 노출하지 않지만, 서버 로그에는 남긴다 — routers/ocr.py의 502 처리와
-        # 같은 방식(traceback.print_exc())을 따라 이 코드베이스의 에러가 쌓이는 곳에
-        # 그대로 쌓이게 한다. 실패 종류가 특히 헷갈리기 쉬운 두 가지(키 없음/쿼터
-        # 초과)는 메시지 자체에 이미 원인이 적혀 있으므로(RuntimeError,
-        # AiReportSummaryDailyLimitExceededError 생성 시점 참고) 트레이스백만으로도
-        # 원인이 바로 드러난다.
+        # 무엇이 실패했든 카드에는 절대 노출하지 않지만, 서버 로그에는 남긴다
+        # (routers/ocr.py의 502 처리와 같은 방식 — traceback.print_exc()).
         print(f"[ai_report_summary] Gemini 호출 실패 -> rule_based로 대체 (user_id={user_id}, period={period}, date={date_key})")
         import traceback
         traceback.print_exc()

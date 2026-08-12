@@ -28,15 +28,9 @@ class OcrScanRequest(BaseModel):
 @router.post("/ocr/scan")
 def scan_nutrition_label(req: OcrScanRequest, db: sqlite3.Connection = Depends(get_db)):
     """
-    영양성분표 이미지 OCR 인식
-
-    1. Gemini Vision으로 이미지에서 필드 추출 (판정 없음, 추출만)
-    2. 기준량/총 내용량/1회 제공량 스케일 적용
-    3. 추적 대상 7개 영양소에 대해 이 품목 단위 상태(여유/안전/위험/정보없음) 판정
-    4. 결과만 반환 — 저장은 하지 않음 (확정은 확인 화면 → 기존 /food-log POST)
-
-    이미지 바이트는 이 요청 처리 동안만 메모리에 존재하며, 디스크에 쓰거나
-    로그/에러 메시지에 포함하지 않는다.
+    영양성분표 이미지 OCR 인식. 결과만 반환하고 저장은 하지 않는다 (확정은 확인
+    화면 → 기존 /food-log POST). 이미지 바이트는 이 요청 처리 동안만 메모리에
+    존재하며, 디스크에 쓰거나 로그/에러 메시지에 포함하지 않는다.
     """
     cursor = db.cursor()
     cursor.execute("SELECT * FROM users WHERE user_id = ?", (req.user_id,))

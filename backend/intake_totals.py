@@ -208,16 +208,8 @@ def simplified_status_label(nutrient_type: str, status: str) -> str | None:
     """홈 화면 요약 카드용 간소화 라벨 (여유/안전/위험/정보없음 계열).
 
     Food Diary용 status_label()(routers/intake.py, caution="주의")과는 별도의
-    홈 화면 전용 어휘다.
-
-    nutrient_type:
-    - "ceiling": get_status() 결과용 (caffeine/sugar/sodium)
-    - "floor": get_floor_status() 결과용 (carbohydrate/protein/energy/water) — 공식
-      기준이 목표치 하나뿐이라 완충 구간 없는 이진 판정(충분/부족)이다
-    - "band": get_fat_status()/get_iron_status() 결과용 (fat/iron) — safe/caution/avoid는
-      ceiling과 같은 어휘, low(하한 미달)는 floor와 같은 의미이므로 같은 단어("부족")를 재사용한다
-    - "informational": get_informational_status() 결과용 (공식 상한 기준이 없는 영양소) — "info"는
-      판정 자체가 없으므로 라벨 없이 None을 반환한다 (숫자만 표시, 칩 없음). 현재 실제 호출처 없음.
+    홈 화면 전용 어휘다. "informational"의 "info"는 판정 자체가 없으므로 라벨 없이
+    None을 반환한다 (숫자만 표시, 칩 없음). 현재 실제 호출처 없음.
     """
     if nutrient_type == "ceiling":
         return _CEILING_LABELS.get(status, "정보없음")
@@ -605,11 +597,8 @@ def build_daily_projected_statuses(
                 value, IRON_RECOMMENDED_MG, IRON_UPPER_LIMIT_MG, known_count, logged_count
             )
         elif key == "fat":
-            # 분모는 "오늘 누적 에너지"가 아니라 "하루 에너지 목표"다. 기준(15~30%)이
-            # 하루치 총 섭취량에 대한 비율이라, 하루가 끝나지 않은 시점의 누적값을
-            # 분모로 쓰면 아침에 지방 있는 음식 하나만 먹어도 상한을 넘겨버린다.
-            # 목표를 쓰면 그날의 상한이 나트륨 2300mg처럼 고정된 숫자가 된다.
-            # 목표는 항상 1900kcal 이상이므로 여기서 0 방어는 필요 없다.
+            # 분모는 "오늘 누적 에너지"가 아니라 "하루 에너지 목표"다 (이유는
+            # get_fat_status() 참고). 목표는 항상 1900kcal 이상이라 0 방어는 필요 없다.
             limit = limits["energy_kcal"] * limits["fat_ratio_max"] / KCAL_PER_GRAM_FAT
             status = get_fat_status(
                 value, limits["energy_kcal"], limits["fat_ratio_min"], limits["fat_ratio_max"],
@@ -660,18 +649,11 @@ def _headline_ratio(item: dict) -> float:
 
 def select_headline_nutrient(statuses: list[dict], preferred_keys) -> dict | None:
     """안전도 카드가 이름을 내걸 영양소 하나를 고른다. 완전히 결정론적이다 —
-    입력이 같으면 항상 같은 결과가 나온다(무작위 없음). recompute가 타이핑마다
-    디바운스로 재호출되는데 무작위 타이브레이크를 쓰면 글자를 칠 때마다 헤드라인이
-    다른 영양소로 튄다.
+    recompute가 타이핑마다 디바운스로 재호출되므로, 무작위 타이브레이크를 쓰면
+    글자를 칠 때마다 헤드라인이 다른 영양소로 튄다.
 
-    순서:
-    1. 상한형(cap-type)만 후보 — HEADLINE_TIEBREAK_ORDER에 있는 키만 본다.
-       floor형은 애초에 그 튜플에 없고, band형 하한 미달은 tier=="neutral"이라
-       아래 등급 필터에서 걸러진다 (두 겹의 독립적인 방어).
-    2. 가장 나쁜 등급부터: avoid → caution → safe
-    3. 같은 등급 안에서는 사용자가 고른 관심성분 우선
-    4. 그래도 같으면 한도 대비 비율이 높은 쪽
-    5. 그래도 같으면 HEADLINE_TIEBREAK_ORDER의 고정 순서
+    상한형만 후보다: floor형은 애초에 HEADLINE_TIEBREAK_ORDER에 없고, band형 하한
+    미달은 tier=="neutral"이라 등급 필터에서 걸러진다 (두 겹의 독립적인 방어).
     """
     preferred = set(preferred_keys or ())
     candidates = [

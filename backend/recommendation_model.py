@@ -1,14 +1,9 @@
 """
-임신 중 식품 추천 규칙 기반 판정 모듈
+임신 중 식품 추천 규칙 기반 판정 모듈 — 식품 추천 상태(possible/caution/avoid)를
+판정하고 규칙 기반 안전장치를 적용하여 최종 결과를 반환한다.
 
-규칙 기반 로직으로 식품 추천 상태(possible/caution/avoid)를 판정하고
-규칙 기반 안전장치를 적용하여 최종 결과를 반환한다.
-
-주의:
-- 공식 임신 주차별 의학 기준이 아님
-- 카페인 미제공 소스(food_nutrition_api, processed_food_db_download)는
-  caffeine_mg 값에 관계없이 caffeine_mg=0 포함 항상 missing 처리
-- caffeine_mg = None 은 missing 으로 처리 (0으로 변환 금지)
+주의: 공식 임신 주차별 의학 기준이 아니다. caffeine_mg = None 은 missing 으로
+처리하며 0으로 변환하지 않는다 (소스별 missing 판별은 _is_caffeine_missing() 참고).
 """
 from pathlib import Path
 from typing import Optional
@@ -80,12 +75,8 @@ def compute_nutrient_budget(
     user_adj: Optional[dict] = None,
 ) -> dict:
     """오늘 누적 섭취량 기준으로 영양소별 남은 허용량과 이미 초과한 영양소를 계산한다.
-
-    반환: {"limits": {...}, "remaining": {"caffeine": float, ...},
-           "exceeded": ["sodium", "sugar"]}  # EXCEEDED_PRIORITY 순서
-    remaining은 음수가 되지 않는다 — 0은 "더 먹을 여유가 없다"는 뜻이고,
-    얼마나 넘겼는지는 판정이 아니라 표시(정렬/경고)의 문제라 여기서 다루지 않는다.
-    """
+    remaining은 음수가 되지 않는다 — 0은 "더 먹을 여유가 없다"는 뜻이고, 얼마나
+    넘겼는지는 판정이 아니라 표시(정렬/경고)의 문제라 여기서 다루지 않는다."""
     limits = get_effective_limits(user_adj)
     remaining = {
         nutrient: max(0.0, limits[nutrient] - (today_intake.get(key) or 0.0))
@@ -148,7 +139,7 @@ def _is_caffeine_missing(food: dict) -> bool:
     카페인 정보 missing 여부 판단.
 
     카페인 미제공 소스(food_nutrition_api, processed_food_db_download)는
-    caffeine_mg 값에 관계없이 항상 missing 처리.
+    caffeine_mg 값에 관계없이(caffeine_mg=0 포함) 항상 missing 처리.
     dish_db_download 는 caffeine_mg is None 인 경우에만 missing.
     """
     data_source = food.get("data_source") or ""
@@ -159,11 +150,8 @@ def _is_caffeine_missing(food: dict) -> bool:
 
 def _caffeine_tier(food: dict) -> str:
     """식품 분류 기준 카페인 관련성 티어 (backend/caffeine_relevance.py).
-
-    _is_caffeine_missing()과는 서로 다른 질문에 답한다: 저쪽은 "이 행의 카페인 수치를
-    믿고 쓸 수 있는가", 이쪽은 "이 종류의 음식에서 카페인이 애초에 의미가 있는가".
-    두 판정을 함께 써야 "정보 없음"과 "확인된 0"을 구분할 수 있다.
-    """
+    _is_caffeine_missing()과는 서로 다른 질문에 답하며, 두 판정을 함께 써야
+    "정보 없음"과 "확인된 0"을 구분할 수 있다 (대비는 caffeine_relevance.py 상단)."""
     return classify_caffeine_relevance(food.get("category"), food.get("subcategory"))
 
 

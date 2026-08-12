@@ -11,9 +11,9 @@ def calculate_current_pregnancy_age(
     today: Optional[date] = None,
 ) -> dict:
     """
-    entered_week/entered_day(entered_at_str 기준 값)에 entered_at_str부터 today까지의
-    경과일을 더해 "오늘" 기준 임신 주차/일을 계산한다.
-    entered_at_str(앵커 날짜)이 없으면 더할 기준이 없으므로 입력값을 그대로 반환한다.
+    entered_at_str(앵커 날짜)부터 today까지의 경과일을 entered_week/entered_day에
+    더해 "오늘" 기준 임신 주차/일을 계산한다. 앵커가 없으면 더할 기준이 없으므로
+    입력값을 그대로 반환한다.
     """
     if entered_week is None or entered_at_str is None:
         return {"week": entered_week or 0, "day": entered_day or 0}

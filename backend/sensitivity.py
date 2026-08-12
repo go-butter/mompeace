@@ -1,9 +1,7 @@
 """
-사용자별 민감도(허용 기준) 자동 조정 모듈.
-
-caution/avoid 판정에 대해 "도움 안 됨" 피드백이 반복되면 해당 영양소의
-사용자별 기준을 소폭 완화한다. recommendation_model.py 와는 분리된 모듈로,
-계산/저장 책임만 가진다.
+사용자별 민감도(허용 기준) 자동 조정 모듈. caution/avoid 판정에 대해 "도움 안 됨"
+피드백이 반복되면 해당 영양소의 사용자별 기준을 소폭 완화한다.
+recommendation_model.py 와는 분리된 모듈로, 계산/저장 책임만 가진다.
 """
 import sqlite3
 
@@ -32,12 +30,8 @@ def get_user_adj(user_row: dict) -> dict:
 
 
 def recalculate_sensitivity(user_id: int, db: sqlite3.Connection) -> dict:
-    """
-    사용자의 최근 food_log 기록(영양소별)을 살펴보고, caution/avoid 판정에 대한
-    "도움 안 됨" 비율이 TRIGGER_RATIO 이상이면 해당 영양소 기준을 ADJ_STEP만큼
-    완화한다. 변경이 있을 때만 user_sensitivity_log에 기록하고 users 테이블을
-    갱신한다. 최신 조정값 dict를 반환한다.
-    """
+    """변경이 있을 때만 user_sensitivity_log에 기록하고 users 테이블을 갱신한다.
+    최신 조정값 dict를 반환한다."""
     cursor = db.cursor()
     cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
     user_row = cursor.fetchone()

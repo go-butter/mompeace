@@ -83,12 +83,9 @@ _LEADING_NUMBER_RE = re.compile(r"[-+]?\d+(?:\.\d+)?")
 
 def _parse_weight_value(value) -> float | None:
     """
-    영양성분함량기준량/식품중량 전용 파서.
-    "100g", "532ml", "462.60g", "100 ml" 처럼 단위(g/ml)가 붙은 값에서
-    맨 앞의 숫자(소수 포함) 부분만 뽑아 float로 변환한다.
-    숫자 부분이 전혀 없으면 None. (단백질/탄수화물/... 5개 영양소 컬럼에
-    쓰이는 _to_float_or_none()과는 별개 — 그쪽은 순수 숫자 문자열만 다루므로
-    그대로 둔다.)
+    영양성분함량기준량/식품중량 전용 파서. 단위(g/ml)가 붙은 값에서 맨 앞의
+    숫자(소수 포함)만 뽑아 float로 변환하고, 숫자가 전혀 없으면 None.
+    순수 숫자 문자열만 다루는 _to_float_or_none()과는 별개다.
     """
     if value is None:
         return None

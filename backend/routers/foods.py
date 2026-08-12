@@ -123,12 +123,8 @@ def create_personal_food_item(
     item: UserFoodItemCreate,
     db: sqlite3.Connection = Depends(get_db)
 ):
-    """
-    개인 음식 정보 저장 (직접 입력/검색 화면에서 사용)
-
-    동일 사용자가 같은 food_name으로 이미 저장한 적이 있으면 중복 생성하지 않고
-    기존 항목을 그대로 반환한다.
-    """
+    """개인 음식 정보 저장 (직접 입력/검색 화면에서 사용). 동일 사용자가 같은
+    food_name으로 이미 저장한 적이 있으면 중복 생성하지 않고 기존 항목을 반환한다."""
     cursor = db.cursor()
 
     cursor.execute("SELECT * FROM users WHERE user_id = ?", (item.user_id,))

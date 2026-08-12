@@ -327,9 +327,6 @@ def _fetch_intake_summary_for_date(user_id: int, target_date: str, db: sqlite3.C
 
         # 홈 화면(/intake/summary)과 동일한 어휘(simplified_status_label)를 재사용한다 —
         # 같은 상태 코드가 화면마다 다른 단어로 보이면 사용자가 혼란스러워할 수 있다.
-        # overall/caffeine/sugar/sodium/saturated_fat/trans_fat은 get_status()(ceiling)
-        # 결과이고, carbohydrate/protein/energy는 get_floor_status()(floor), fat/iron은
-        # band(get_fat_status()/get_iron_status())다 — NUTRIENT_SUMMARY_FIELDS의 type 매핑과 동일하다.
         "status_label": {
             "overall": simplified_status_label("ceiling", overall_status),
             "caffeine": simplified_status_label("ceiling", caffeine_status),
