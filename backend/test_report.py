@@ -385,9 +385,10 @@ class TestGetReportNutrientItems:
         assert result["totals"]["iron_mg"] == 18.0
         assert iron["total"] == 6.0
 
-    def test_weekly_block_may_disagree_with_flat_status_for_ceiling_types(self, db):
-        # 알려진 불일치의 회귀 가드: 하루 100mg(=50%)씩 7일이면 flat status는 기간
-        # 합계(700mg)를 하루 한도(200mg)와 비교해 avoid가 되지만, 블록은 일평균을 본다.
+    def test_weekly_block_agrees_with_flat_status_for_ceiling_types(self, db):
+        # 회귀 가드: 하루 100mg(=50%)씩 7일이면 flat status와 블록이 똑같이 일평균
+        # (100mg)을 하루 한도(200mg)와 비교해 safe여야 한다. flat 쪽이 기간 합계
+        # (700mg)를 하루 한도와 비교하던 시절에는 여기서 avoid가 나왔다.
         user_id = make_user(db, pregnancy_week=20, selected_nutrients="sugar")
         for i in range(7):
             make_food_log(db, user_id, caffeine_mg=100, sugar_g=0, sodium_mg=0,
@@ -395,8 +396,25 @@ class TestGetReportNutrientItems:
 
         result = get_report(user_id=user_id, period="weekly", date="2030-01-07", db=db)
 
-        assert result["status"]["caffeine_status"] == "avoid"
+        assert result["status"]["caffeine_status"] == "safe"
         assert result["nutrient_items"]["caffeine"]["status"] == "safe"
+        # 합계 노출은 700mg 그대로 — 바뀐 것은 판정 기준뿐이다.
+        assert result["totals"]["caffeine_mg"] == 700.0
+
+    def test_weekly_iron_status_uses_daily_average_not_period_sum(self, db):
+        # 하루 7mg씩 7일 = 합계 49mg. 합계로 판정하면 상한(45mg) 초과라 avoid가 되어
+        # 정작 권장량(24mg)에 한참 못 미치는 사용자가 "과다"로 뒤집힌다.
+        user_id = make_user(db, pregnancy_week=20, selected_nutrients="iron")
+        for day in range(7, 14):
+            make_food_log(db, user_id, caffeine_mg=0, sugar_g=0, sodium_mg=0,
+                           iron_mg=7, eaten_at=f"2030-01-{day:02d} 09:00:00")
+
+        result = get_report(user_id=user_id, period="weekly", date="2030-01-07", db=db)
+
+        by_key = {n["key"]: n for n in result["nutrient_items"]["nutrients"]}
+        assert result["totals"]["iron_mg"] == 49.0
+        assert result["status"]["iron_status"] == "low"      # 일평균 7mg < 권장 24mg
+        assert by_key["iron"]["status"] == "low"
 
     def test_empty_selection_returns_caffeine_only(self, db):
         user_id = make_user(db, pregnancy_week=20, selected_nutrients="")

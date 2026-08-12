@@ -275,6 +275,9 @@ def _build_extra_nutrient_report_block(totals: dict, limits: dict, divisor: int)
     # 분자도 반드시 하루치여야 한다. 기간 합계를 그대로 쓰면 7일치 지방을 하루치
     # 상한과 비교하게 되어 정상적인 한 주가 영구적으로 avoid가 된다.
     avg_fat = round(total_fat / divisor, 1)
+    # 철분도 같은 이유로 일평균이다 — 권장량(24mg)/상한(45mg)이 모두 하루치 기준이라
+    # 기간 합계를 넣으면 오히려 부족한 사용자가 "상한 초과"로 뒤집혀 표시된다.
+    avg_iron = round(total_iron / divisor, 1)
 
     logged_count = totals["logged_count"]
     energy_status = get_floor_status(avg_energy, energy_target, totals["known_energy_count"], logged_count)
@@ -299,7 +302,7 @@ def _build_extra_nutrient_report_block(totals: dict, limits: dict, divisor: int)
         logged_count,
     )
     iron_status = get_iron_status(
-        total_iron, IRON_RECOMMENDED_MG, IRON_UPPER_LIMIT_MG, totals["known_iron_count"], logged_count
+        avg_iron, IRON_RECOMMENDED_MG, IRON_UPPER_LIMIT_MG, totals["known_iron_count"], logged_count
     )
 
     def _exposed(known_count, raw_total):
@@ -382,12 +385,6 @@ def _build_nutrient_items(
     화면이 키→라벨/단위/색을 스스로 매핑하지 않아도 되도록 label/unit/status_label까지
     서버가 채운다. 카페인은 항상 포함하고, nutrients는 users.selected_nutrients에
     저장된 순서를 그대로 따른다. 물은 이 블록에 넣지 않는다(리포트 화면에 없음).
-
-    ── 알려진 불일치 ──
-    주간 리포트에서 이 블록의 status는 flat status.*_status와 다를 수 있다:
-    여기서는 일평균을 판정하지만 flat 쪽의 caffeine/sugar/sodium/iron은 기간 합계를
-    하루치 기준과 비교하기 때문이다. 별도로 정리할 사안이며, 이번 변경에서 기존 flat
-    필드의 값은 건드리지 않는다.
     """
     def item(key: str) -> dict:
         return build_nutrient_summary_item(
@@ -778,11 +775,6 @@ def get_report(
     known_sugar_count    = sum(d["known"]["sugar"]    for d in week_days)
     known_sodium_count   = sum(d["known"]["sodium"]   for d in week_days)
 
-    caffeine_status = get_status(total_caffeine, caffeine_limit, known_caffeine_count, week_row_count)
-    sugar_status    = get_status(total_sugar,    sugar_limit,    known_sugar_count, week_row_count)
-    sodium_status   = get_status(total_sodium,   sodium_limit,   known_sodium_count, week_row_count)
-    overall_status  = compute_overall_status(caffeine_status, sugar_status, sodium_status)
-
     # 일평균 (기록이 있는 날 수 기준. 기록이 아예 없는 주는 0으로 나누지 않도록 1로 대체 -
     # 이 경우 분자도 0이므로 결과는 어차피 0.0)
     days_with_data = sum(1 for d in week_days if d["log_count"] > 0)
@@ -790,6 +782,14 @@ def get_report(
     avg_caffeine = round(total_caffeine / divisor, 1)
     avg_sugar    = round(total_sugar    / divisor, 1)
     avg_sodium   = round(total_sodium   / divisor, 1)
+
+    # 판정 대상은 기간 합계가 아니라 일평균이다 — 한도(200mg/50g/2300mg)가 하루치라
+    # 분자도 하루치여야 한다. 합계를 그대로 쓰면 하루 29mg 수준의 지극히 평범한 한 주도
+    # 영구적으로 avoid가 된다(nutrient_items 블록과 같은 기준을 쓰도록 맞춘 것이다).
+    caffeine_status = get_status(avg_caffeine, caffeine_limit, known_caffeine_count, week_row_count)
+    sugar_status    = get_status(avg_sugar,    sugar_limit,    known_sugar_count, week_row_count)
+    sodium_status   = get_status(avg_sodium,   sodium_limit,   known_sodium_count, week_row_count)
+    overall_status  = compute_overall_status(caffeine_status, sugar_status, sodium_status)
 
     caffeine_avg_pct = _get_percent(avg_caffeine, caffeine_limit)
     sugar_avg_pct    = _get_percent(avg_sugar,    sugar_limit)
@@ -877,8 +877,7 @@ def get_report(
     water_block = _build_water_report_block(user_id, monday, sunday, db)
 
     # 이 블록은 기간 합계가 아니라 일평균을 판정한다 — 하루치 기준(200mg/50g/45mg 등)과
-    # 비교하려면 분자도 하루치여야 한다. 철분은 일평균을 쓰는 곳이 여기뿐이라
-    # avg_iron을 여기서 처음 계산한다.
+    # 비교하려면 분자도 하루치여야 한다.
     avg_iron = round(extra_totals["total_iron"] / divisor, 1)
     nutrient_items = _build_nutrient_items(
         selected_keys,
