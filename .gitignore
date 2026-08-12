@@ -36,6 +36,10 @@ Thumbs.db
 .vscode/
 .idea/
 
+# Data files
+*.xlsx
+*.jsonl
+
 # Claude local files
 .claude/
 backend/scripts/test_real_gemini_scan.py

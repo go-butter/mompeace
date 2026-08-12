@@ -1,1 +1,1 @@
-﻿README 리뉴얼 및 오래된 example 스크린샷 제거
+﻿Remove one-off debug scripts from repo root
