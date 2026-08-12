@@ -161,8 +161,15 @@ def get_recommendations(
     """
     규칙 엔진 기반 임신 중 식품 추천
 
-    오늘 누적 섭취량, 임신 주차별 섭취 기준,
-    카페인 정보 신뢰도 등을 함께 고려해 possible/caution/avoid를 판정한다.
+    판정(possible/caution/avoid)에 실제로 들어가는 것은 오늘 누적 섭취량, 사용자
+    민감도로 스케일한 절대 기준(DAILY_LIMITS — 임신 시기와 무관하게 항상 동일),
+    그리고 카페인 값을 믿을 수 있는지 여부(_is_caffeine_missing + caffeine_relevance
+    티어)뿐이다 — recommend_food() 참고.
+
+    아래에서 계산하는 임신 주차별 기준(panel_limits)과 data_confidence는 판정에
+    쓰이지 않는다: 전자는 상단 패널 표시용이고, 후자는 응답 필드이자 같은 status
+    안에서의 정렬 기준이다.
+
     현재 경로는 ML 모델을 사용하지 않으며, 알고리즘은 변경하지 않는다.
     """
 

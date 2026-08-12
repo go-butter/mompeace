@@ -1,8 +1,8 @@
 """
 카페인 키워드 탐지.
 
-/foods/search와 /recommendations 양쪽에서 caffeine_mg가 없는 식품에 대해
-식품명 기반으로 카페인 함유 가능성을 보조 판단할 때 사용한다.
+recommendation_model.py의 규칙 판정(유일한 소비자)에서 caffeine_mg가 없는 식품에
+대해 식품명 기반으로 카페인 함유 가능성을 보조 판단할 때 사용한다.
 """
 
 CAFFEINE_KEYWORDS = [

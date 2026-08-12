@@ -2,7 +2,7 @@
 Gemini Vision 기반 영양성분표 OCR 추출.
 
 역할은 "이미지 → 구조화된 필드 추출"에 한정된다 (분리의 원칙 — 안전 판정은
-절대 하지 않음, risk.py/recommendation_model.py 규칙 엔진이 전담). 카페인은
+절대 하지 않음, intake_totals.py/recommendation_model.py 규칙 엔진이 전담). 카페인은
 추출 대상에서 완전히 제외한다 (OCR 기능 자체의 범위 밖).
 
 이미지 바이트는 이 모듈 함수 안에서만 잠깐 메모리에 존재하고, 디스크에 쓰거나
