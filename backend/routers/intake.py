@@ -37,11 +37,6 @@ def _get_percent(value, standard):
     return round(value / standard * 100, 1)
 
 
-# 홈 화면 요약(GET /intake/summary)에서 선택 가능한 7개 영양소를 각각 어떤 방식으로
-# 판정할지 정의한다. type은 simplified_status_label()의 nutrient_type과 대응된다.
-# "band"형(fat/iron)은 총 에너지·트라이메스터 한도 등 서로 다른 부가 인자가 필요해
-# judge_fn으로 자신만의 판정 함수를 들고 다닌다 — fat/iron 외의 band형이 늘어나면
-# 이 패턴을 그대로 재사용하면 된다.
 # 집계 컬럼명 → build_nutrient_summary_item()에 넘길 (값, known 개수).
 # 판정 방식/단위/라벨은 intake_totals.NUTRIENT_SUMMARY_FIELDS가 들고 있고, 여기서는
 # 이 엔드포인트의 집계 쿼리 컬럼명만 매핑한다.
@@ -208,7 +203,7 @@ def _fetch_intake_summary_for_date(user_id: int, target_date: str, db: sqlite3.C
     # 뒤덮여버린다 — 각 영양소별 status는 개별 필드로만 노출한다.
     overall_status = compute_overall_status(caffeine_status, sugar_status, sodium_status)
 
-    # 9. Food Diary 하단 분석 메시지 생성
+    # 8. Food Diary 하단 분석 메시지 생성
     messages = []
 
     if total_caffeine == 0 and total_sugar == 0 and total_sodium == 0:
@@ -256,7 +251,7 @@ def _fetch_intake_summary_for_date(user_id: int, target_date: str, db: sqlite3.C
         else:
             messages.append("임신 후기에는 나트륨 섭취가 누적되지 않도록 확인해 주세요.")
 
-    # 10. 프론트 카드용 응답
+    # 9. 프론트 카드용 응답
     return {
         "user_id": user_id,
         "date": target_date,
@@ -340,7 +335,7 @@ def _fetch_intake_summary_for_date(user_id: int, target_date: str, db: sqlite3.C
         # 같은 상태 코드가 화면마다 다른 단어로 보이면 사용자가 혼란스러워할 수 있다.
         # overall/caffeine/sugar/sodium/saturated_fat/trans_fat은 get_status()(ceiling)
         # 결과이고, carbohydrate/protein/energy는 get_floor_status()(floor), fat/iron은
-        # band(get_fat_status()/get_iron_status())다 — _SUMMARY_NUTRIENT_FIELDS의 type 매핑과 동일하다.
+        # band(get_fat_status()/get_iron_status())다 — NUTRIENT_SUMMARY_FIELDS의 type 매핑과 동일하다.
         "status_label": {
             "overall": simplified_status_label("ceiling", overall_status),
             "caffeine": simplified_status_label("ceiling", caffeine_status),

@@ -6,7 +6,8 @@
 
 주의:
 - 공식 임신 주차별 의학 기준이 아님
-- food_nutrition_api 소스는 카페인 미제공 API → caffeine_mg=0 포함 항상 missing 처리
+- 카페인 미제공 소스(food_nutrition_api, processed_food_db_download)는
+  caffeine_mg 값에 관계없이 caffeine_mg=0 포함 항상 missing 처리
 - caffeine_mg = None 은 missing 으로 처리 (0으로 변환 금지)
 """
 from pathlib import Path
@@ -174,7 +175,7 @@ def apply_safety_guard(
     user_adj: Optional[dict] = None,
 ) -> str:
     """
-    ML 예측 결과에 규칙 기반 안전장치를 적용한다.
+    judge_food_rules()의 규칙 판정 결과에 규칙 기반 안전장치를 적용한다.
     안전 방향(avoid/caution)으로만 올릴 수 있으며, 내리지 않는다.
     """
     budget = compute_nutrient_budget(today_intake, user_adj)
@@ -194,7 +195,7 @@ def apply_safety_guard(
     if find_gate_breach(food, budget) is not None:
         return "avoid"
 
-    # 3. 카페인 missing + 음식명 키워드 → at least caution (커피·초코 등)
+    # 2. 카페인 missing + 음식명 키워드 → at least caution (커피·초코 등)
     #    [키워드 규칙 티어 게이트 — make_reason에도 같은 표시의 한 곳이 더 있다.
     #     이 두 곳만 되돌리면 키워드 규칙은 예전처럼 티어와 무관하게 동작한다]
     #    FREE/NOT_MEASURED 식품군에서는 발동하지 않는다. 게이트가 없으면 같은 음식에
@@ -204,12 +205,12 @@ def apply_safety_guard(
     if caffeine_missing and caffeine_keywords and caffeine_tier == TIER_CAFFEINE_POSSIBLE:
         status = _upgrade(status, "caution")
 
-    # 4. 당류 또는 나트륨 missing → at least caution
+    # 3. 당류 또는 나트륨 missing → at least caution
     if food.get("sugar_g") is None or food.get("sodium_mg") is None:
         status = _upgrade(status, "caution")
 
-    # 5. 카페인 정보 없음 + 카페인이 들어갈 수 있는 식품군 → at least caution
-    #    4번(당류·나트륨 missing)과 같은 취지의 규칙이다. 카페인만 이 보호가 없어서
+    # 4. 카페인 정보 없음 + 카페인이 들어갈 수 있는 식품군 → at least caution
+    #    3번(당류·나트륨 missing)과 같은 취지의 규칙이다. 카페인만 이 보호가 없어서
     #    NULL이 조용히 0으로 계산돼 왔고, 그 결과 "확인된 0"과 "정보 없음"이 출력에서
     #    구분되지 않았다 (실측 기준 possible 판정의 84%가 카페인 미측정 상태였다).
     #    raw None이 아니라 _is_caffeine_missing()으로 판단한다 — 카페인 미제공 소스의
